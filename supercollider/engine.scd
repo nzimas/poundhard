@@ -78,6 +78,23 @@
 	~fxGroup = Array.fill(~nTracks, { Group.tail(~gFx) });
 	~nTracks.do { |t| Synth.tail(~gSend, \phSend, [\in, ~trackBus[t].index, \out, ~masterBus.index]) };
 	~masterSynth = Synth(\phMaster, [\in, ~masterBus.index, \out, 0, \gain, 1.0], ~gMaster);
+	~recGroup = Group.after(~gMaster);   // performance recorder taps bus 0 AFTER the master
+};
+
+// ---- performance recording (master output -> stereo WAV via DiskOut) ----
+~recBuf = nil; ~recSynth = nil;
+~recStop = {
+	~recSynth.notNil.if { ~recSynth.free; ~recSynth = nil };       // stop writing first
+	~recBuf.notNil.if { ~recBuf.close; ~recBuf.free; ~recBuf = nil };   // close finalizes the WAV header
+};
+~recStart = { |path|
+	~recStop.value;
+	~recBuf = Buffer.alloc(s, 65536, 2);
+	~recSynth = Synth.basicNew(\phRec, s);
+	// open the file (leaveOpen -> cue for DiskOut streaming); start the recorder synth
+	// ONLY once the write is set up, via the write's completion message.
+	~recBuf.write(path, "wav", "int24", 0, 0, true,
+		~recSynth.newMsg(~recGroup, [\buf, ~recBuf], \addToTail));
 };
 
 // (re)build a track's FX chain: free existing, recreate assigned FX in canonical
@@ -254,6 +271,8 @@
 		~masterSynth.notNil.if { ~masterSynth.set(\cutoff, m[1].asFloat, \res, m[2].asFloat) };
 	}, '/ph/masterfilter'),
 	OSCdef(\phPanic, { |m| ~stopSeq.value; ~gVoices.notNil.if { ~gVoices.freeAll }; ~trackVoices.do { |l| l.clear }; }, '/ph/panic'),
+	OSCdef(\phRecStart, { |m| ~recStart.value(m[1].asString); }, '/ph/recstart'),
+	OSCdef(\phRecStop,  { |m| ~recStop.value; }, '/ph/recstop'),
 	OSCdef(\phPing, { |m| ~ready.if { ~ctrl.sendMsg("/ph/ready") }; }, '/ph/ping'),
 ];
 

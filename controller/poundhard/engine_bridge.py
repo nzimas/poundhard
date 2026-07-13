@@ -127,6 +127,8 @@ class EngineBridge:
             flat += [str(arg), float(val)]
         self.send("/ph/stepmacro", int(t), int(cell), *flat)
     def clearlocks(self, t):           self.send("/ph/clearlocks", int(t))
+    def recstart(self, path):          self.send("/ph/recstart", str(path))
+    def recstop(self):                 self.send("/ph/recstop")
     def fxassign(self, t, fx, on):     self.send("/ph/fxassign", int(t), int(fx), 1 if on else 0)
     def fxbypass(self, t, on):         self.send("/ph/fxbypass", int(t), 1 if on else 0)
     def fxset(self, fx, arg, val):     self.send("/ph/fxset", int(fx), str(arg), float(val))

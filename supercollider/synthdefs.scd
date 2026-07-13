@@ -266,6 +266,10 @@
 	// per-track send: track bus -> master bus (summed)
 	SynthDef(\phSend, { |in = 16, out = 16| Out.ar(out, In.ar(in, 2)) }).add;
 
+	// RECORDER: stream the FINAL master output (hardware bus 0, post-limiter) to a
+	// stereo WAV via DiskOut. Runs after the master node so it captures what's heard.
+	SynthDef(\phRec, { |buf = 0| DiskOut.ar(buf, In.ar(0, 2)) }).add;
+
 	// ---- OVERDRIVE: tilt EQ + tanh soft-clip (stereo) ----
 	SynthDef(\phOverdrive, { |out = 0, in = 0, drive = 4, tone = 0, amp = 0.8, pan = 0, bypass = 0, wet = 0.5, enable = 1|
 		var dry = In.ar(in, 2), y;

@@ -38,6 +38,10 @@ CONTROL_FILE = SHARE / "control.json"
 STATUS_FILE = SHARE / "status.json"
 PROJECT_FILE = SHARE / "project.json"
 PROJECTS_DIR = Path(_env("PH_PROJECTS", "/data/UserData/poundhard/projects"))
+RECORDINGS_DIR = Path(_env("PH_RECORDINGS", "/data/UserData/poundhard/recordings"))
+WEB_PORT = int(_env("PH_WEB_PORT", "7177"))        # http://move.local:7177 (download recordings)
+N_RECORDINGS = 8                                   # recording slots
+REC_MAX_SEC = 420.0                                # hard cap: 7 minutes per recording
 CONTROL_HZ = float(_env("PH_CONTROL_HZ", "30"))    # control.json poll rate
 SNAP_HZ = float(_env("PH_SNAPSHOT_HZ", "5"))       # status.json write rate (lower = less SD I/O)
 
@@ -56,12 +60,23 @@ class Controller:
         self._lock = threading.Lock()          # serialize state mutations (dispatch vs bar-cycle)
         self.bridge.on_cycle = self._on_cycle  # apply a queued pattern switch on the bar boundary
         self._proj_slots = [False] * N_PATTERNS  # which project files exist on disk (cached)
+        # performance recording
+        self._rec_state = "idle"                 # idle | armed | recording
+        self._rec_slot = -1                      # armed / recording slot
+        self._rec_start = 0.0                    # monotonic start time
+        self._rec_timer: threading.Timer | None = None
+        self._rec_slots = [False] * N_RECORDINGS # which slots have a .wav on disk
 
     # -- lifecycle --------------------------------------------------------- #
     def start(self) -> None:
         SHARE.mkdir(parents=True, exist_ok=True)
         PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+        RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
         self._proj_slots = [(PROJECTS_DIR / f"proj_{s:02d}.json").exists() for s in range(N_PATTERNS)]
+        self._scan_recordings()
+        # web UI (download recordings) — daemon thread, survives on its own
+        from . import webserver
+        webserver.serve(WEB_PORT, RECORDINGS_DIR, N_RECORDINGS)
         # Fresh session: a curated kit loaded, empty patterns, stopped.
         self.state.new_kit()
         self.bridge.start(on_ready=self._on_ready)
@@ -166,6 +181,60 @@ class Controller:
         self.state.pattern_pending = -1
         self.state.project_from_dict(d)
         self._push_all()
+
+    # -- performance recording --------------------------------------------- #
+    def _rec_path(self, slot: int) -> Path:
+        return RECORDINGS_DIR / f"rec_{slot:02d}.wav"
+
+    def _scan_recordings(self) -> None:
+        self._rec_slots = [self._rec_path(s).exists() for s in range(N_RECORDINGS)]
+
+    def _rec_begin(self, slot: int) -> None:
+        """Actually start the DiskOut recording on `slot` (engine already running)."""
+        self.bridge.recstart(self._rec_path(slot))
+        self._rec_state = "recording"
+        self._rec_slot = slot
+        self._rec_start = time.monotonic()
+        self._rec_slots[slot] = True
+        if self._rec_timer:
+            self._rec_timer.cancel()
+        self._rec_timer = threading.Timer(REC_MAX_SEC, self._rec_timeout, args=(slot,))
+        self._rec_timer.daemon = True
+        self._rec_timer.start()
+
+    def _rec_finish(self) -> None:
+        """Stop the current recording and finalize its file."""
+        if self._rec_timer:
+            self._rec_timer.cancel()
+            self._rec_timer = None
+        self.bridge.recstop()
+        if 0 <= self._rec_slot < N_RECORDINGS:
+            self._rec_slots[self._rec_slot] = True
+        self._rec_state = "idle"
+        self._rec_slot = -1
+
+    def _rec_arm(self, slot: int) -> None:
+        """Press on `slot`: start now if playing, else arm for the next Play."""
+        if self.state.running:
+            self._rec_begin(slot)
+        else:
+            self._rec_state = "armed"
+            self._rec_slot = slot
+
+    def _rec_pad(self, slot: int) -> None:
+        if self._rec_state == "recording":
+            if slot == self._rec_slot:
+                self._rec_finish()             # tap the recording pad -> stop
+            else:
+                self._rec_finish()             # switch to a different slot
+                self._rec_arm(slot)
+        else:
+            self._rec_arm(slot)
+
+    def _rec_timeout(self, slot: int) -> None:
+        with self._lock:
+            if self._rec_state == "recording" and self._rec_slot == slot:
+                self._rec_finish()
         self.bridge.run(self.state.running)
 
     def _push_voices(self) -> None:
@@ -298,6 +367,11 @@ class Controller:
         elif cmd == "run":
             st.running = bool(int(arg))
             self.bridge.run(st.running)
+            # transport bounds a recording: armed + Play -> start; recording + Stop -> finish
+            if st.running and self._rec_state == "armed":
+                self._rec_begin(self._rec_slot)
+            elif (not st.running) and self._rec_state == "recording":
+                self._rec_finish()
         elif cmd == "note":
             t = int(p.get("track", -1)); n = int(p.get("note", 40))
             if 0 <= t < N_TRACKS:
@@ -342,6 +416,10 @@ class Controller:
             slot = int(arg)
             if 0 <= slot < N_PATTERNS:
                 self._load_project_file(slot)
+        elif cmd == "recpad":                  # recorder view: press a slot pad
+            slot = int(arg)
+            if 0 <= slot < N_RECORDINGS:
+                self._rec_pad(slot)
         elif cmd == "panic":
             self.bridge.panic()
 
@@ -376,6 +454,12 @@ class Controller:
             "patCur": st.pattern_cur,
             "patPending": st.pattern_pending,
             "projFilled": list(self._proj_slots),
+            # performance recorder
+            "recSlots": list(self._rec_slots),
+            "recSlot": self._rec_slot,
+            "recState": self._rec_state,
+            "recElapsed": int(time.monotonic() - self._rec_start) if self._rec_state == "recording" else 0,
+            "webPort": WEB_PORT,
             "drumTracks": DRUM_TRACKS,
             "tracks": tracks,
             "types": [tr.type for tr in st.tracks],

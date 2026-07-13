@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="web/poundhard-logo.svg" alt="PoundHard" width="560">
+</p>
+
 # PoundHard
 
 **A 16-track groovebox takeover for the Ableton Move** — built for edgy IDM,
@@ -36,8 +40,10 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   - [FX view](#fx-view)
   - [Pattern view](#pattern-view)
   - [Project view](#project-view)
+  - [Recorder view](#recorder-view)
 - [Kits](#kits)
 - [Patterns & projects](#patterns--projects)
+- [Recording & the web UI](#recording--the-web-ui)
 - [Deploy to the Move](#deploy-to-the-move)
 - [Develop off-device](#develop-off-device)
 - [Architecture & internals](#architecture--internals)
@@ -108,6 +114,7 @@ everywhere.
 | **Step button — long-press** | open that track in the [Edit view](#edit-view-per-track) |
 | **Track 2 button** | open the [FX view](#fx-view) |
 | **Track 3 button** | open the [Pattern view](#pattern-view) |
+| **Shift + Track 3 button** | open the [Recorder view](#recorder-view) |
 | **Menu button** | open the [Project view](#project-view) |
 | **Shift + Track 1** | randomize the **selected** track's sound |
 | **Shift + hold master-volume knob + Track 1** | randomize the whole 16-track kit |
@@ -181,6 +188,22 @@ which persist to disk.
 
 Saved projects are blue; empty slots are dim. Projects survive power cycles.
 
+### Recorder view
+
+**Shift + Track 3** opens the recorder — the first 8 pads are **8 recording slots**
+that capture the master output to **stereo WAV** (up to **7 minutes** each).
+
+| Control | Action |
+|---|---|
+| **Pad — tap** | if the sequencer is playing, start recording that slot immediately; if stopped, **arm** it |
+| **Play** (when armed) | begin the armed recording |
+| **Pad — tap the recording slot**, or **Play** | stop the recording |
+
+Slot colours: dark-grey = empty, green = holds a take, blinking amber = armed
+(waiting for Play), pulsing red = recording. The screen shows a giant `M:SS`
+counter while recording. See [Recording & the web UI](#recording--the-web-ui) for
+downloads.
+
 ---
 
 ## Kits
@@ -212,6 +235,19 @@ Patterns, mutes and per-step locks survive kit regeneration.
 The queued pattern switch is bar-accurate: the engine fires `/ph/cycle` on the
 last step of each fixed 16-step bar, and the controller applies the pending
 pattern's groove right before the downbeat.
+
+---
+
+## Recording & the web UI
+
+The [recorder view](#recorder-view) captures the master output (post-limiter, what
+you hear) to **stereo 24-bit WAV** via a `DiskOut` synth in the engine, capped at
+**7 minutes** per take, into `/data/UserData/poundhard/recordings/`.
+
+The controller runs a small **web UI** at **`http://move.local:7177`** where every
+recording can be previewed and downloaded. The address is deliberately a general
+PoundHard endpoint — more functions will live there over time. The port is
+configurable via the `PH_WEB_PORT` environment variable.
 
 ---
 
@@ -309,8 +345,8 @@ A `cmds` queue de-duped by `seq` (a single-slot mailbox lost commands when the U
 wrote twice between polls). Commands include: `genkit`, `randtrack`, `mute`,
 `editenter` / `editexit`, `stepset`, `steplock`, `stepmacro`, `setlen`,
 `trackset`, `voicemacro`, `fxassign` / `fxbypass` / `fxmacro`, `run`, `note`,
-`savepat` / `loadpat`, `saveproj` / `loadproj`, `panic`. `tempo` is a continuous
-field applied on change.
+`savepat` / `loadpat`, `saveproj` / `loadproj`, `recpad`, `panic`. `tempo` is a
+continuous field applied on change.
 
 ### status.json (controller → ui.js)
 
@@ -327,8 +363,8 @@ patCur / patPending / projFilled`).
 2=BUCHLOID 3=MOLLY 4=RINGS) · `/ph/param t "name" val` · `/ph/pattern` ·
 `/ph/stepset` · `/ph/steplock` · `/ph/stepmacro` · `/ph/clearlocks` · `/ph/mute` ·
 `/ph/note` · `/ph/vel` · `/ph/length` · `/ph/rate` · `/ph/edittrack` ·
-`/ph/fxassign` · `/ph/fxbypass` · `/ph/fxset` · `/ph/mastergain` ·
-`/ph/masterfilter` · `/ph/panic` · `/ph/ping`.
+`/ph/fxassign` · `/ph/fxbypass` · `/ph/fxset` · `/ph/recstart "path"` ·
+`/ph/recstop` · `/ph/mastergain` · `/ph/masterfilter` · `/ph/panic` · `/ph/ping`.
 
 ### Telemetry (engine → controller, port 57140)
 
@@ -340,12 +376,16 @@ patCur / patPending / projFilled`).
 ## Repository layout
 
 ```
-controller/poundhard/   catalog.py  kits.py  tracks.py  engine_bridge.py  headless.py  params.py
+controller/poundhard/   catalog.py  kits.py  tracks.py  engine_bridge.py  headless.py  webserver.py  params.py
 controller/vendor/      pythonosc (vendored — no pip on the device)
 supercollider/          boot.scd  engine.scd  synthdefs.scd
 move/                   run-*.sh  stop-stack.sh  deploy*.sh  sc/ph-boot.scd
 move/schwung-module/poundhard/   module.json  ui.js  exit-hook.sh
+web/                    poundhard-logo.svg   (brand mark — also served by the web UI)
 ```
+
+The wordmark uses **[Chakra Petch](https://fonts.google.com/specimen/Chakra+Petch)** —
+an angular, industrial typeface that suits the hard, percussion-centric aesthetic.
 
 ---
 

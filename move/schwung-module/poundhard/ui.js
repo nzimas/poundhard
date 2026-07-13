@@ -95,6 +95,10 @@ let voiceMacro = new Array(N_TRACKS).fill(0.5);   /* knob-3 voice-macro position
 let patView = false, projView = false;
 let patFilled = new Array(N_STEPS).fill(false), patCur = -1, patPending = -1;
 let projFilled = new Array(N_STEPS).fill(false);
+/* RECORDER view (Shift + Track3): 8 pads = 8 recording slots. */
+let recView = false;
+let recSlots = new Array(8).fill(false), recSlot = -1, recState = 'idle', recElapsed = 0;
+let webPort = 7177;
 let editSteps = new Array(N_STEPS).fill(0);
 let editName = '', editType = '';
 let stepNote = new Array(N_STEPS).fill(60);
@@ -159,7 +163,7 @@ const FONT = {
     'Y': ['# #', '# #', ' # ', ' # ', ' # '], 'Z': ['###', '  #', ' # ', '#  ', '###'],
     '#': ['# #', '###', '# #', '###', '# #'], '-': ['   ', '   ', '###', '   ', '   '],
     '.': ['   ', '   ', '   ', '   ', ' # '], '/': ['  #', '  #', ' # ', '#  ', '#  '],
-    ' ': ['   ', '   ', '   ', '   ', '   ']
+    ':': ['   ', ' # ', '   ', ' # ', '   '], ' ': ['   ', '   ', '   ', '   ', '   ']
 };
 function drawBig(text, yTop, maxScale) {
     if (typeof fill_rect !== 'function') return;
@@ -230,10 +234,15 @@ function renderStepButtons() {
     }
 }
 function renderLEDs() {
-    if (patView || projView) {                         /* 32 pads = 32 slots */
+    if (patView || projView || recView) {              /* pads = slots */
         for (let c = 0; c < 32; c++) {
             let color;
-            if (projView) color = projFilled[c] ? 16 : 95;          /* RoyalBlue filled / DarkBlue empty */
+            if (recView) {                                          /* 8 recording slots */
+                if (c >= 8) color = Black;
+                else if (c === recSlot && recState === 'recording') color = (phase % 16 < 8) ? 1 : 66;   /* red pulse */
+                else if (c === recSlot && recState === 'armed') color = (phase % 30 < 15) ? 28 : Black;   /* amber blink */
+                else color = recSlots[c] ? BrightGreen : 124;       /* green = has a take / dark-grey empty */
+            } else if (projView) color = projFilled[c] ? 16 : 95;   /* RoyalBlue filled / DarkBlue empty */
             else if (c === patPending) color = trackPulseOn(0) ? White : 50;  /* queued: pulse periwinkle */
             else if (c === patCur) color = White;                   /* currently playing */
             else color = patFilled[c] ? 50 : 102;                   /* LavenderBlue(periwinkle) / DarkIndigo empty */
@@ -241,7 +250,7 @@ function renderLEDs() {
         }
         renderStepButtons();
         btnLED(MoveRow1, TRACK_COLOR); btnLED(MoveRow2, Black);
-        btnLED(MoveRow3, patView ? White : Black); btnLED(MoveMenu, projView ? White : Black);
+        btnLED(MoveRow3, recView ? 1 : (patView ? White : Black)); btnLED(MoveMenu, projView ? White : Black);
         btnLED(MovePlay, running ? BrightGreen : Black);
         ledDirty = false;
         return;
@@ -361,6 +370,25 @@ function drawFx() {
     print(0, 44, 'tap track = bypass', 1);
     print(0, 56, 'knobs 1-8 = macros', 1);
 }
+function drawRec() {
+    if (recState === 'recording') {
+        var mm = Math.floor(recElapsed / 60), ss = recElapsed % 60;
+        drawParamBig('REC ' + (recSlot + 1), mm + ':' + (ss < 10 ? ('0' + ss) : ('' + ss)), 'uni', clampf(recElapsed / 420, 0, 1));
+        return;
+    }
+    clear_screen();
+    if (overlay && phase < overlayUntil) { print(0, 22, overlay, 2); return; }
+    print(0, 4, 'RECORDER', 2);
+    if (recState === 'armed') {
+        print(0, 30, 'ARMED ' + (recSlot + 1), 2);
+        print(0, 54, 'press PLAY (or pad = now)', 1);
+    } else {
+        var n = 0; for (var i = 0; i < 8; i++) n += recSlots[i] ? 1 : 0;
+        print(0, 30, n + '/8 takes   tap a pad', 1);
+        print(0, 46, 'move.local:' + webPort, 1);
+        print(0, 58, 'pad/play stops   max 7min', 1);
+    }
+}
 function drawSlots() {
     clear_screen();
     if (overlay && phase < overlayUntil) { print(0, 22, overlay, 2); return; }
@@ -378,8 +406,9 @@ function drawSlots() {
 }
 function drawScreen() {
     if (typeof clear_screen !== 'function' || typeof print !== 'function') return;
+    if (recView) { drawRec(); return; }
     /* giant TEMPO readout while knob 1 is touched (tracks view + project view) */
-    if (knobShow === 'tempo' && !fxView && !patView && editTrack < 0 && stepEditCell < 0) { drawTempoBig(); return; }
+    if (knobShow === 'tempo' && !fxView && !patView && !recView && editTrack < 0 && stepEditCell < 0) { drawTempoBig(); return; }
     if (patView || projView) { drawSlots(); return; }
     if (fxView) { drawFx(); return; }
     if (stepEditCell >= 0) { drawStepParam(); return; }
@@ -420,6 +449,11 @@ function readStatus() {
     if (Array.isArray(s.projFilled)) projFilled = s.projFilled;
     if (s.patCur != null) patCur = s.patCur;
     if (s.patPending != null) patPending = s.patPending;
+    if (Array.isArray(s.recSlots)) recSlots = s.recSlots;
+    if (s.recSlot != null) recSlot = s.recSlot;
+    if (s.recState != null) recState = s.recState;
+    if (s.recElapsed != null) recElapsed = s.recElapsed;
+    if (s.webPort != null) webPort = s.webPort;
     if (Array.isArray(s.tracks)) {
         for (let i = 0; i < N_TRACKS; i++) {
             const tr = s.tracks[i] || {};
@@ -456,7 +490,8 @@ function readStatus() {
      * handlers + real state changes only. */
     var slotSig = (patView || projView) ? ('|P' + (patView ? '1' : '0') + patCur + ',' + patPending + '|'
         + patFilled.map(function (b) { return b ? '1' : '0'; }).join('')
-        + projFilled.map(function (b) { return b ? '1' : '0'; }).join('')) : '';
+        + projFilled.map(function (b) { return b ? '1' : '0'; }).join(''))
+        : recView ? ('|R' + recState + recSlot + ',' + recElapsed + ',' + recSlots.map(function (b) { return b ? '1' : '0'; }).join('')) : '';
     var ledSig = base + '|' + (editTrack >= 0 ? (editSteps.join('') + ':' + step) : '') + slotSig;
     var screenSig = base + '|' + (editTrack >= 0 ? editSteps.join('') : '') + slotSig;
     if (ledSig !== lastLedSig) { lastLedSig = ledSig; ledDirty = true; }
@@ -493,6 +528,7 @@ globalThis.init = function () {
     seqBeats = 0; lastPulseMs = 0; wasRunning = false; lastStepCol = new Array(N_TRACKS).fill(-1);
     patView = false; projView = false; patCur = -1; patPending = -1;
     patFilled = new Array(N_STEPS).fill(false); projFilled = new Array(N_STEPS).fill(false);
+    recView = false; recSlots = new Array(8).fill(false); recSlot = -1; recState = 'idle'; recElapsed = 0;
 };
 
 globalThis.tick = function () {
@@ -543,6 +579,7 @@ globalThis.tick = function () {
     if (running) seqBeats += Math.max(0, _now - lastPulseMs) / 1000 * (tempo / 60);
     wasRunning = running; lastPulseMs = _now;
     if (running && patView && patPending >= 0) ledDirty = true;   /* animate the queued-slot pulse */
+    if (recView && recState !== 'idle') ledDirty = true;          /* animate the rec/armed pad */
     if (ledDirty) renderLEDs();
     if (running) renderStepButtons();   /* keep the pulse animating between full renders */
     if (overlay && phase >= overlayUntil) { overlay = null; screenDirty = true; }
@@ -583,7 +620,7 @@ globalThis.onMidiMessageInternal = function (data) {
         else if (projView) which = (ki === 0) ? 'tempo' : null;                          /* project settings */
         else if (stepEditCell >= 0) which = (ki === 0) ? 'vel' : (ki === 1) ? 'pan' : (ki === 2) ? 'macro' : null;
         else if (editTrack >= 0) which = (ki === 0) ? 'vol' : (ki === 1) ? 'pan' : (ki === 2) ? 'macro' : null;
-        else if (!patView) which = (ki === 0) ? 'tempo' : null;                          /* tracks view: knob1 = tempo */
+        else if (!patView && !recView) which = (ki === 0) ? 'tempo' : null;              /* tracks view: knob1 = tempo */
         /* Uniform rule: the giant readout shows the whole time the knob is TOUCHED
          * (not just while turning), and clears on release. */
         if (which) {
@@ -616,10 +653,12 @@ globalThis.onMidiMessageInternal = function (data) {
     /* PATTERN / PROJECT view: the 32 pads are 32 slots. Shift+pad = save, tap = load.
      * NOTE messages only — knob CCs (71-78) and Play CC (85) fall in the same numeric
      * range as the pad notes, so we must NOT swallow them here. */
-    if ((patView || projView) && (status === 0x90 || status === 0x80) && d1 >= 68 && d1 <= 99) {
+    if ((patView || projView || recView) && (status === 0x90 || status === 0x80) && d1 >= 68 && d1 <= 99) {
         if (status === 0x90 && d2 > 0) {
             const slot = NOTE_TO_CELL[d1];
-            if (patView) {
+            if (recView) {
+                if (slot < 8) { sendCmd('recpad', slot); }        /* arm/start/stop that recording slot */
+            } else if (patView) {
                 if (shiftHeld) { patFilled[slot] = true; sendCmd('savepat', slot); showAction('SAVE PAT ' + (slot + 1)); }
                 else { sendCmd('loadpat', slot); showAction((running ? 'QUEUE ' : 'LOAD ') + 'PAT ' + (slot + 1)); }
             } else {
@@ -717,19 +756,26 @@ globalThis.onMidiMessageInternal = function (data) {
         }
         if (d1 === MoveRow2 && d2 > 0) {                  /* Track 2 = FX view toggle */
             fxView = !fxView; fxHeld = -1;
-            if (fxView) { patView = false; projView = false; editTrack = -1; stepEditCell = -1; trackHeld = -1; }
+            if (fxView) { patView = false; projView = false; recView = false; editTrack = -1; stepEditCell = -1; trackHeld = -1; }
             ledDirty = true; screenDirty = true; showAction(fxView ? 'FX' : 'TRACKS');
             return;
         }
-        if (d1 === MoveRow3 && d2 > 0) {                  /* Track 3 = PATTERN view toggle */
-            patView = !patView;
-            if (patView) { projView = false; fxView = false; fxHeld = -1; editTrack = -1; stepEditCell = -1; trackHeld = -1; }
-            ledDirty = true; screenDirty = true; showAction(patView ? 'PATTERNS' : 'TRACKS');
+        if (d1 === MoveRow3 && d2 > 0) {                  /* Track 3 = PATTERN view; Shift+Track3 = RECORDER */
+            if (shiftHeld) {
+                recView = !recView;
+                if (recView) { patView = false; projView = false; fxView = false; fxHeld = -1; editTrack = -1; stepEditCell = -1; trackHeld = -1; }
+                showAction(recView ? 'RECORDER' : 'TRACKS');
+            } else {
+                patView = !patView;
+                if (patView) { projView = false; recView = false; fxView = false; fxHeld = -1; editTrack = -1; stepEditCell = -1; trackHeld = -1; }
+                showAction(patView ? 'PATTERNS' : 'TRACKS');
+            }
+            ledDirty = true; screenDirty = true;
             return;
         }
         if (d1 === MoveMenu && d2 > 0) {                  /* Menu = PROJECT view toggle */
             projView = !projView;
-            if (projView) { patView = false; fxView = false; fxHeld = -1; editTrack = -1; stepEditCell = -1; trackHeld = -1; }
+            if (projView) { patView = false; recView = false; fxView = false; fxHeld = -1; editTrack = -1; stepEditCell = -1; trackHeld = -1; }
             ledDirty = true; screenDirty = true; showAction(projView ? 'PROJECTS' : 'TRACKS');
             return;
         }
@@ -776,7 +822,7 @@ globalThis.onMidiMessageInternal = function (data) {
                 sendCmd('voicemacro', t, { p: { track: t, pos: voiceMacro[t] } });
                 screenDirty = true; return;
             }
-            if (ki === 0 && !patView) {                          /* knob 1 = master tempo (tracks + project views) */
+            if (ki === 0 && !patView && !recView) {              /* knob 1 = master tempo (tracks + project views) */
                 tempoLocal = clampi(Math.round(tempo) + dn, 20, 300);
                 tempo = tempoLocal; tempoDirty = true; controlDirty = true;
                 knobShow = 'tempo'; screenDirty = true;          /* giant readout, persists while touched */
