@@ -1,30 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 220" width="660" height="220" role="img" aria-label="PoundHard">
-  <defs>
-    <!-- the hash / pound mark, drawn once and re-used for the glitch split -->
-    <g id="ph-hash">
-      <rect x="30" y="-4" width="17" height="108"/>
-      <rect x="59" y="-4" width="17" height="108"/>
-      <rect x="-2" y="30" width="108" height="17"/>
-      <rect x="-2" y="59" width="108" height="17"/>
-    </g>
-    <style>
-      .wm  { font-family: 'Chakra Petch','Segoe UI',Arial,sans-serif; font-weight: 700; }
-      .tag { font-family: 'Chakra Petch','Segoe UI',Arial,sans-serif; font-weight: 500; letter-spacing: .30em; }
-    </style>
-  </defs>
-
-  <!-- panel: reads on light or dark backgrounds -->
+  <defs><g id="ph-hash">
+    <rect x="30" y="-4" width="17" height="108"/><rect x="59" y="-4" width="17" height="108"/>
+    <rect x="-2" y="30" width="108" height="17"/><rect x="-2" y="59" width="108" height="17"/>
+  </g></defs>
   <rect x="4" y="4" width="652" height="212" rx="20" fill="#0c0d11"/>
-  <rect x="4.5" y="4.5" width="651" height="211" rx="19.5" fill="none" stroke="#26303a" stroke-width="1"/>
-
-  <!-- pound mark, chromatic "struck" split: cyan + magenta ghosts behind a bright core -->
+  <rect x="4.5" y="4.5" width="651" height="211" rx="19.5" fill="none" stroke="#26303a"/>
   <g transform="translate(56,52) skewX(-9) scale(1.02)">
     <use href="#ph-hash" transform="translate(-6,3)" fill="#0bd6d0"/>
     <use href="#ph-hash" transform="translate(6,-3)" fill="#ff2e63"/>
     <use href="#ph-hash" fill="#f4f5f7"/>
   </g>
-
-  <!-- wordmark -->
-  <text x="212" y="108" class="wm" font-size="66" fill="#f4f5f7" letter-spacing="1">POUND<tspan fill="#ff2e63">HARD</tspan></text>
-  <text x="214" y="150" class="tag" font-size="17" fill="#7c8794">16-TRACK MOVE GROOVEBOX</text>
+  <text x="212" y="108" font-family="'Chakra Petch','Segoe UI',Arial,sans-serif" font-weight="700" font-size="66" fill="#f4f5f7">POUND<tspan fill="#ff2e63">HARD</tspan></text>
+  <text x="214" y="150" font-family="'Chakra Petch','Segoe UI',Arial,sans-serif" font-weight="500" letter-spacing="5" font-size="17" fill="#7c8794">16-TRACK MOVE GROOVEBOX</text>
 </svg>
