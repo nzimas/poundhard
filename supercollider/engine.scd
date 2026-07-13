@@ -93,7 +93,8 @@
 	~recSynth = Synth.basicNew(\phRec, s);
 	// open the file (leaveOpen -> cue for DiskOut streaming); start the recorder synth
 	// ONLY once the write is set up, via the write's completion message.
-	~recBuf.write(path, "wav", "int24", 0, 0, true,
+	// int16: universally playable in browsers (some reject 24-bit WAV in <audio>)
+	~recBuf.write(path, "wav", "int16", 0, 0, true,
 		~recSynth.newMsg(~recGroup, [\buf, ~recBuf], \addToTail));
 };
 

@@ -33,7 +33,6 @@ LOGO_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 220" clas
 
 PAGE = """<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="refresh" content="15">
 <title>PoundHard — Recordings</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -44,20 +43,25 @@ PAGE = """<!doctype html><html lang="en"><head>
   * {{ box-sizing:border-box; }}
   body {{ margin:0; background:var(--bg); color:var(--txt);
           font-family:'Chakra Petch',system-ui,sans-serif; -webkit-font-smoothing:antialiased; }}
-  .wrap {{ max-width:820px; margin:0 auto; padding:28px 20px 64px; }}
+  .wrap {{ max-width:840px; margin:0 auto; padding:28px 20px 64px; }}
   .logo {{ width:100%; max-width:420px; height:auto; display:block; margin:8px 0 26px; }}
+  .head {{ display:flex; align-items:baseline; justify-content:space-between; margin:0 0 16px; }}
   h1 {{ font-size:15px; letter-spacing:.28em; text-transform:uppercase; color:var(--dim);
-        font-weight:600; margin:0 0 18px; }}
-  .rec {{ display:flex; align-items:center; gap:16px; background:var(--panel);
-          border:1px solid var(--line); border-radius:12px; padding:14px 18px; margin:10px 0; }}
-  .rec .n {{ font-size:26px; font-weight:700; color:var(--hot); min-width:44px; }}
-  .rec .meta {{ flex:1; }}
+        font-weight:600; margin:0; }}
+  .refresh {{ color:var(--cy); text-decoration:none; font-size:13px; letter-spacing:.1em; font-weight:600; }}
+  .rec {{ display:flex; align-items:center; gap:14px; background:var(--panel);
+          border:1px solid var(--line); border-radius:12px; padding:13px 16px; margin:10px 0; }}
+  .rec .n {{ font-size:26px; font-weight:700; color:var(--hot); min-width:40px; }}
+  .rec .meta {{ flex:1; min-width:0; }}
   .rec .meta .name {{ font-weight:600; font-size:17px; letter-spacing:.04em; }}
   .rec .meta .sub {{ color:var(--dim); font-size:13px; margin-top:2px; }}
-  .rec audio {{ height:34px; }}
-  .rec a.dl {{ text-decoration:none; color:var(--bg); background:var(--cy); font-weight:700;
-               padding:9px 16px; border-radius:8px; font-size:13px; letter-spacing:.06em; }}
-  .rec a.dl:hover {{ background:#3ff0ea; }}
+  button.btn, a.btn {{ font-family:inherit; cursor:pointer; border:none; text-decoration:none;
+          font-weight:700; font-size:13px; letter-spacing:.06em; padding:10px 18px; border-radius:8px;
+          white-space:nowrap; }}
+  .play {{ background:var(--hot); color:#fff; min-width:104px; }}
+  .play.on {{ background:#ff5c86; }}
+  a.dl {{ background:var(--cy); color:var(--bg); }}
+  a.dl:hover {{ background:#3ff0ea; }}
   .empty {{ opacity:.4; }}
   .empty .n {{ color:var(--dim); }}
   footer {{ color:var(--dim); font-size:12px; letter-spacing:.12em; margin-top:30px;
@@ -65,10 +69,28 @@ PAGE = """<!doctype html><html lang="en"><head>
 </style></head>
 <body><div class="wrap">
 {logo}
-<h1>Performance Recordings</h1>
+<div class="head"><h1>Performance Recordings</h1><a class="refresh" href="/" onclick="location.reload();return false;">&#8635; REFRESH</a></div>
 {rows}
-<footer>PoundHard · stereo WAV · up to 7 min each · this page auto-refreshes</footer>
-</div></body></html>"""
+<footer>PoundHard · stereo WAV · up to 7 min each</footer>
+</div>
+<script>
+  var cur=null, curBtn=null;
+  function reset(b){{ if(b){{ b.classList.remove('on'); b.textContent='▶ PLAY'; }} }}
+  document.addEventListener('click', function(e){{
+    var b = e.target.closest('.play'); if(!b) return;
+    if(curBtn===b){{
+      if(cur.paused){{ cur.play(); b.classList.add('on'); b.textContent='⏸ STOP'; }}
+      else {{ cur.pause(); reset(b); }}
+      return;
+    }}
+    if(cur){{ cur.pause(); }}
+    reset(curBtn);
+    cur = new Audio(b.dataset.src);
+    cur.onended = function(){{ reset(b); }};
+    cur.play(); curBtn=b; b.classList.add('on'); b.textContent='⏸ STOP';
+  }});
+</script>
+</body></html>"""
 
 
 def _wav_info(path: Path):
@@ -152,12 +174,13 @@ class _Handler(BaseHTTPRequestHandler):
             f = self.rec_dir / f"rec_{slot:02d}.wav"
             if f.is_file() and f.stat().st_size > 44:
                 dur, size = _wav_info(f)
+                url = f"/rec/rec_{slot:02d}.wav"
                 rows.append(
                     f'<div class="rec"><div class="n">{slot + 1}</div>'
                     f'<div class="meta"><div class="name">rec_{slot:02d}.wav</div>'
                     f'<div class="sub">{_fmt_dur(dur)} &nbsp;·&nbsp; {_fmt_size(size)}</div></div>'
-                    f'<audio controls preload="none" src="/rec/rec_{slot:02d}.wav"></audio>'
-                    f'<a class="dl" href="/rec/rec_{slot:02d}.wav" download>DOWNLOAD</a></div>')
+                    f'<button class="btn play" data-src="{url}">▶ PLAY</button>'
+                    f'<a class="btn dl" href="{url}" download>DOWNLOAD</a></div>')
             else:
                 rows.append(
                     f'<div class="rec empty"><div class="n">{slot + 1}</div>'

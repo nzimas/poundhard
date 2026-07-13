@@ -191,7 +191,7 @@ Saved projects are blue; empty slots are dim. Projects survive power cycles.
 ### Recorder view
 
 **Shift + Track 3** opens the recorder — the first 8 pads are **8 recording slots**
-that capture the master output to **stereo WAV** (up to **7 minutes** each).
+that capture the master output to **stereo 16-bit WAV** (up to **7 minutes** each).
 
 | Control | Action |
 |---|---|
@@ -241,11 +241,12 @@ pattern's groove right before the downbeat.
 ## Recording & the web UI
 
 The [recorder view](#recorder-view) captures the master output (post-limiter, what
-you hear) to **stereo 24-bit WAV** via a `DiskOut` synth in the engine, capped at
+you hear) to **stereo 16-bit WAV** via a `DiskOut` synth in the engine, capped at
 **7 minutes** per take, into `/data/UserData/poundhard/recordings/`.
 
 The controller runs a small **web UI** at **`http://move.local:7177`** where every
-recording can be previewed and downloaded. The address is deliberately a general
+recording has a **▶ Play** button (audition in the browser) and a **Download**
+button. The address is deliberately a general
 PoundHard endpoint — more functions will live there over time. The port is
 configurable via the `PH_WEB_PORT` environment variable.
 

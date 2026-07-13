@@ -157,12 +157,14 @@ class Controller:
         with self._lock:
             st = self.state
             if 0 <= st.pattern_pending < N_PATTERNS and st.patterns[st.pattern_pending] is not None:
+                st.commit_current()             # preserve the outgoing pattern's live edits
                 st.apply_groove(st.patterns[st.pattern_pending])
                 st.pattern_cur = st.pattern_pending
                 self._push_groove()
             st.pattern_pending = -1
 
     def _save_project_file(self, slot: int) -> None:
+        self.state.commit_current()             # fold live edits into the current pattern first
         path = PROJECTS_DIR / f"proj_{slot:02d}.json"
         tmp = path.with_suffix(".json.tmp")
         try:
@@ -405,6 +407,7 @@ class Controller:
                 if st.running:
                     st.pattern_pending = slot   # applied at the next bar boundary (/ph/cycle)
                 else:
+                    st.commit_current()         # preserve the outgoing pattern's live edits
                     st.apply_groove(st.patterns[slot])
                     st.pattern_cur = slot
                     self._push_groove()

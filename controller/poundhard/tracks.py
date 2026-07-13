@@ -158,8 +158,14 @@ class Project:
     def save_pattern(self, slot: int) -> None:
         if 0 <= slot < N_PATTERNS:
             self.patterns[slot] = self.snapshot()
-            if self.pattern_cur < 0:
-                self.pattern_cur = slot
+            self.pattern_cur = slot           # this slot is now the live pattern
+
+    def commit_current(self) -> None:
+        """Write the live state back into its own pattern slot. Called before switching
+        patterns or saving a project, so live edits are never lost and the slot never
+        goes stale relative to the working state / the project's `base`."""
+        if 0 <= self.pattern_cur < N_PATTERNS:
+            self.patterns[self.pattern_cur] = self.snapshot()
 
     def project_to_dict(self) -> dict:
         """A whole project = its 32 pattern slots + the current live sound as `base`
