@@ -1,0 +1,370 @@
+"""PoundHard voice catalog — parameter metadata for the four track voices.
+
+Every param `id` is `module.arg`; the engine arg name is the suffix after the dot
+(``engine_arg("drum.cutoff") == "cutoff"``), which matches the SynthDef argument
+in ``supercollider/synthdefs.scd``. The metadata (ranges, `musical` bands, curves,
+enums, randomize policies) drives kit generation in ``kits.py``.
+
+`note`, `vel`, and the `t_trig` gate are NOT catalog params — they are per-track /
+per-step and travel over dedicated OSC (`/ph/note`, `/ph/vel`, the step clock).
+"""
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+
+from .params import Curve, DangerClass, ParamMetadata, RandomizePolicy, Rate
+
+
+def sampler_dir() -> str:
+    """The SAMPLER library directory. First existing of: $SAMPLER_DIR,
+    /data/samples (engine default), $PH_DATA/samples (dev fallback)."""
+    candidates = [os.environ.get("SAMPLER_DIR"), "/data/samples",
+                  os.path.join(os.environ.get("PH_DATA", "./data"), "samples")]
+    for d in candidates:
+        if d and os.path.isdir(d):
+            return d
+    return candidates[-1]
+
+
+def _sample_count() -> int:
+    try:
+        return sum(1 for f in os.listdir(sampler_dir()) if f.lower().endswith(".wav"))
+    except OSError:
+        return 0
+
+
+SAMPLE_COUNT = _sample_count()
+
+
+def engine_arg(pid: str) -> str:
+    """SynthDef arg name for a catalog param id (`"drum.cutoff"` -> `"cutoff"`)."""
+    return pid.rsplit(".", 1)[-1]
+
+
+def P(
+    pid: str,
+    label: str,
+    *,
+    unit: str = "none",
+    rmin: float = 0.0,
+    rmax: float = 1.0,
+    default: float = 0.0,
+    curve: Curve = Curve.LINEAR,
+    rate: Rate = Rate.CONTROL,
+    smoothing_ms: float = 50.0,
+    musical: tuple[float, float] | None = None,
+    modulatable: bool = True,
+    macro: bool = True,
+    midi: bool = True,
+    randomize: RandomizePolicy = RandomizePolicy.SAFE,
+    danger: DangerClass = DangerClass.NONE,
+    formatter: str = "float2",
+    enum: list[str] | None = None,
+) -> ParamMetadata:
+    return ParamMetadata(
+        id=pid,
+        label=label,
+        unit=unit,
+        rmin=rmin,
+        rmax=rmax,
+        musical_min=musical[0] if musical else None,
+        musical_max=musical[1] if musical else None,
+        default=default,
+        curve=curve if enum is None else Curve.ENUM,
+        rate=rate,
+        smoothing_ms=smoothing_ms,
+        modulatable=modulatable,
+        macro_eligible=macro,
+        midi_learnable=midi,
+        randomize_policy=randomize,
+        danger_class=danger,
+        formatter=formatter,
+        enum_values=enum,
+    )
+
+
+@dataclass
+class VoiceSpec:
+    type: str
+    role: str
+    synthdef: str          # /ph/track type index resolves via TYPE_INDEX below
+    params: list[ParamMetadata] = field(default_factory=list)
+
+    def param(self, pid: str) -> ParamMetadata | None:
+        return next((p for p in self.params if p.id == pid or p.id.endswith("." + pid)), None)
+
+
+# Engine `/ph/track` type indices (must match ~typeDefs in engine.scd).
+TYPE_INDEX = {"DRUM": 0, "FMTONE": 1, "BUCHLOID": 2, "MOLLY": 3, "RINGS": 4}
+
+_COMMON_TAIL = lambda pfx, ampd=0.8, ampmus=(0.5, 1.1): [
+    P(f"{pfx}.amp", "Amp", unit="dB", rmin=0.0, rmax=2.0, default=ampd, curve=Curve.DB,
+      formatter="dB1", danger=DangerClass.LOUDNESS, musical=ampmus),
+    P(f"{pfx}.pan", "Spatial Pos", rmin=-1.0, rmax=1.0, default=0.0, curve=Curve.BIPOLAR),
+]
+
+# --------------------------------------------------------------------------- #
+# DRUM — full digital drum voice (ported from wildrider-mele). One hit per step.
+# --------------------------------------------------------------------------- #
+DRUM = VoiceSpec(
+    type="DRUM",
+    role="Digital drum voice: kick / snare / hihat / metal / clap / tom / noise.",
+    synthdef="phDrum",
+    params=[
+        P("drum.mode", "Mode", curve=Curve.ENUM,
+          enum=["kick", "snare", "hihat", "metal", "clap", "tom", "noise"],
+          default=0, randomize=RandomizePolicy.WIDE),
+        # transient / click
+        P("drum.transient", "Transient", default=0.6, musical=(0.3, 1.0)),
+        P("drum.transTone", "Transient Tone", default=0.5, musical=(0.2, 0.9)),
+        P("drum.transDecay", "Transient Decay", unit="s", rmin=0.0005, rmax=0.03, default=0.004,
+          curve=Curve.EXP, formatter="float3", musical=(0.001, 0.012)),
+        # pitch / body
+        P("drum.pitchMod", "Pitch Drop", default=0.6, musical=(0.2, 1.0)),
+        P("drum.pitchDecay", "Pitch Decay", unit="s", rmin=0.002, rmax=0.6, default=0.05,
+          curve=Curve.EXP, formatter="float3", musical=(0.01, 0.15)),
+        P("drum.ampDecay", "Amp Decay", unit="s", rmin=0.004, rmax=4.0, default=0.25,
+          curve=Curve.EXP, formatter="float2", musical=(0.03, 0.9)),
+        P("drum.ampCurve", "Amp Curve", rmin=-8.0, rmax=-1.0, default=-4.0,
+          formatter="float1", musical=(-6.0, -2.0)),
+        # noise layer
+        P("drum.noiseAmt", "Noise Amount", default=0.3, musical=(0.0, 0.8)),
+        P("drum.noiseTone", "Noise Tone", default=0.5, musical=(0.2, 0.9)),
+        P("drum.noiseDecay", "Noise Decay", unit="s", rmin=0.004, rmax=3.0, default=0.12,
+          curve=Curve.EXP, formatter="float2", musical=(0.02, 0.6)),
+        P("drum.snap", "Snap", default=0.5, musical=(0.2, 0.9)),
+        # metal / FM
+        P("drum.ratio", "FM Ratio", rmin=0.2, rmax=12.0, default=1.5, curve=Curve.EXP,
+          formatter="float2", musical=(0.5, 7.0)),
+        P("drum.fmAmt", "FM Amount", default=0.0, musical=(0.0, 0.5)),
+        P("drum.harmonics", "Harmonics", default=0.5, musical=(0.0, 0.8)),
+        # filter
+        P("drum.cutoff", "Cutoff", unit="Hz", rmin=20.0, rmax=18000.0, default=9000.0,
+          curve=Curve.EXP, formatter="Hz", musical=(400.0, 16000.0)),
+        P("drum.res", "Resonance", default=0.2, musical=(0.0, 0.6), danger=DangerClass.FEEDBACK),
+        P("drum.filterType", "Filter Type", curve=Curve.ENUM, enum=["lp", "bp", "hp"],
+          default=0, randomize=RandomizePolicy.WIDE),
+        P("drum.filterEnv", "Filter Env", default=0.3, musical=(0.0, 0.8)),
+        # grit
+        P("drum.fold", "Wavefold", default=0.0, musical=(0.0, 0.5)),
+        P("drum.drive", "Drive", rmin=0.0, rmax=6.0, default=1.0, curve=Curve.EXP,
+          formatter="float2", musical=(0.3, 2.5)),
+        P("drum.crush", "Bit Crush", default=0.0, musical=(0.0, 0.5)),
+        P("drum.downsample", "Rate Crush", default=0.0, musical=(0.0, 0.5)),
+        *_COMMON_TAIL("drum"),
+    ],
+)
+
+# --------------------------------------------------------------------------- #
+# FMTONE — compact gate-triggered 2-op FM (bass / mallet / metallic / stab).
+# --------------------------------------------------------------------------- #
+FMTONE = VoiceSpec(
+    type="FMTONE",
+    role="2-op FM note: carrier + modulator (ratio/amount/feedback), drive, filter.",
+    synthdef="phFmtone",
+    params=[
+        P("fmtone.ratio", "FM Ratio", rmin=0.05, rmax=24.0, default=1.0, curve=Curve.EXP,
+          formatter="float2", musical=(0.5, 8.0)),
+        P("fmtone.fmAmt", "FM Amount", default=0.4, musical=(0.05, 0.9)),
+        P("fmtone.feedback", "Feedback", rmin=0.0, rmax=3.0, default=0.0, musical=(0.0, 1.4)),
+        P("fmtone.detune", "Detune", unit="st", rmin=-1.0, rmax=1.0, default=0.0,
+          curve=Curve.BIPOLAR, musical=(-0.2, 0.2)),
+        P("fmtone.attack", "Attack", unit="s", rmin=0.0005, rmax=2.0, default=0.002,
+          curve=Curve.EXP, formatter="float3", musical=(0.001, 0.05)),
+        P("fmtone.decay", "Decay", unit="s", rmin=0.005, rmax=6.0, default=0.6,
+          curve=Curve.EXP, formatter="float2", musical=(0.05, 2.0)),
+        P("fmtone.ampCurve", "Amp Curve", rmin=-8.0, rmax=-1.0, default=-4.0,
+          formatter="float1", musical=(-6.0, -2.0)),
+        P("fmtone.cutoff", "Cutoff", unit="Hz", rmin=40.0, rmax=18000.0, default=12000.0,
+          curve=Curve.EXP, formatter="Hz", musical=(300.0, 16000.0)),
+        P("fmtone.res", "Resonance", default=0.1, musical=(0.0, 0.6), danger=DangerClass.FEEDBACK),
+        P("fmtone.fold", "Wavefold", default=0.0, musical=(0.0, 0.5)),
+        P("fmtone.drive", "Drive", rmin=0.1, rmax=6.0, default=1.0, curve=Curve.EXP,
+          formatter="float2", musical=(0.4, 2.5)),
+        *_COMMON_TAIL("fmtone", ampd=0.6, ampmus=(0.35, 0.95)),
+    ],
+)
+
+# --------------------------------------------------------------------------- #
+# BUCHLOID — west-coast complex osc (FM + wavefold + LPG), gate-triggered.
+# --------------------------------------------------------------------------- #
+BUCHLOID = VoiceSpec(
+    type="BUCHLOID",
+    role="Complex oscillator: two FM mods, wavefolder, resonant lowpass-gate.",
+    synthdef="phBuchloid",
+    params=[
+        P("buchloid.fm1Ratio", "FM1 Ratio", rmin=0.1, rmax=12.0, default=0.66, curve=Curve.EXP,
+          formatter="float2", musical=(0.5, 4.0)),
+        P("buchloid.fm1Amount", "FM1 Amt", default=0.0, musical=(0.0, 0.6)),
+        P("buchloid.fm2Ratio", "FM2 Ratio", rmin=0.1, rmax=24.0, default=3.3, curve=Curve.EXP,
+          formatter="float2", musical=(1.0, 9.0)),
+        P("buchloid.fm2Amount", "FM2 Amt", default=0.0, musical=(0.0, 0.6)),
+        P("buchloid.waveShape", "Wave Shape", default=0.0, musical=(0.0, 1.0)),
+        P("buchloid.waveFolds", "Wave Folds", rmin=0.0, rmax=3.0, default=0.0, musical=(0.0, 2.0)),
+        P("buchloid.timbre", "Timbre", default=0.0, musical=(0.0, 1.0)),
+        P("buchloid.attack", "Attack", unit="s", rmin=0.001, rmax=4.0, default=0.02,
+          curve=Curve.EXP, formatter="float3", musical=(0.003, 0.6)),
+        P("buchloid.decay", "Decay", unit="s", rmin=0.01, rmax=8.0, default=1.0,
+          curve=Curve.EXP, formatter="float2", musical=(0.1, 3.0)),
+        P("buchloid.peak", "Filter Peak", unit="Hz", rmin=100.0, rmax=12000.0, default=8000.0,
+          curve=Curve.EXP, formatter="Hz", musical=(500.0, 9000.0)),
+        P("buchloid.res", "Resonance", default=0.2, musical=(0.0, 0.7), danger=DangerClass.FEEDBACK),
+        P("buchloid.pressure", "Pressure", default=0.0, musical=(0.0, 0.7)),
+        P("buchloid.drive", "Drive", rmin=0.1, rmax=4.0, default=1.0, curve=Curve.EXP,
+          formatter="float2", musical=(0.3, 1.8)),
+        *_COMMON_TAIL("buchloid", ampd=0.5, ampmus=(0.3, 0.9)),
+    ],
+)
+
+# --------------------------------------------------------------------------- #
+# SAMPLER — single-file loop slice (buffer from /data/samples), gate-triggered.
+# --------------------------------------------------------------------------- #
+SAMPLER = VoiceSpec(
+    type="SAMPLER",
+    role="Sample slice player: pitch, scrub, reverse, loop window, crush + filter.",
+    synthdef="phSampler",
+    params=[
+        # `sample` is a buffer selector (0..SAMPLE_COUNT-1), sent via /ph/samp, not /ph/param.
+        P("sampler.sample", "Sample", rmin=0.0, rmax=float(max(0, SAMPLE_COUNT - 1)), default=0.0,
+          rate=Rate.DISCRETE, formatter="int", randomize=RandomizePolicy.WIDE,
+          musical=(0.0, float(max(0, SAMPLE_COUNT - 1))), modulatable=False),
+        P("sampler.pitch", "Pitch", unit="st", rmin=-36.0, rmax=36.0, default=0.0,
+          curve=Curve.BIPOLAR, formatter="float1", musical=(-12.0, 12.0)),
+        P("sampler.direction", "Direction", curve=Curve.ENUM, enum=["forward", "reverse"],
+          default=0, randomize=RandomizePolicy.WIDE),
+        P("sampler.posStart", "Start", default=0.0, musical=(0.0, 0.85)),
+        P("sampler.posWindow", "Window", default=0.5, musical=(0.04, 0.7)),
+        P("sampler.scrub", "Scrub", rmin=0.0, rmax=2.0, default=1.0, formatter="float2",
+          musical=(0.05, 1.2)),
+        P("sampler.attack", "Attack", unit="s", rmin=0.0005, rmax=2.0, default=0.001,
+          curve=Curve.EXP, formatter="float3", musical=(0.001, 0.05)),
+        P("sampler.decay", "Decay", unit="s", rmin=0.005, rmax=6.0, default=0.8,
+          curve=Curve.EXP, formatter="float2", musical=(0.05, 2.0)),
+        P("sampler.cutoff", "Cutoff", unit="Hz", rmin=20.0, rmax=18000.0, default=14000.0,
+          curve=Curve.EXP, formatter="Hz", musical=(500.0, 16000.0)),
+        P("sampler.res", "Resonance", default=0.15, musical=(0.0, 0.5), danger=DangerClass.FEEDBACK),
+        P("sampler.crush", "Bit Crush", default=0.0, musical=(0.0, 0.5)),
+        P("sampler.downsample", "Rate Crush", default=0.0, musical=(0.0, 0.5)),
+        P("sampler.drive", "Drive", rmin=0.1, rmax=4.0, default=1.0, curve=Curve.EXP,
+          formatter="float2", musical=(0.4, 1.8)),
+        *_COMMON_TAIL("sampler", ampd=0.6, ampmus=(0.35, 0.95)),
+    ],
+)
+
+# --------------------------------------------------------------------------- #
+# MOLLY — Molly-the-Poly analogue-voiced polysynth (lead / pad / stab), gated.
+# --------------------------------------------------------------------------- #
+MOLLY = VoiceSpec(
+    type="MOLLY",
+    role="Molly the Poly: characterful analogue polysynth — leads, pads, bass, stabs.",
+    synthdef="phMolly",
+    params=[
+        P("molly.detune", "Detune", unit="cent", rmin=0.0, rmax=50.0, default=7.0,
+          formatter="float1", musical=(0.0, 20.0)),
+        P("molly.oscShape", "Osc Shape", default=0.5, musical=(0.0, 1.0)),
+        P("molly.pulseWidth", "Pulse Width", rmin=0.05, rmax=0.95, default=0.5, musical=(0.2, 0.8)),
+        P("molly.subLevel", "Sub", default=0.0, musical=(0.0, 0.5)),
+        P("molly.noiseLevel", "Noise", default=0.0, musical=(0.0, 0.3)),
+        P("molly.cutoff", "Cutoff", unit="Hz", rmin=20.0, rmax=18000.0, default=1200.0,
+          curve=Curve.EXP, formatter="Hz", musical=(300.0, 6000.0)),
+        P("molly.resonance", "Resonance", default=0.2, musical=(0.1, 0.7), danger=DangerClass.FEEDBACK),
+        P("molly.lpType", "Filter", curve=Curve.ENUM, enum=["12dB", "24dB"], default=1,
+          randomize=RandomizePolicy.WIDE),
+        P("molly.filterEnvAmt", "Filter Env", rmin=-1.0, rmax=1.0, default=0.3,
+          curve=Curve.BIPOLAR, musical=(0.0, 0.8)),
+        P("molly.fDec", "F.Decay", unit="s", rmin=0.001, rmax=5.0, default=0.3,
+          curve=Curve.EXP, formatter="float3", musical=(0.03, 1.5)),
+        P("molly.fSus", "F.Sustain", default=0.6, musical=(0.0, 0.9)),
+        P("molly.aDec", "A.Decay", unit="s", rmin=0.001, rmax=5.0, default=0.3,
+          curve=Curve.EXP, formatter="float3", musical=(0.05, 1.5)),
+        P("molly.aSus", "A.Sustain", default=0.8, musical=(0.0, 1.0)),
+        P("molly.aRel", "A.Release", unit="s", rmin=0.001, rmax=8.0, default=0.5,
+          curve=Curve.EXP, formatter="float3", musical=(0.05, 3.0)),
+        P("molly.hold", "Note Length", unit="s", rmin=0.02, rmax=4.0, default=0.3,
+          curve=Curve.EXP, formatter="float2", musical=(0.05, 1.5)),
+        P("molly.lfoRate", "LFO Rate", unit="Hz", rmin=0.01, rmax=12.0, default=4.0,
+          curve=Curve.EXP, formatter="float2", musical=(0.05, 2.5)),
+        P("molly.lfoToCutoff", "LFO->Cutoff", default=0.0, musical=(0.0, 0.16)),
+        P("molly.ringMod", "Ring Mod", default=0.0, musical=(0.0, 0.4)),
+        P("molly.drive", "Drive", default=0.0, musical=(0.0, 0.6)),
+        P("molly.chorus", "Chorus", default=0.0, musical=(0.0, 0.7)),
+        *_COMMON_TAIL("molly", ampd=0.35, ampmus=(0.25, 0.55)),
+    ],
+)
+
+# --------------------------------------------------------------------------- #
+# RINGS — Mutable Instruments modal/string resonator (MiRings), gate-triggered.
+# --------------------------------------------------------------------------- #
+RINGS = VoiceSpec(
+    type="RINGS",
+    role="Modal / sympathetic-string resonator (Mutable Instruments Rings) — plucks & bells.",
+    synthdef="phRings",
+    params=[
+        P("rings.struct", "Structure", default=0.25, musical=(0.1, 0.8)),
+        P("rings.bright", "Brightness", default=0.5, musical=(0.3, 0.9)),
+        P("rings.damp", "Damping", default=0.7, musical=(0.4, 0.95)),
+        P("rings.pos", "Position", default=0.25, musical=(0.1, 0.8)),
+        P("rings.model", "Model", curve=Curve.ENUM,
+          enum=["modal", "sympathetic", "inharmonic", "fm", "chords", "strreverb"],
+          default=0, randomize=RandomizePolicy.WIDE),
+        P("rings.decay", "Decay", unit="s", rmin=0.05, rmax=8.0, default=1.2,
+          curve=Curve.EXP, formatter="float2", musical=(0.2, 3.0)),
+        *_COMMON_TAIL("rings", ampd=0.9, ampmus=(0.5, 1.05)),
+    ],
+)
+
+# SAMPLER retired from the fleet (buffer streaming caused audio-thread stalls);
+# MOLLY replaces it. The SAMPLER spec/synthdef remain defined but unused.
+VOICES: dict[str, VoiceSpec] = {v.type: v for v in (DRUM, FMTONE, BUCHLOID, MOLLY, RINGS)}
+
+
+def macro_specs(voice_type: str) -> list[tuple[str, str, float, float]]:
+    """(full_pid, engine_arg, lo, hi) for every macro-sweepable param of a voice type.
+
+    Drives the per-track voice-macro knob: one knob sweeps all of a voice's timbral
+    params across their musical bands. Excludes amp/pan (dedicated knobs), enums
+    (structural switches), and params flagged macro_eligible=False."""
+    out: list[tuple[str, str, float, float]] = []
+    for meta in VOICES[voice_type].params:
+        if not meta.macro_eligible or meta.curve == Curve.ENUM:
+            continue
+        if meta.musical_min is None or meta.musical_max is None:
+            continue
+        arg = engine_arg(meta.id)
+        if arg in ("amp", "pan"):
+            continue
+        out.append((meta.id, arg, float(meta.musical_min), float(meta.musical_max)))
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# FX chain — 8 insert effects in canonical signal-flow order (index == chain
+# position == FX pad, left to right; VERB is last/rightmost). Must match
+# ~fxDefs in engine.scd. Each entry: (engine_arg, musical_lo, musical_hi) — the
+# band the randomized macro morphs the param across.
+# --------------------------------------------------------------------------- #
+@dataclass
+class FxSpec:
+    name: str
+    short: str
+    params: list           # [(arg, lo, hi), ...] morphed by the macro
+
+FX_SPECS: list[FxSpec] = [
+    FxSpec("OVERDRIVE", "OD", [("drive", 1.5, 24.0), ("tone", -0.6, 0.7)]),
+    FxSpec("AMPSIM", "AMP", [("gain", 2.0, 20.0), ("bass", -8.0, 8.0), ("mid", -8.0, 8.0), ("treble", -8.0, 8.0)]),
+    FxSpec("BITCRUSHER", "CRSH", [("bits", 3.0, 12.0), ("downsample", 1.0, 24.0)]),
+    FxSpec("RINGMOD", "RING", [("freq", 30.0, 1200.0)]),
+    FxSpec("FLANGER", "FLNG", [("rate", 0.05, 2.0), ("depth", 0.3, 1.0), ("feedback", 0.0, 0.8)]),
+    FxSpec("GRAINS", "GRN", [("size", 0.02, 0.35), ("density", 8.0, 120.0), ("pos", 0.0, 0.6),
+                             ("spray", 0.0, 0.3), ("jitter", 0.0, 0.6), ("spread", 0.3, 1.0),
+                             ("reverse", 0.0, 0.5), ("shimmer", 0.0, 0.6), ("texture", 0.2, 0.8),
+                             ("feedback", 0.0, 0.5)]),
+    FxSpec("SDLY", "DLY", [("timeL", 80.0, 900.0), ("timeR", 80.0, 900.0), ("feedback", 0.1, 0.7),
+                           ("crossFeed", 0.2, 0.85), ("damp", 0.1, 0.6), ("width", 0.85, 1.4),
+                           ("modDepth", 0.0, 0.35)]),
+    FxSpec("VERB", "VRB", [("size", 1.0, 3.8), ("decay", 1.5, 12.0), ("damp", 0.1, 0.6),
+                           ("modDepth", 0.0, 0.4), ("earlyDiff", 0.4, 0.95), ("lowCut", 50.0, 400.0),
+                           ("highCut", 4000.0, 14000.0), ("width", 0.85, 1.35)]),
+]
+N_FX = len(FX_SPECS)

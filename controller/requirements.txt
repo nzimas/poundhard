@@ -1,0 +1,2 @@
+# PoundHard controller has no third-party deps beyond vendored python-osc
+# (controller/vendor/pythonosc). Python 3.9+ standard library only.

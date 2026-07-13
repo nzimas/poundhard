@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime / logs / scratch
+logs/
+*.log
+*.tmp
+*.json.tmp
+
+# Local IPC / device artifacts (never committed)
+ipc/
+share/status.json
+share/control.json
