@@ -15,8 +15,10 @@ from __future__ import annotations
 import json
 import os
 import signal
+import sys
 import threading
 import time
+import traceback
 from pathlib import Path
 
 from .catalog import FX_SPECS, N_FX
@@ -60,7 +62,9 @@ class Controller:
         self._last_status_key: str | None = None
         self._last_status_write = 0.0
         self._threads: list[threading.Thread] = []
-        self._lock = threading.Lock()          # serialize state mutations (dispatch vs bar-cycle)
+        # RLock (not Lock): re-entrant, so a nested acquire can never self-deadlock the
+        # control loop. A deadlocked dispatch is indistinguishable from a dead instrument.
+        self._lock = threading.RLock()         # serialize state mutations (dispatch vs telemetry)
         self.bridge.on_cycle = self._on_cycle  # apply a queued pattern switch on the bar boundary
         self.bridge.on_amp = self._on_amp      # master level while recording -> ends the tail
         self._quiet_since: float | None = None
@@ -99,10 +103,19 @@ class Controller:
         self.bridge.stop()
 
     def _safe_loop(self, fn) -> None:
-        try:
-            fn()
-        except Exception as e:  # a dead loop must not take the process down
-            print(f"[poundhard] loop {fn.__name__} died: {e}")
+        """Run a loop forever. A crash must NOT permanently kill it — a dead control loop
+        means no transport, no sound and no project loading (the whole instrument bricks
+        until relaunch). So: log loudly, then restart the loop."""
+        while not self._stop.is_set():
+            try:
+                fn()
+                return                                   # clean exit (stop requested)
+            except Exception:
+                print(f"[poundhard] LOOP CRASHED: {fn.__name__} — restarting", flush=True)
+                traceback.print_exc()
+                sys.stdout.flush()
+                sys.stderr.flush()
+                time.sleep(0.5)                          # brief backoff, then resume
 
     def _handshake_loop(self) -> None:
         # The engine may boot after us; ping until it answers /ph/ready.

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import threading
 import time
+import traceback
 
 from pythonosc.udp_client import SimpleUDPClient
 from pythonosc.dispatcher import Dispatcher
@@ -87,18 +88,29 @@ class EngineBridge:
         self._beat()
         self.step = int(a[0]) if a else -1
 
+    # Telemetry handlers run on the (single-threaded) OSC server. A raising callback would
+    # kill that thread and silently take out /ph/step, /ph/cycle and /ph/cpu — so guard them.
     def _h_cycle(self, _addr, *_a):
         cb = self.on_cycle
         if cb:
-            cb()
+            try:
+                cb()
+            except Exception:
+                traceback.print_exc()
 
     def _h_amp(self, _addr, *a):
         if not a:
             return
-        self.amp = float(a[0])
+        try:
+            self.amp = float(a[0])
+        except (TypeError, ValueError):
+            return
         cb = self.on_amp
         if cb:
-            cb(self.amp)
+            try:
+                cb(self.amp)
+            except Exception:
+                traceback.print_exc()
 
     def _h_cpu(self, _addr, *a):
         self._beat()
