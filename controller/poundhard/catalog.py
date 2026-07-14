@@ -289,6 +289,12 @@ MOLLY = VoiceSpec(
         P("molly.ringMod", "Ring Mod", default=0.0, musical=(0.0, 0.4)),
         P("molly.drive", "Drive", default=0.0, musical=(0.0, 0.6)),
         P("molly.chorus", "Chorus", default=0.0, musical=(0.0, 0.7)),
+        # --- GRIT: what turns MOLLY from a polite Moog into an IDM / rhythmic-noise voice
+        P("molly.fmAmt", "Cross FM", default=0.0, musical=(0.0, 0.5)),
+        P("molly.fold", "Wavefold", default=0.0, musical=(0.0, 0.85)),
+        P("molly.crush", "Bit Crush", default=0.0, musical=(0.0, 0.8)),
+        P("molly.downsample", "Downsample", default=0.0, musical=(0.0, 0.7)),
+        P("molly.grit", "Grit / Crackle", default=0.0, musical=(0.0, 0.6)),
         *_COMMON_TAIL("molly", ampd=0.35, ampmus=(0.25, 0.55)),
     ],
 )
@@ -351,7 +357,8 @@ class FxSpec:
     params: list           # [(arg, lo, hi), ...] morphed by the macro
 
 FX_SPECS: list[FxSpec] = [
-    FxSpec("OVERDRIVE", "OD", [("drive", 1.5, 24.0), ("tone", -0.6, 0.7)]),
+    FxSpec("OVERDRIVE", "OD", [("drive", 2.0, 32.0), ("tone", -0.6, 0.7), ("fold", 0.0, 0.9),
+                               ("bias", 0.0, 0.55), ("grit", 0.0, 0.85)]),
     FxSpec("AMPSIM", "AMP", [("gain", 2.0, 20.0), ("bass", -8.0, 8.0), ("mid", -8.0, 8.0), ("treble", -8.0, 8.0)]),
     FxSpec("BITCRUSHER", "CRSH", [("bits", 3.0, 12.0), ("downsample", 1.0, 24.0)]),
     FxSpec("RINGMOD", "RING", [("freq", 30.0, 1200.0)]),

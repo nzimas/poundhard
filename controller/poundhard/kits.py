@@ -118,16 +118,22 @@ ROLES: list[Role] = [
                 "fmtone.feedback": (0.0, 1.0), "fmtone.decay": (0.1, 0.7),
                 "fmtone.cutoff": (2000, 15000), "fmtone.fold": (0.0, 0.4)}),
     # ---- tracks 15-16: MOLLY (lead / pad) ----
-    Role("M LEAD", "MOLLY", note_choices=(0, 7, 12), octave=24,      # lead / stab
-         bands={"molly.oscShape": (0.3, 1.0), "molly.cutoff": (900, 6000),
-                "molly.resonance": (0.15, 0.6), "molly.filterEnvAmt": (0.1, 0.8),
+    Role("M LEAD", "MOLLY", note_choices=(0, 7, 12), octave=24,      # gritty lead / stab
+         bands={"molly.oscShape": (0.4, 1.0), "molly.cutoff": (900, 7000),
+                "molly.resonance": (0.3, 0.78), "molly.filterEnvAmt": (0.2, 0.9),
                 "molly.hold": (0.08, 0.5), "molly.aRel": (0.05, 0.6),
-                "molly.drive": (0.0, 0.5), "molly.detune": (2, 18)}, vel=(0.7, 1.0)),
-    Role("M PAD", "MOLLY", note_choices=(0, 3, 7, 10), octave=12,     # warm pad / keys
-         bands={"molly.oscShape": (0.0, 0.6), "molly.cutoff": (400, 2600),
-                "molly.resonance": (0.1, 0.4), "molly.subLevel": (0.1, 0.5),
+                "molly.drive": (0.35, 0.85), "molly.detune": (4, 28),
+                "molly.ringMod": (0.0, 0.35), "molly.fmAmt": (0.10, 0.45),
+                "molly.fold": (0.25, 0.80), "molly.crush": (0.15, 0.70),
+                "molly.downsample": (0.0, 0.50), "molly.grit": (0.10, 0.50)}, vel=(0.75, 1.0)),
+    Role("M PAD", "MOLLY", note_choices=(0, 3, 7, 10), octave=12,     # corroded pad / keys
+         bands={"molly.oscShape": (0.0, 0.7), "molly.cutoff": (400, 3200),
+                "molly.resonance": (0.15, 0.55), "molly.subLevel": (0.1, 0.5),
                 "molly.hold": (0.4, 1.5), "molly.aSus": (0.6, 1.0), "molly.aRel": (0.4, 2.5),
-                "molly.chorus": (0.2, 0.7), "molly.detune": (5, 20)}, vel=(0.6, 0.9)),
+                "molly.chorus": (0.15, 0.6), "molly.detune": (6, 30),
+                "molly.drive": (0.20, 0.60), "molly.fmAmt": (0.0, 0.30),
+                "molly.fold": (0.15, 0.60), "molly.crush": (0.10, 0.55),
+                "molly.downsample": (0.05, 0.45), "molly.grit": (0.05, 0.35)}, vel=(0.65, 0.95)),
 ]
 
 

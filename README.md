@@ -64,7 +64,7 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   | 7–9 | **RINGS** | 🩵 cyan | mallet/bell · sympathetic pluck · inharmonic bell (Mutable Rings) |
   | 10–11 | **BUCHLOID** | 🟣 magenta | drone · noise texture |
   | 12–14 | **FMTONE** | 🟢 green | sub · bass · ornament |
-  | 15–16 | **MOLLY** | 🔵 blue | lead/stab · warm pad |
+  | 15–16 | **MOLLY** | 🔵 blue | gritty lead/stab · corroded pad |
 
 - **32-step sequencer per track**, each with independent length and clock rate
   (**polymeter** — tracks phase against each other).
@@ -89,7 +89,10 @@ All voices are **spawned per hit and self-free** (see [voice model](#voice-model
 - **FMTONE** — 2-operator FM with feedback, wavefolding and a filter.
 - **BUCHLOID** — Buchla-flavoured complex-oscillator/wavefolder voice for
   drones and noise textures.
-- **MOLLY** — a Moog-ladder (`MoogFF`) subtractive synth for leads and pads.
+- **MOLLY** — a Moog-ladder (`MoogFF`) subtractive synth, built for **grit** rather
+  than politeness: oscillator cross-FM, a pre-filter **wavefolder**, an asymmetric
+  (biased) drive stage, **bit-crush + sample-rate reduction**, and a crackle/dust
+  layer. Leads and pads that corrode.
 - **RINGS** — **Mutable Instruments Rings** (`MiRings`, from mi-UGens) modal /
   sympathetic-string resonator; one strike per step, summed to mono then panned.
 
@@ -148,6 +151,10 @@ place.
 row is an 8-effect chain — `OD · AMP · CRSH · RING · FLNG · GRN · DLY · VRB`
 (reverb always last/rightmost), each a distinct colour.
 
+**OD** is not a polite tube sim: tilt EQ → asymmetric (biased) drive → a
+**wavefolder** that reflects peaks back for metallic bite → a hard-clip **grit**
+stage for fizz and breakup. Its macro sweeps drive/tone/fold/bias/grit together.
+
 | Control | Action |
 |---|---|
 | **Hold an FX pad + tap tracks** | assign that FX to those tracks (their pad takes the FX colour) |
@@ -197,12 +204,18 @@ that capture the master output to **stereo 16-bit WAV** (up to **7 minutes** eac
 |---|---|
 | **Pad — tap** | if the sequencer is playing, start recording that slot immediately; if stopped, **arm** it |
 | **Play** (when armed) | begin the armed recording |
-| **Pad — tap the recording slot**, or **Play** | stop the recording |
+| **Pad — tap the recording slot**, or **Play** | **finish** the take — see the tail behaviour below |
+
+**Tails are captured.** Finishing a take does *not* cut the audio dead: the recorder
+keeps running and only closes the file once the master output has actually fallen
+silent, so **reverb and delay tails land in the recording**. The pad glows amber
+while the tail runs (tap it again to cut the tail short). A 30 s safety limit ends a
+tail that never decays (e.g. a drone).
 
 Slot colours: dark-grey = empty, green = holds a take, blinking amber = armed
-(waiting for Play), pulsing red = recording. The screen shows a giant `M:SS`
-counter while recording. See [Recording & the web UI](#recording--the-web-ui) for
-downloads.
+(waiting for Play), pulsing red = recording, pulsing amber = capturing the tail. The
+screen shows a giant `M:SS` counter. See
+[Recording & the web UI](#recording--the-web-ui) for downloads.
 
 ---
 
@@ -243,6 +256,12 @@ pattern's groove right before the downbeat.
 The [recorder view](#recorder-view) captures the master output (post-limiter, what
 you hear) to **stereo 16-bit WAV** via a `DiskOut` synth in the engine, capped at
 **7 minutes** per take, into `/data/UserData/poundhard/recordings/`.
+
+Finishing a take enters a **tail** phase: the engine keeps writing while it reports
+the master level to the controller (`/ph/amp`, ~10 Hz), and the file is only closed
+once the signal has stayed below the silence threshold for a beat — so reverb and
+delay tails are preserved. Tune it with `PH_REC_SILENCE` (default `0.004`; music
+typically sits around `0.1–0.4`).
 
 The controller runs a small **web UI** at **`http://move.local:7177`** where every
 recording has a **▶ Play** button (audition in the browser) and a **Download**

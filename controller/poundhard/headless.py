@@ -42,6 +42,9 @@ RECORDINGS_DIR = Path(_env("PH_RECORDINGS", "/data/UserData/poundhard/recordings
 WEB_PORT = int(_env("PH_WEB_PORT", "7177"))        # http://move.local:7177 (download recordings)
 N_RECORDINGS = 8                                   # recording slots
 REC_MAX_SEC = 420.0                                # hard cap: 7 minutes per recording
+REC_TAIL_MAX_SEC = 30.0                            # safety: cut the tail if it never goes silent
+REC_SILENCE_THRESH = float(_env("PH_REC_SILENCE", "0.004"))   # master level counted as "silent"
+REC_SILENCE_SEC = 1.2                              # ...must stay below it this long to end the take
 CONTROL_HZ = float(_env("PH_CONTROL_HZ", "30"))    # control.json poll rate
 SNAP_HZ = float(_env("PH_SNAPSHOT_HZ", "5"))       # status.json write rate (lower = less SD I/O)
 
@@ -59,6 +62,8 @@ class Controller:
         self._threads: list[threading.Thread] = []
         self._lock = threading.Lock()          # serialize state mutations (dispatch vs bar-cycle)
         self.bridge.on_cycle = self._on_cycle  # apply a queued pattern switch on the bar boundary
+        self.bridge.on_amp = self._on_amp      # master level while recording -> ends the tail
+        self._quiet_since: float | None = None
         self._proj_slots = [False] * N_PATTERNS  # which project files exist on disk (cached)
         # performance recording
         self._rec_state = "idle"                 # idle | armed | recording
@@ -204,8 +209,8 @@ class Controller:
         self._rec_timer.daemon = True
         self._rec_timer.start()
 
-    def _rec_finish(self) -> None:
-        """Stop the current recording and finalize its file."""
+    def _rec_hard_stop(self) -> None:
+        """Stop and finalize the take immediately (no tail)."""
         if self._rec_timer:
             self._rec_timer.cancel()
             self._rec_timer = None
@@ -214,6 +219,43 @@ class Controller:
             self._rec_slots[self._rec_slot] = True
         self._rec_state = "idle"
         self._rec_slot = -1
+
+    def _rec_finish(self) -> None:
+        """Enter TAIL mode: the engine keeps writing while we watch the master level
+        (/ph/amp). Once it stays below the silence threshold long enough, the take is
+        finalized — so reverb / delay tails land in the file instead of being cut off."""
+        if self._rec_state != "recording":
+            return
+        if self._rec_timer:
+            self._rec_timer.cancel()
+        self._rec_state = "tail"          # engine keeps writing; we just don't stop it yet
+        self._quiet_since = None
+        self._rec_timer = threading.Timer(REC_TAIL_MAX_SEC, self._rec_tail_timeout,
+                                          args=(self._rec_slot,))
+        self._rec_timer.daemon = True
+        self._rec_timer.start()
+
+    def _on_amp(self, amp: float) -> None:
+        """Master level (~10Hz, only while recording). Ends a take once its tail dies away."""
+        if self._rec_state != "tail":
+            self._quiet_since = None
+            return
+        now = time.monotonic()
+        if amp >= REC_SILENCE_THRESH:
+            self._quiet_since = None
+            return
+        if self._quiet_since is None:
+            self._quiet_since = now
+        elif (now - self._quiet_since) >= REC_SILENCE_SEC:
+            self._quiet_since = None
+            with self._lock:
+                if self._rec_state == "tail":
+                    self._rec_hard_stop()          # tail has died away -> finalize the file
+
+    def _rec_tail_timeout(self, slot: int) -> None:
+        with self._lock:
+            if self._rec_state == "tail" and self._rec_slot == slot:
+                self._rec_hard_stop()          # tail never went quiet (a drone) -> cut it
 
     def _rec_arm(self, slot: int) -> None:
         """Press on `slot`: start now if playing, else arm for the next Play."""
@@ -226,17 +268,23 @@ class Controller:
     def _rec_pad(self, slot: int) -> None:
         if self._rec_state == "recording":
             if slot == self._rec_slot:
-                self._rec_finish()             # tap the recording pad -> stop
+                self._rec_finish()             # tap the recording pad -> let the tail run out
             else:
-                self._rec_finish()             # switch to a different slot
+                self._rec_hard_stop()          # switching slots -> cut it
+                self._rec_arm(slot)
+        elif self._rec_state == "tail":
+            was = self._rec_slot
+            self._rec_hard_stop()              # tapping during the tail cuts it short
+            if slot != was:
                 self._rec_arm(slot)
         else:
             self._rec_arm(slot)
 
     def _rec_timeout(self, slot: int) -> None:
+        """7-minute hard cap."""
         with self._lock:
-            if self._rec_state == "recording" and self._rec_slot == slot:
-                self._rec_finish()
+            if self._rec_state in ("recording", "tail") and self._rec_slot == slot:
+                self._rec_hard_stop()
         self.bridge.run(self.state.running)
 
     def _push_voices(self) -> None:
@@ -369,7 +417,8 @@ class Controller:
         elif cmd == "run":
             st.running = bool(int(arg))
             self.bridge.run(st.running)
-            # transport bounds a recording: armed + Play -> start; recording + Stop -> finish
+            # transport bounds a recording: armed + Play -> start. Stopping does NOT cut the
+            # take dead — it enters TAIL mode so reverb/delay tails are captured.
             if st.running and self._rec_state == "armed":
                 self._rec_begin(self._rec_slot)
             elif (not st.running) and self._rec_state == "recording":
@@ -461,7 +510,8 @@ class Controller:
             "recSlots": list(self._rec_slots),
             "recSlot": self._rec_slot,
             "recState": self._rec_state,
-            "recElapsed": int(time.monotonic() - self._rec_start) if self._rec_state == "recording" else 0,
+            "recElapsed": int(time.monotonic() - self._rec_start) if self._rec_state in ("recording", "tail") else 0,
+            "recAmp": round(self.bridge.amp, 5),
             "webPort": WEB_PORT,
             "drumTracks": DRUM_TRACKS,
             "tracks": tracks,
@@ -494,7 +544,7 @@ class Controller:
         # the SD card is, so don't rewrite an identical snapshot. cpu/nodes jitter every
         # tick (live averages) so they're excluded from the comparison; the snapshot is
         # still refreshed at least every 1.5s so its mtime proves the controller is live.
-        key = json.dumps({k: v for k, v in status.items() if k not in ("cpu", "nodes")})
+        key = json.dumps({k: v for k, v in status.items() if k not in ("cpu", "nodes", "recAmp")})
         now = time.monotonic()
         if key == self._last_status_key and (now - self._last_status_write) < 1.5:
             return

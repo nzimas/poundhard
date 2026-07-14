@@ -189,7 +189,8 @@
 		subLevel = 0, noiseLevel = 0, cutoff = 1200, resonance = 0.2, lpType = 1, filterEnvAmt = 0.3,
 		fAtk = 0.05, fDec = 0.3, fSus = 0.6, fRel = 0.6, aAtk = 0.01, aDec = 0.3, aSus = 0.8, aRel = 0.5,
 		lfoRate = 4, lfoToCutoff = 0, lfoToPitch = 0, lfoToPW = 0, lfoToAmp = 0,
-		ringMod = 0, drive = 0, chorus = 0, hold = 0.3, amp = 0.3, pan = 0|
+		ringMod = 0, drive = 0, chorus = 0, hold = 0.3, amp = 0.3, pan = 0,
+		fmAmt = 0, fold = 0, crush = 0, downsample = 0, grit = 0|
 		var v = vel.clip(0, 2).max(0.03);
 		var glen = hold.clip(0.01, 8);
 		var gate = EnvGen.kr(Env([1, 1, 0], [glen, 0.0]));   // hold high for glen, then release
@@ -199,19 +200,33 @@
 		var fB = fA * (2 ** (detune / 1200));
 		var pw = (pulseWidth + (lfo * lfoToPW * 0.4)).clip(0.05, 0.95);
 		var wave = { |f| SelectX.ar(oscShape * 2, [VarSaw.ar(f, 0, 0.5), Saw.ar(f), Pulse.ar(f, pw)]) };
-		var oscA = wave.(fA), oscB = wave.(fB);
+		// GRIT stage 1 — cross-FM: osc B modulates osc A into inharmonic, metallic territory
+		var modB = SinOsc.ar(fB) * fmAmt * fA * 3;
+		var oscA = wave.((fA + modB).clip(20, 12000)), oscB = wave.(fB);
 		var sub = Pulse.ar(fA * 0.5, 0.5) * subLevel;
-		var noise = WhiteNoise.ar(noiseLevel);
+		// GRIT stage 2 — crackle/dust on top of the noise source
+		var noise = WhiteNoise.ar(noiseLevel) + (Dust2.ar((2000 * grit).max(1)) * grit * 0.7);
 		var mix = ((oscA + oscB) * 0.5) + sub + noise;
 		var fenv = EnvGen.ar(Env.adsr(fAtk, fDec, fSus, fRel), gate);
 		var aenv = EnvGen.ar(Env.adsr(aAtk, aDec, aSus, aRel), gate);
 		var fc = (cutoff * (2 ** ((filterEnvAmt * fenv * 4) + (lfo * lfoToCutoff * 2)))).clip(20, 18000);
-		var filt, sig, cho;
+		var filt, sig, cho, bits, lv, dsr;
 		mix = XFade2.ar(mix, oscA * oscB * 2, (ringMod * 2 - 1));
+		// GRIT stage 3 — WAVEFOLDER before the filter: reflected harmonics, Buchla-ish bite
+		mix = XFade2.ar(mix, (mix * (1 + (fold * 10))).fold2(1) * 0.7, (fold.clip(0, 1) * 2 - 1));
 		filt = Select.ar(lpType.clip(0, 1), [
 			RLPF.ar(mix, fc, (1 - (resonance * 0.95)).max(0.05)),
 			MoogFF.ar(mix, fc, (resonance * 4).clip(0, 3.95))]);
-		sig = (filt * (1 + (drive * 6))).tanh / (1 + (drive * 2.5));
+		// GRIT stage 4 — harder, ASYMMETRIC drive (bias -> even harmonics, not just tanh fizz)
+		sig = filt * (1 + (drive * 14));
+		sig = (sig + (drive * 0.3)).tanh;
+		sig = sig / (1 + (drive * 2.2));
+		// GRIT stage 5 — digital: bit-crush + sample-rate reduction
+		bits = (16 - (crush * 13)).clip(3, 16);
+		lv = 2 ** bits;
+		sig = XFade2.ar(sig, (sig * lv).round / lv, (crush.clip(0, 1) * 2 - 1));
+		dsr = (SampleRate.ir / (1 + (downsample * 80))).clip(800, SampleRate.ir);
+		sig = XFade2.ar(sig, Latch.ar(sig, Impulse.ar(dsr)), (downsample.clip(0, 1) * 2 - 1));
 		sig = sig * aenv * (1 - (lfoToAmp * (lfo * 0.5 + 0.5)));
 		cho = Mix(DelayC.ar(sig, 0.06, LFNoise2.kr([0.5, 0.7]).range(0.004, 0.02))) * 0.7;
 		sig = XFade2.ar(sig, cho, (chorus * 2 - 1)) * amp * v;
@@ -270,12 +285,27 @@
 	// stereo WAV via DiskOut. Runs after the master node so it captures what's heard.
 	SynthDef(\phRec, { |buf = 0| DiskOut.ar(buf, In.ar(0, 2)) }).add;
 
-	// ---- OVERDRIVE: tilt EQ + tanh soft-clip (stereo) ----
-	SynthDef(\phOverdrive, { |out = 0, in = 0, drive = 4, tone = 0, amp = 0.8, pan = 0, bypass = 0, wet = 0.5, enable = 1|
+	// LEVEL MONITOR: reports the master output amplitude while a take is recording. The
+	// controller watches it to decide when a take's tail has died away (so reverb/delay
+	// tails are captured before the file is closed).
+	SynthDef(\phAmp, {
+		var sig = Mix(In.ar(0, 2)) * 0.5;
+		SendReply.kr(Impulse.kr(10), '/ph/amprep', Amplitude.kr(sig, 0.01, 0.25));
+	}).add;
+
+	// ---- OVERDRIVE: tilt EQ -> asymmetric drive -> WAVEFOLDER -> hard-clip grit (stereo).
+	// Not a polite tube sim: bias adds even harmonics, the folder reflects peaks back for
+	// Buchla-ish metallic bite, and the grit stage hard-clips for fizz/breakup.
+	SynthDef(\phOverdrive, { |out = 0, in = 0, drive = 4, tone = 0, fold = 0, bias = 0, grit = 0,
+		amp = 0.8, pan = 0, bypass = 0, wet = 0.5, enable = 1|
 		var dry = In.ar(in, 2), y;
 		y = BHiShelf.ar(dry, 1500, 1.0, tone * 9);
 		y = BLowShelf.ar(y, 220, 1.0, tone.neg * 6);
-		y = (y * drive.max(0.01)).tanh;
+		y = y * drive.max(0.01);
+		y = (y + bias).tanh;                                                     // asymmetry -> even harmonics
+		y = XFade2.ar(y, (y * (1 + (fold * 9))).fold2(1) * 0.8, (fold.clip(0, 1) * 2 - 1));
+		y = XFade2.ar(y, (y * (1 + (grit * 6))).clip2(0.6) * 1.25, (grit.clip(0, 1) * 2 - 1));
+		y = LeakDC.ar(y) / (1 + (drive * 0.10));                                 // level compensation
 		ReplaceOut.ar(out, ~fxOut.(dry, y, amp, enable, wet, bypass));
 	}).add;
 

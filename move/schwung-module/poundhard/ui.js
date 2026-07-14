@@ -240,6 +240,7 @@ function renderLEDs() {
             if (recView) {                                          /* 8 recording slots */
                 if (c >= 8) color = Black;
                 else if (c === recSlot && recState === 'recording') color = (phase % 16 < 8) ? 1 : 66;   /* red pulse */
+                else if (c === recSlot && recState === 'tail') color = (phase % 20 < 10) ? 28 : 66;      /* amber: capturing tail */
                 else if (c === recSlot && recState === 'armed') color = (phase % 30 < 15) ? 28 : Black;   /* amber blink */
                 else color = recSlots[c] ? BrightGreen : 124;       /* green = has a take / dark-grey empty */
             } else if (projView) color = projFilled[c] ? 16 : 95;   /* RoyalBlue filled / DarkBlue empty */
@@ -371,9 +372,10 @@ function drawFx() {
     print(0, 56, 'knobs 1-8 = macros', 1);
 }
 function drawRec() {
-    if (recState === 'recording') {
+    if (recState === 'recording' || recState === 'tail') {
         var mm = Math.floor(recElapsed / 60), ss = recElapsed % 60;
-        drawParamBig('REC ' + (recSlot + 1), mm + ':' + (ss < 10 ? ('0' + ss) : ('' + ss)), 'uni', clampf(recElapsed / 420, 0, 1));
+        drawParamBig((recState === 'tail' ? 'TAIL ' : 'REC ') + (recSlot + 1),
+            mm + ':' + (ss < 10 ? ('0' + ss) : ('' + ss)), 'uni', clampf(recElapsed / 420, 0, 1));
         return;
     }
     clear_screen();

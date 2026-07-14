@@ -32,6 +32,8 @@ class EngineBridge:
         self.step = -1
         self._on_ready = None
         self.on_cycle = None      # called on each /ph/cycle (bar boundary) — set by the controller
+        self.on_amp = None        # called with the master level (~10Hz) while recording
+        self.amp = 0.0
 
     # -- lifecycle --------------------------------------------------------- #
     def start(self, on_ready=None) -> None:
@@ -45,6 +47,7 @@ class EngineBridge:
         disp.map("/ph/step", self._h_step)
         disp.map("/ph/cpu", self._h_cpu)
         disp.map("/ph/cycle", self._h_cycle)
+        disp.map("/ph/amp", self._h_amp)
         try:
             # Blocking (single-threaded) server: telemetry handlers are trivial and
             # fast, so we avoid spawning a thread per incoming /ph/step datagram.
@@ -88,6 +91,14 @@ class EngineBridge:
         cb = self.on_cycle
         if cb:
             cb()
+
+    def _h_amp(self, _addr, *a):
+        if not a:
+            return
+        self.amp = float(a[0])
+        cb = self.on_amp
+        if cb:
+            cb(self.amp)
 
     def _h_cpu(self, _addr, *a):
         self._beat()

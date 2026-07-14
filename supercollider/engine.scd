@@ -82,8 +82,9 @@
 };
 
 // ---- performance recording (master output -> stereo WAV via DiskOut) ----
-~recBuf = nil; ~recSynth = nil;
+~recBuf = nil; ~recSynth = nil; ~ampSynth = nil;
 ~recStop = {
+	~ampSynth.notNil.if { ~ampSynth.free; ~ampSynth = nil };
 	~recSynth.notNil.if { ~recSynth.free; ~recSynth = nil };       // stop writing first
 	~recBuf.notNil.if { ~recBuf.close; ~recBuf.free; ~recBuf = nil };   // close finalizes the WAV header
 };
@@ -96,6 +97,8 @@
 	// int16: universally playable in browsers (some reject 24-bit WAV in <audio>)
 	~recBuf.write(path, "wav", "int16", 0, 0, true,
 		~recSynth.newMsg(~recGroup, [\buf, ~recBuf], \addToTail));
+	// report the master level while recording -> the controller ends the take on silence
+	~ampSynth = Synth.tail(~recGroup, \phAmp);
 };
 
 // (re)build a track's FX chain: free existing, recreate assigned FX in canonical
@@ -274,6 +277,8 @@
 	OSCdef(\phPanic, { |m| ~stopSeq.value; ~gVoices.notNil.if { ~gVoices.freeAll }; ~trackVoices.do { |l| l.clear }; }, '/ph/panic'),
 	OSCdef(\phRecStart, { |m| ~recStart.value(m[1].asString); }, '/ph/recstart'),
 	OSCdef(\phRecStop,  { |m| ~recStop.value; }, '/ph/recstop'),
+	// master level from \phAmp -> forward to the controller (drives tail-end detection)
+	OSCdef(\phAmpRep,   { |m| ~ready.if { ~ctrl.sendMsg("/ph/amp", m[3].asFloat) }; }, '/ph/amprep'),
 	OSCdef(\phPing, { |m| ~ready.if { ~ctrl.sendMsg("/ph/ready") }; }, '/ph/ping'),
 ];
 
