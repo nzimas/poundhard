@@ -76,7 +76,7 @@ ROLES: list[Role] = [
                 "drum.res": (0.15, 0.6), "drum.crush": (0.0, 0.45),
                 "drum.downsample": (0.0, 0.45)}),
     # ---- 10 tonal / texture tracks, GROUPED by generator (contiguous step buttons) ----
-    # ---- tracks 7-9: RINGS (mallet / sympathetic / inharmonic bell) ----
+    # ---- tracks 7-8: RINGS (mallet / sympathetic) ----
     Role("RING M", "RINGS", note_choices=(0, 3, 7, 12), octave=12,   # mallet / bell (low register)
          fixed={"rings.model": 0},
          bands={"rings.struct": (0.2, 0.7), "rings.bright": (0.6, 0.95),
@@ -87,11 +87,13 @@ ROLES: list[Role] = [
          bands={"rings.struct": (0.3, 0.75), "rings.bright": (0.45, 0.85),
                 "rings.damp": (0.75, 0.95), "rings.pos": (0.15, 0.7),
                 "rings.decay": (1.5, 4.5)}, vel=(0.75, 1.0)),
-    Role("RING B", "RINGS", note_choices=(0, 3, 10, 12), octave=12,  # inharmonic bell
-         fixed={"rings.model": 2},
-         bands={"rings.struct": (0.4, 0.85), "rings.bright": (0.55, 0.9),
-                "rings.damp": (0.7, 0.95), "rings.pos": (0.15, 0.6),
-                "rings.decay": (1.0, 3.0)}, vel=(0.7, 1.0)),
+    # ---- track 9: BEN — Benjolin chaotic generative machine ----
+    Role("BEN", "BEN", note_choices=(0, 5, 7, 12), octave=0,
+         bands={"ben.freq2": (30, 1500), "ben.rungler1": (0.15, 0.80),
+                "ben.rungler2": (0.15, 0.80), "ben.runglerFilt": (0.25, 0.90),
+                "ben.filtFreq": (200, 5000), "ben.res": (0.25, 0.85),
+                "ben.chaos": (0.30, 1.0), "ben.drive": (0.15, 0.70),
+                "ben.decay": (0.20, 2.0)}, vel=(0.70, 1.0)),
     # ---- tracks 10-11: BUCHLOID (drone / noise texture) ----
     Role("DRONE", "BUCHLOID", note_choices=(0, 7), octave=12,
          bands={"buchloid.fm1Amount": (0.05, 0.4), "buchloid.fm2Amount": (0.0, 0.35),

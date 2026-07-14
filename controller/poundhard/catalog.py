@@ -96,7 +96,7 @@ class VoiceSpec:
 
 
 # Engine `/ph/track` type indices (must match ~typeDefs in engine.scd).
-TYPE_INDEX = {"DRUM": 0, "FMTONE": 1, "BUCHLOID": 2, "MOLLY": 3, "RINGS": 4}
+TYPE_INDEX = {"DRUM": 0, "FMTONE": 1, "BUCHLOID": 2, "MOLLY": 3, "RINGS": 4, "BEN": 5}
 
 _COMMON_TAIL = lambda pfx, ampd=0.8, ampmus=(0.5, 1.1): [
     P(f"{pfx}.amp", "Amp", unit="dB", rmin=0.0, rmax=2.0, default=ampd, curve=Curve.DB,
@@ -322,7 +322,33 @@ RINGS = VoiceSpec(
 
 # SAMPLER retired from the fleet (buffer streaming caused audio-thread stalls);
 # MOLLY replaces it. The SAMPLER spec/synthdef remain defined but unused.
-VOICES: dict[str, VoiceSpec] = {v.type: v for v in (DRUM, FMTONE, BUCHLOID, MOLLY, RINGS)}
+# --------------------------------------------------------------------------- #
+# BEN — Benjolin (Rob Hordijk): two oscillators cross-modulated by a "rungler"
+# shift register. Chaotic and self-patterning — a generative machine, not a
+# note-player. The rungler amounts and `chaos` decide how far it runs away.
+# --------------------------------------------------------------------------- #
+BEN = VoiceSpec(
+    type="BEN",
+    role="Benjolin-style chaotic generative voice — rungler cross-modulation.",
+    synthdef="phBen",
+    params=[
+        P("ben.freq2", "Osc 2", unit="Hz", rmin=5.0, rmax=4000.0, default=200.0,
+          curve=Curve.EXP, musical=(20.0, 1800.0)),
+        P("ben.rungler1", "Rungler -> Osc1", default=0.35, musical=(0.12, 0.80)),
+        P("ben.rungler2", "Rungler -> Osc2", default=0.35, musical=(0.12, 0.80)),
+        P("ben.runglerFilt", "Rungler -> Filter", default=0.5, musical=(0.20, 0.90)),
+        P("ben.filtFreq", "Cutoff", unit="Hz", rmin=30.0, rmax=14000.0, default=1200.0,
+          curve=Curve.EXP, musical=(200.0, 6000.0)),
+        P("ben.res", "Resonance", default=0.4, musical=(0.20, 0.85), danger=DangerClass.FEEDBACK),
+        P("ben.chaos", "Chaos", default=0.5, musical=(0.25, 1.0)),
+        P("ben.drive", "Drive", default=0.3, musical=(0.10, 0.70)),
+        P("ben.decay", "Decay", unit="s", rmin=0.05, rmax=8.0, default=1.0,
+          curve=Curve.EXP, formatter="float2", musical=(0.15, 2.5)),
+        *_COMMON_TAIL("ben", ampd=0.35, ampmus=(0.25, 0.60)),
+    ],
+)
+
+VOICES: dict[str, VoiceSpec] = {v.type: v for v in (DRUM, FMTONE, BUCHLOID, MOLLY, RINGS, BEN)}
 
 
 def macro_specs(voice_type: str) -> list[tuple[str, str, float, float]]:

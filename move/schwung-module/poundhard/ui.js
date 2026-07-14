@@ -72,7 +72,9 @@ const TYPE_COL = {
     RINGS:    [14, 87],   /* Cyan / DarkTeal */
     BUCHLOID: [21, 107],  /* HotMagenta / DarkPurple */
     FMTONE:   [8, 80],    /* BrightGreen / VeryDarkGreen */
-    MOLLY:    [16, 17],   /* RoyalBlue / Navy */
+    MOLLY:    [16, 95],   /* RoyalBlue / DarkBlue — dim MUST come from the dark band (74-107),
+                           * not the bright band: Navy(17) reads as lit and swamped the pulse. */
+    BEN:      [2, 67],    /* OrangeRed / Brick — track 9, the Benjolin chaos machine */
 };
 
 /* ---- runtime state (mirrors status.json) ---- */
@@ -99,6 +101,11 @@ let projFilled = new Array(N_STEPS).fill(false);
 let recView = false;
 let recSlots = new Array(8).fill(false), recSlot = -1, recState = 'idle', recElapsed = 0;
 let webPort = 7177;
+/* SOLO: double-tap a step button. (Shift+step is NOT used — Shift + step-13 is a fatal
+ * Move firmware combo that floods MIDI and gets the module watchdog-killed.) */
+let solo = -1;
+let lastTapAt = new Array(N_TRACKS).fill(0);
+const DOUBLE_MS = 320;
 let editSteps = new Array(N_STEPS).fill(0);
 let editName = '', editType = '';
 let stepNote = new Array(N_STEPS).fill(60);
@@ -222,7 +229,8 @@ function trackPulseOn(t) {
 function stepColor(t) {
     if (editTrack === t) return SEL_COLOR;
     var pair = TYPE_COL[types[t]];              /* types default to 'DRUM', always a valid key */
-    if (muted[t]) return pair[1];               /* muted -> steady dim */
+    /* a soloed track silences every other one — show them as muted without touching flags */
+    if (muted[t] || (solo >= 0 && solo !== t)) return pair[1];   /* muted / not-soloed -> dim */
     if (active[t]) return (running ? (trackPulseOn(t) ? pair[0] : pair[1]) : pair[0]);  /* events */
     return pair[1];                             /* unmuted but empty -> steady dim */
 }
@@ -449,6 +457,7 @@ function readStatus() {
     kitName = s.kit || '';
     if (Array.isArray(s.patFilled)) patFilled = s.patFilled;
     if (Array.isArray(s.projFilled)) projFilled = s.projFilled;
+    if (s.solo != null) solo = s.solo;
     if (s.patCur != null) patCur = s.patCur;
     if (s.patPending != null) patPending = s.patPending;
     if (Array.isArray(s.recSlots)) recSlots = s.recSlots;
@@ -483,7 +492,7 @@ function readStatus() {
         if (s.edit.stepMacro) stepMacro = s.edit.stepMacro;
     }
     var fxSig = fxView ? ('X' + fxHeld + '|' + fxTop.join('.') + '|' + fxBypass.map(function (b) { return b ? '1' : '0'; }).join('') + '|' + fxOn.map(function (a) { return a.join(','); }).join(';')) : '';
-    var base = (ready ? '1' : '0') + (running ? 'R' : 's') + editTrack + '/' + editLen() + (fxView ? 'F' : '') + '|' +
+    var base = (ready ? '1' : '0') + (running ? 'R' : 's') + editTrack + '/' + editLen() + (fxView ? 'F' : '') + 'S' + solo + '|' +
         muted.map(function (m) { return m ? '1' : '0'; }).join('') +
         active.map(function (a) { return a ? '1' : '0'; }).join('') + '|' + Math.round(tempo) + fxSig;
     /* LED sig includes the playhead (step) — a cheap 2-pad change. The SCREEN sig
@@ -531,6 +540,7 @@ globalThis.init = function () {
     patView = false; projView = false; patCur = -1; patPending = -1;
     patFilled = new Array(N_STEPS).fill(false); projFilled = new Array(N_STEPS).fill(false);
     recView = false; recSlots = new Array(8).fill(false); recSlot = -1; recState = 'idle'; recElapsed = 0;
+    solo = -1; lastTapAt = new Array(N_TRACKS).fill(0);
 };
 
 globalThis.tick = function () {
@@ -646,7 +656,18 @@ globalThis.onMidiMessageInternal = function (data) {
     if ((status === 0x80 || (status === 0x90 && d2 === 0)) && d1 >= STEP_BASE && d1 <= STEP_BASE + 15) {
         const t = d1 - STEP_BASE;
         if (trackHeld === t) {
-            if (!trackActive) { muted[t] = !muted[t]; sendCmd('mute', t); }   /* short tap = mute */
+            if (!trackActive) {
+                var _now = Date.now();
+                muted[t] = !muted[t]; sendCmd('mute', t);                  /* short tap = mute */
+                if (_now - lastTapAt[t] < DOUBLE_MS) {                     /* DOUBLE-tap = solo */
+                    /* the two taps' mute toggles cancel out, so the mute state is unchanged */
+                    sendCmd('solo', t);
+                    showAction((solo === t ? 'UNSOLO T' : 'SOLO T') + (t + 1));
+                    lastTapAt[t] = 0;                                      /* consume the pair */
+                } else {
+                    lastTapAt[t] = _now;
+                }
+            }
             trackHeld = -1; trackActive = false; knobShow = null; ledDirty = true; screenDirty = true;
         }
         return;

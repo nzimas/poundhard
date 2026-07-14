@@ -266,6 +266,43 @@
 			Out.ar(out, ~killbad.(~spread.(s, pan)));   // Pan2 mono -> stereo; robust, live-settable pan
 		}).add;
 
+	// ================= BEN — Benjolin (Rob Hordijk) chaotic generative voice ==========
+	// Two oscillators cross-modulated by a RUNGLER: an 8-stage shift register clocked by
+	// osc2's rising edges and fed by osc1's comparator. Its 3-bit DAC output re-modulates
+	// BOTH oscillators and the filter cutoff — a feedback loop that self-patterns into
+	// evolving, never-quite-repeating chaos. That loop IS the generative algorithm.
+	SynthDef(\phBen, { |out = 16, note = 48, vel = 1,
+		freq2 = 200, rungler1 = 0.35, rungler2 = 0.35, runglerFilt = 0.5,
+		filtFreq = 1200, res = 0.4, chaos = 0.5, drive = 0.3, decay = 1.0, amp = 0.35, pan = 0|
+		var v = vel.clip(0, 2).max(0.03);
+		var life = decay.clip(0.05, 12);
+		var base = note.clip(0, 127).midicps;
+		var fb = LocalIn.ar(1);                       // last block's rungler value
+		var r = fb.clip(0, 1);
+		// rungler cross-modulates both oscillators -> the chaos
+		var f1 = (base * (2 ** ((r - 0.5) * rungler1 * 6 * chaos))).clip(2, 6000);
+		var f2 = (freq2 * (2 ** ((r - 0.5) * rungler2 * 6 * chaos))).clip(2, 9000);
+		var o1 = LFTri.ar(f1), o2 = LFTri.ar(f2);
+		var sq1 = (o1 > 0), sq2 = (o2 > 0);
+		var clk = HPZ1.ar(sq2) > 0.1;                 // clock on osc2 rising edges
+		var bits = Array.newClear(8);
+		var prev = sq1;
+		var dac, ffreq, sig, filt, aEnv;
+		// 8-stage shift register: Delay1 makes each stage latch the PREVIOUS stage's
+		// pre-clock value (without it they'd all latch the same new bit).
+		8.do { |i| bits[i] = Latch.ar(prev, clk); prev = Delay1.ar(bits[i]) };
+		dac = ((bits[0] * 4) + (bits[2] * 2) + (bits[4] * 1)) / 7;    // 3-bit DAC -> 0..1
+		LocalOut.ar(dac);                             // ...and feed it back
+		ffreq = (filtFreq * (2 ** ((dac - 0.5) * runglerFilt * 6))).clip(30, 14000);
+		sig = (sq1 - sq2) * 0.5;                      // the classic XOR-ish output
+		filt = RLPF.ar(sig, ffreq, (1 - res.clip(0, 0.97)).max(0.03));
+		filt = (filt * (1 + (drive * 8))).tanh / (1 + (drive * 2));
+		aEnv = EnvGen.ar(Env([0, 1, 1, 0], [0.004, (life - 0.12).max(0.02), 0.12], [0, 0, -3]));
+		sig = LeakDC.ar(filt) * aEnv * v * amp;
+		Line.kr(0, 1, life + 0.2, doneAction: 2);
+		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+	}).add;
+
 	// ================= FX (per-track insert chain) =================
 	// Each FX reads its track bus (`in`), processes, and REPLACES the bus (`out`
 	// == `in`) — so a track's FX run in place, in canonical chain order. Stereo.

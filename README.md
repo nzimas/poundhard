@@ -61,7 +61,8 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   | Tracks | Engine | Colour | Voices |
   |--------|--------|--------|--------|
   | 1–6 | **DRUM** | 🟡 yellow | kick · snare · closed hat · open hat · clap · metallic/glitch perc |
-  | 7–9 | **RINGS** | 🩵 cyan | mallet/bell · sympathetic pluck · inharmonic bell (Mutable Rings) |
+  | 7–8 | **RINGS** | 🩵 cyan | mallet/bell · sympathetic pluck (Mutable Rings) |
+  | 9 | **BEN** | 🟠 orange | Benjolin — chaotic generative machine |
   | 10–11 | **BUCHLOID** | 🟣 magenta | drone · noise texture |
   | 12–14 | **FMTONE** | 🟢 green | sub · bass · ornament |
   | 15–16 | **MOLLY** | 🔵 blue | gritty lead/stab · corroded pad |
@@ -95,6 +96,12 @@ All voices are **spawned per hit and self-free** (see [voice model](#voice-model
   layer. Leads and pads that corrode.
 - **RINGS** — **Mutable Instruments Rings** (`MiRings`, from mi-UGens) modal /
   sympathetic-string resonator; one strike per step, summed to mono then panned.
+- **BEN** — a **Benjolin** (Rob Hordijk). Two oscillators cross-modulated by a
+  **rungler**: an 8-stage shift register clocked by osc 2 and fed by osc 1's
+  comparator, whose 3-bit output re-modulates *both* oscillators and the filter.
+  That feedback loop self-patterns into evolving, never-quite-repeating chaos — it
+  is a generative machine rather than a note-player. `chaos` and the rungler
+  amounts decide how far it runs away.
 
 > RINGS needs the **mi-UGens** plugins and the reverb FX needs **sc3-plugins**
 > (`JPverb`) present in the SuperCollider bundle on the device. There are **no
@@ -114,6 +121,7 @@ everywhere.
 | Control | Action |
 |---|---|
 | **Step button — tap** | mute / unmute that track |
+| **Step button — double-tap** | **solo** that track (double-tap again to un-solo) |
 | **Step button — long-press** | open that track in the [Edit view](#edit-view-per-track) |
 | **Track 2 button** | open the [FX view](#fx-view) |
 | **Track 3 button** | open the [Pattern view](#pattern-view) |
@@ -126,7 +134,13 @@ everywhere.
 | **Back** | exit the takeover (tears the stack down) |
 
 Step buttons are lit in their **engine colour**; a track with events pulses,
-a muted or empty track sits steady-dim, the open edit track is white.
+a muted or empty track sits steady-dim, the open edit track is white. Soloing a
+track dims every other one — without touching their own mute flags, so un-soloing
+restores exactly what was muted before.
+
+> Solo is on **double-tap**, not Shift+step: **Shift + step button 13** is a fatal
+> Move firmware combo (it floods MIDI and the module gets watchdog-killed), so Shift
+> is deliberately never used on the step buttons.
 
 ### Edit view (per track)
 

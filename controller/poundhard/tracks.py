@@ -113,6 +113,19 @@ class Project:
         self.patterns: list[dict | None] = [None] * N_PATTERNS
         self.pattern_cur: int = -1
         self.pattern_pending: int = -1
+        # SOLO: -1 = none. A live performance state (not saved into patterns): while a
+        # track is soloed every other track is effectively muted, without touching their
+        # own mute flags — so un-soloing restores exactly what was muted before.
+        self.solo: int = -1
+
+    # -- solo -------------------------------------------------------------- #
+    def toggle_solo(self, track: int) -> int:
+        self.solo = -1 if self.solo == track else track
+        return self.solo
+
+    def eff_muted(self, track: int) -> bool:
+        """What the ENGINE should mute: the track's own flag, or 'not the soloed track'."""
+        return self.tracks[track].muted or (self.solo >= 0 and track != self.solo)
 
     # -- snapshot / patterns ----------------------------------------------- #
     def snapshot(self) -> dict:

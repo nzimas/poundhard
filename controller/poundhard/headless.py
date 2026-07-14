@@ -145,6 +145,12 @@ class Controller:
                 self.bridge.fxassign(t, fx, True)
             if self.state.fx_bypass[t]:
                 self.bridge.fxbypass(t, True)
+        self._push_mutes()      # push_track sent raw mutes; correct them for solo
+
+    def _push_mutes(self) -> None:
+        """Push EFFECTIVE mutes (own mute OR 'not the soloed track') for every track."""
+        for t in range(N_TRACKS):
+            self.bridge.mute(t, self.state.eff_muted(t))
 
     def _push_step_macros(self, t: int) -> None:
         for cell in range(N_STEPS):
@@ -162,7 +168,7 @@ class Controller:
             self.bridge.pattern(t, tr.pattern)
             self.bridge.length(t, tr.length)
             self.bridge.rate(t, tr.rate)
-            self.bridge.mute(t, tr.muted)
+            self.bridge.mute(t, st.eff_muted(t))       # honour solo
             for cell in range(N_STEPS):
                 if (tr.step_note[cell] is not None or tr.step_vel[cell] is not None
                         or tr.step_pan[cell] is not None):
@@ -375,8 +381,13 @@ class Controller:
         elif cmd == "mute":
             t = int(arg)
             if 0 <= t < N_TRACKS:
-                muted = st.toggle_mute(t)
-                self.bridge.mute(t, muted)
+                st.toggle_mute(t)
+                self._push_mutes()             # effective mutes (solo may be active)
+        elif cmd == "solo":                    # double-tap a step button
+            t = int(arg)
+            if 0 <= t < N_TRACKS:
+                st.toggle_solo(t)
+                self._push_mutes()
         elif cmd == "editenter":
             t = int(arg)
             if 0 <= t < N_TRACKS:
@@ -514,6 +525,7 @@ class Controller:
             "step": self.bridge.step,
             "editTrack": st.edit_track,
             "kit": st.kit_name,
+            "solo": st.solo,
             # patterns (in-project) + projects (on disk) for the pattern/project views
             "patFilled": [p is not None for p in st.patterns],
             "patCur": st.pattern_cur,
