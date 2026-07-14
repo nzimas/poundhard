@@ -96,12 +96,19 @@ All voices are **spawned per hit and self-free** (see [voice model](#voice-model
   layer. Leads and pads that corrode.
 - **RINGS** — **Mutable Instruments Rings** (`MiRings`, from mi-UGens) modal /
   sympathetic-string resonator; one strike per step, summed to mono then panned.
-- **BEN** — a **Benjolin** (Rob Hordijk). Two oscillators cross-modulated by a
-  **rungler**: an 8-stage shift register clocked by osc 2 and fed by osc 1's
-  comparator, whose 3-bit output re-modulates *both* oscillators and the filter.
-  That feedback loop self-patterns into evolving, never-quite-repeating chaos — it
-  is a generative machine rather than a note-player. `chaos` and the rungler
-  amounts decide how far it runs away.
+- **BEN** — a **Benjolin** (Rob Hordijk), following the signal flow of the
+  [Benjolis](https://github.com/scazan/benjolis) SC engine (after Alberto de Campo).
+  Two oscillators feed a **rungler**: an 8-stage shift register clocked by osc 2 and
+  fed by osc 1's comparator. Its weighted 8-bit DAC is scaled to a MIDI value and run
+  through `.midicps`, yielding a *frequency* that is **added** to both oscillator
+  frequencies and to the filter cutoff. That additive, `midicps`-scaled feedback (not
+  exponential modulation) is what produces the stepped, self-patterning chaos — a
+  generative machine rather than a note-player.
+
+  Osc 2 is usually **sub-audio** (a few Hz): it clocks the register, so it sets the
+  pace of the stepped sequences. Four filter types (LP / HP / SVF / DFM1) and seven
+  output taps (tri1 · osc1 · tri2 · osc2 · pwm · sh0 · filter) are selectable, and the
+  kit role rolls all of them.
 
 > RINGS needs the **mi-UGens** plugins and the reverb FX needs **sc3-plugins**
 > (`JPverb`) present in the SuperCollider bundle on the device. There are **no

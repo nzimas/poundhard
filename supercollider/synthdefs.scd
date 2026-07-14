@@ -267,38 +267,54 @@
 		}).add;
 
 	// ================= BEN — Benjolin (Rob Hordijk) chaotic generative voice ==========
-	// Two oscillators cross-modulated by a RUNGLER: an 8-stage shift register clocked by
-	// osc2's rising edges and fed by osc1's comparator. Its 3-bit DAC output re-modulates
-	// BOTH oscillators and the filter cutoff — a feedback loop that self-patterns into
-	// evolving, never-quite-repeating chaos. That loop IS the generative algorithm.
+	// Ported to follow the Benjolis SC engine's signal flow
+	// (github.com/scazan/benjolis, after Alberto de Campo), adapted to PoundHard's
+	// spawn-per-hit voice model (amp envelope + self-free).
+	//
+	// The RUNGLER is the machine: an 8-stage shift register clocked by osc2 and fed by
+	// osc1's comparator. Its weighted 8-bit DAC (stage n weighted 1/2^(8-n)) is scaled to
+	// a MIDI value and run through .midicps, giving a FREQUENCY that is then ADDED to both
+	// oscillator frequencies and to the filter cutoff. That additive, midicps-scaled
+	// feedback (not exponential modulation) is what gives the Benjolin its stepped,
+	// self-patterning chaos.
 	SynthDef(\phBen, { |out = 16, note = 48, vel = 1,
-		freq2 = 200, rungler1 = 0.35, rungler2 = 0.35, runglerFilt = 0.5,
-		filtFreq = 1200, res = 0.4, chaos = 0.5, drive = 0.3, decay = 1.0, amp = 0.35, pan = 0|
+		freq2 = 4, scale = 1, rungler1 = 0.16, rungler2 = 0.0, runglerFilt = 9,
+		filtFreq = 40, q = 0.82, filterType = 0, outSignal = 6, gain = 1,
+		decay = 1.0, amp = 0.35, pan = 0|
 		var v = vel.clip(0, 2).max(0.03);
 		var life = decay.clip(0.05, 12);
-		var base = note.clip(0, 127).midicps;
-		var fb = LocalIn.ar(1);                       // last block's rungler value
-		var r = fb.clip(0, 1);
-		// rungler cross-modulates both oscillators -> the chaos
-		var f1 = (base * (2 ** ((r - 0.5) * rungler1 * 6 * chaos))).clip(2, 6000);
-		var f2 = (freq2 * (2 ** ((r - 0.5) * rungler2 * 6 * chaos))).clip(2, 9000);
-		var o1 = LFTri.ar(f1), o2 = LFTri.ar(f2);
-		var sq1 = (o1 > 0), sq2 = (o2 > 0);
-		var clk = HPZ1.ar(sq2) > 0.1;                 // clock on osc2 rising edges
-		var bits = Array.newClear(8);
-		var prev = sq1;
-		var dac, ffreq, sig, filt, aEnv;
-		// 8-stage shift register: Delay1 makes each stage latch the PREVIOUS stage's
-		// pre-clock value (without it they'd all latch the same new bit).
-		8.do { |i| bits[i] = Latch.ar(prev, clk); prev = Delay1.ar(bits[i]) };
-		dac = ((bits[0] * 4) + (bits[2] * 2) + (bits[4] * 1)) / 7;    // 3-bit DAC -> 0..1
-		LocalOut.ar(dac);                             // ...and feed it back
-		ffreq = (filtFreq * (2 ** ((dac - 0.5) * runglerFilt * 6))).clip(30, 14000);
-		sig = (sq1 - sq2) * 0.5;                      // the classic XOR-ish output
-		filt = RLPF.ar(sig, ffreq, (1 - res.clip(0, 0.97)).max(0.03));
-		filt = (filt * (1 + (drive * 8))).tanh / (1 + (drive * 2));
+		var freq1 = note.clip(0, 127).midicps;          // the sequencer's note drives osc1
+		var fb = LocalIn.ar(2);
+		var rIn = fb[0];                                // last block's rungler (in Hz)
+		// rungler ADDS to the oscillator frequencies
+		var f1 = ((rIn * rungler1) + freq1).clip(0.01, 12000);
+		var f2 = ((rIn * rungler2) + freq2).clip(0.01, 12000);
+		var tri1 = LFTri.ar(f1), tri2 = LFTri.ar(f2);
+		var osc1 = PulseDPW.ar(f1), osc2 = PulseDPW.ar(f2);
+		var pwm = (tri1 + tri2) > 0;                    // the classic XOR-ish output
+		var sh0 = (osc1 > 0.5);                         // comparator feeding the register
+		var sh = Array.newClear(8);
+		var prev = sh0;
+		var dac = 0, rungler, ffreq, qq, filt, sig, aEnv;
+		// 8-stage shift register, clocked by osc2. Delay1 makes each stage latch the
+		// PREVIOUS stage's pre-clock value (without it every stage takes the same new bit).
+		8.do { |i| sh[i] = Latch.ar(prev, osc2); prev = Delay1.ar(sh[i]) };
+		// weighted binary DAC: the LAST stage weighs most (1/2), the first least (1/256)
+		8.do { |i| dac = dac + (sh[i] / (2 ** (8 - i))) };
+		rungler = (dac * scale.clip(0, 1).linlin(0, 1, 0, 127)).midicps;   // -> a frequency
+		LocalOut.ar([rungler, DC.ar(0)]);
+		ffreq = ((rungler * runglerFilt) + filtFreq).clip(20, 16000);      // cutoff: ADDITIVE
+		qq = ((q.clip(0, 1) * -1) + 1).max(0.02);
+		filt = Select.ar(filterType.clip(0, 3), [
+			RLPF.ar(pwm, ffreq, qq),
+			RHPF.ar(pwm, ffreq, qq),
+			SVF.ar(pwm, ffreq, q.clip(0, 1)),
+			DFM1.ar(pwm, ffreq, q.clip(0, 1))
+		]);
+		sig = Select.ar(outSignal.clip(0, 6), [tri1, osc1, tri2, osc2, pwm, sh0, filt]);
+		sig = (sig * gain.max(0.01)).tanh;
 		aEnv = EnvGen.ar(Env([0, 1, 1, 0], [0.004, (life - 0.12).max(0.02), 0.12], [0, 0, -3]));
-		sig = LeakDC.ar(filt) * aEnv * v * amp;
+		sig = LeakDC.ar(sig) * aEnv * v * amp;
 		Line.kr(0, 1, life + 0.2, doneAction: 2);
 		Out.ar(out, ~killbad.(~spread.(sig, pan)));
 	}).add;

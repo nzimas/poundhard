@@ -88,12 +88,14 @@ ROLES: list[Role] = [
                 "rings.damp": (0.75, 0.95), "rings.pos": (0.15, 0.7),
                 "rings.decay": (1.5, 4.5)}, vel=(0.75, 1.0)),
     # ---- track 9: BEN — Benjolin chaotic generative machine ----
+    # osc2 stays LOW (it clocks the shift register): a few Hz gives the slow, stepped,
+    # self-patterning sequences; the rungler amounts decide how far it runs away.
     Role("BEN", "BEN", note_choices=(0, 5, 7, 12), octave=0,
-         bands={"ben.freq2": (30, 1500), "ben.rungler1": (0.15, 0.80),
-                "ben.rungler2": (0.15, 0.80), "ben.runglerFilt": (0.25, 0.90),
-                "ben.filtFreq": (200, 5000), "ben.res": (0.25, 0.85),
-                "ben.chaos": (0.30, 1.0), "ben.drive": (0.15, 0.70),
-                "ben.decay": (0.20, 2.0)}, vel=(0.70, 1.0)),
+         bands={"ben.freq2": (0.8, 60), "ben.scale": (0.25, 1.0),
+                "ben.rungler1": (0.05, 0.55), "ben.rungler2": (0.0, 0.35),
+                "ben.runglerFilt": (2.0, 16.0), "ben.filtFreq": (30, 900),
+                "ben.q": (0.45, 0.95), "ben.gain": (1.0, 5.0),
+                "ben.decay": (0.25, 2.2)}, vel=(0.70, 1.0)),
     # ---- tracks 10-11: BUCHLOID (drone / noise texture) ----
     Role("DRONE", "BUCHLOID", note_choices=(0, 7), octave=12,
          bands={"buchloid.fm1Amount": (0.05, 0.4), "buchloid.fm2Amount": (0.0, 0.35),
@@ -161,10 +163,13 @@ def gen_voice(role: Role, rng: random.Random) -> dict:
         elif pid in role.bands:
             lo, hi = role.bands[pid]
             val = rng.uniform(lo, hi)
-            if meta.curve.name == "ENUM" or meta.rate.name == "DISCRETE":
-                val = round(val)
         else:
             val = meta.randomize(rng, meta.default, role.jitter, expert=False)
+        # ENUM / discrete params must land on an integer whatever produced them — the
+        # default randomizer returns floats, which would feed e.g. Select.ar a fractional
+        # index (a filter type of "1.7").
+        if meta.curve.name == "ENUM" or meta.rate.name == "DISCRETE":
+            val = round(val)
         params[pid] = round(meta.clamp(val), 5)
     return {
         "type": role.type,
