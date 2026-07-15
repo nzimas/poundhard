@@ -17,7 +17,7 @@
 
 ~nTracks = 16;
 ~maxSteps = 32;
-~typeDefs = [\phDrum, \phFmtone, \phBuchloid, \phMolly, \phRings, \phBen, \phNoizeop];  // /ph/track type index
+~typeDefs = [\phDrum, \phFmtone, \phBuchloid, \phMolly, \phRings, \phBen, \phNoizeop, \phIcarus];  // /ph/track type index (-1 = empty/unassigned)
 // DRUM is split into per-mode defs (chosen from the track's `mode` param at spawn).
 ~drumDefs = [\phDrumKick, \phDrumSnare, \phDrumHat, \phDrumMetal, \phDrumClap, \phDrumTom, \phDrumNoise];
 
@@ -124,27 +124,30 @@
 // a hard per-track polyphony cap steals the oldest so dense patterns can't pile
 // up unbounded (that's what XRun-froze the box). onFree keeps the list accurate.
 ~spawn = { |t, step|
-	var typeIdx = ~trackType[t].clip(0, ~typeDefs.size - 1);
-	var def = (typeIdx == 0).if(
-		{ ~drumDefs[(~pstore[t][\mode] ? 0).round.clip(0, 6).asInteger] },   // per-mode drum
-		{ ~typeDefs[typeIdx] });
-	// per-step lock overrides track defaults; \pan appended last so it wins over pstore.
-	var nn = ~stepNote[t][step] ? ~note[t];
-	var vv = ~stepVel[t][step] ? ~vel[t];
-	var pp = ~stepPan[t][step] ? (~pstore[t][\pan] ? 0);
-	// per-step macro lock (if any) overrides the voice's timbral params for this hit only.
-	var sm = ~stepMacro[t][step];
-	var args = [\out, ~trackBus[t].index, \note, nn, \vel, vv] ++ ~pstore[t].getPairs ++ (sm ? []) ++ [\pan, pp];
-	var syn, lst;
-	(def == \phSampler).if {
-		args = args ++ [\buf, ~sampBuf[t].notNil.if({ ~sampBuf[t].bufnum }, { ~silentBuf.bufnum })];
+	var typeIdx = ~trackType[t];
+	// typeIdx < 0 == an empty/unassigned track: it never spawns (no engine, no sound).
+	(typeIdx >= 0).if {
+		var def = (typeIdx == 0).if(
+			{ ~drumDefs[(~pstore[t][\mode] ? 0).round.clip(0, 6).asInteger] },   // per-mode drum
+			{ ~typeDefs[typeIdx.clip(0, ~typeDefs.size - 1)] });
+		// per-step lock overrides track defaults; \pan appended last so it wins over pstore.
+		var nn = ~stepNote[t][step] ? ~note[t];
+		var vv = ~stepVel[t][step] ? ~vel[t];
+		var pp = ~stepPan[t][step] ? (~pstore[t][\pan] ? 0);
+		// per-step macro lock (if any) overrides the voice's timbral params for this hit only.
+		var sm = ~stepMacro[t][step];
+		var args = [\out, ~trackBus[t].index, \note, nn, \vel, vv] ++ ~pstore[t].getPairs ++ (sm ? []) ++ [\pan, pp];
+		var syn, lst;
+		(def == \phSampler).if {
+			args = args ++ [\buf, ~sampBuf[t].notNil.if({ ~sampBuf[t].bufnum }, { ~silentBuf.bufnum })];
+		};
+		lst = ~trackVoices[t];
+		syn = Synth(def, args, ~gVoices);
+		syn.register;
+		syn.onFree({ lst.remove(syn) });
+		lst.add(syn);
+		while ({ lst.size > ~maxPoly }) { lst.removeAt(0).free };
 	};
-	lst = ~trackVoices[t];
-	syn = Synth(def, args, ~gVoices);
-	syn.register;
-	syn.onFree({ lst.remove(syn) });
-	lst.add(syn);
-	while ({ lst.size > ~maxPoly }) { lst.removeAt(0).free };
 };
 
 // Per-track accumulator clock: each master tick advances every track by its
@@ -211,8 +214,24 @@
 	OSCdef(\phSteps, { |m| ~nSteps = m[1].asInteger.clip(1, ~maxSteps); }, '/ph/steps'),
 	OSCdef(\phTrack, { |m|
 		var t = m[1].asInteger.clip(0, ~nTracks - 1);
-		~trackType[t] = m[2].asInteger.clip(0, ~typeDefs.size - 1);
+		// -1 == empty/unassigned (never spawns); otherwise a valid engine index.
+		~trackType[t] = m[2].asInteger.clip(-1, ~typeDefs.size - 1);
 	}, '/ph/track'),
+	// AUDITION: spawn ONE preview voice of an engine straight to the master bus (no
+	// track, no per-track FX). Used by the engine-palette pad-audition gesture.
+	// Args: typeIdx, note, vel, drumMode, then flat [nameStr, val, nameStr, val, ...].
+	OSCdef(\phPreview, { |m|
+		var typeIdx = m[1].asInteger;
+		var nn = m[2].asFloat, vv = m[3].asFloat, mode = m[4].asInteger;
+		var pairs = [], i = 5;
+		while { i < (m.size - 1) } { pairs = pairs ++ [m[i].asSymbol, m[i + 1].asFloat]; i = i + 2 };
+		(typeIdx >= 0).if {
+			var def = (typeIdx == 0).if(
+				{ ~drumDefs[mode.clip(0, 6)] },
+				{ ~typeDefs[typeIdx.clip(0, ~typeDefs.size - 1)] });
+			Synth(def, [\out, ~masterBus.index, \note, nn, \vel, vv] ++ pairs, ~gVoices);
+		};
+	}, '/ph/preview'),
 	OSCdef(\phParam, { |m|
 		var t = m[1].asInteger.clip(0, ~nTracks - 1);
 		var sym = m[2].asSymbol;                     // string arg arrives as Symbol

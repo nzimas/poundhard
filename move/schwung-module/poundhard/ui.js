@@ -1,24 +1,27 @@
 // PoundHard — Schwung overtake runner (16-track groovebox).
 //
-// TRACKS view (default): the 16 STEP buttons are the 16 tracks (yellow).
-//   * step button short tap          mute / unmute that track
-//   * Shift + step button            open that track in the 32-step EDIT view
-//   * HOLD step button + knobs       TRACK SETTINGS for that track:
-//       Knob 1 pitch · Knob 2 velocity · Knob 3 pan · Knob 8 clock rate/division
-//   * Track 1 button (yellow)        active-view indicator; returns here from EDIT
-//   * Shift + Track 1                randomize the SELECTED track's sound
-//   * Shift + hold volume + Track 1  randomize the whole 16-track kit
+// TRACKS view (default): the 16 STEP buttons are the 16 tracks; the TOP ROW of pads
+// (cells 0..7) is the ENGINE PALETTE — one pad per assignable engine, in its hue.
+//   Step buttons:
+//   * short tap                      mute / unmute that track
+//   * double tap                     solo that track (double-tap again to un-solo)
+//   * hold                           open that track in the 32-step EDIT view
+//   Engine palette (top-row pads):
+//   * short press                    audition that engine's current sound (one hit)
+//   * Shift + pad                    regenerate that engine's sound
+//   * hold pad + tap a step button   ASSIGN that engine + sound to the track
+//   Buttons / knobs:
+//   * Shift + Track 1                re-roll the OPEN track's sound (its engine)
 //   * Play (green while running)     start / stop the sequencer
-//   * Knob 1                         tempo (BPM)  [when not holding a step/track]
+//   * Knob 1                         tempo (BPM)
 //   * Back                           exit the runner
+//   Tracks start EMPTY (dark, silent) until an engine is assigned from the palette.
 // EDIT view (a track open): the 32 pads are that track's step sequencer.
 //   * pad short tap                  toggle that step (in-length pads glow dim)
-//   * Shift + pad                    set that pad as the LAST step (polymeter);
-//                                    pads past it are unlit
+//   * Shift + pad                    set that pad as the LAST step (polymeter)
 //   * pad HOLD (active step)         PARAM-LOCK that step — Knob 1 pitch,
-//                                    Knob 2 velocity, Knob 3 pan (values show big
-//                                    on knob touch OR turn). Locks override the
-//                                    track settings.
+//                                    Knob 2 velocity, Knob 3 pan / macro
+//   * jog = pitch · cursors = rate · Knob 3 = voice macro
 //   * playhead pad                   white while running
 
 import {
@@ -74,9 +77,15 @@ const TYPE_COL = {
     FMTONE:   [8, 80],    /* BrightGreen / VeryDarkGreen */
     MOLLY:    [16, 95],   /* RoyalBlue / DarkBlue — dim MUST come from the dark band (74-107),
                            * not the bright band: Navy(17) reads as lit and swamped the pulse. */
-    BEN:      [2, 67],    /* OrangeRed / Brick — track 9, the Benjolin chaos machine */
-    NOIZEOP:  [23, 109],  /* NeonPink / DeepMagenta — track 12, deeg's NoizeOp glitch-noise */
+    BEN:      [2, 67],    /* OrangeRed / Brick — the Benjolin chaos machine */
+    NOIZEOP:  [23, 109],  /* NeonPink / DeepMagenta — deeg's NoizeOp glitch-noise */
+    ICARUS:   [18, 105],  /* BlueViolet / MutedViolet — schollz's Icarus drone/pad */
 };
+/* Engine palette: the 8 assignable engines, one per top-row pad (cells 0..7).
+ * Same order & colours as TYPE_COL. Short-press = audition, Shift+pad = regenerate,
+ * hold pad + tap a track (step button) = assign that engine's current sound. */
+const ENGINE_TYPES = ['DRUM', 'FMTONE', 'BUCHLOID', 'MOLLY', 'RINGS', 'BEN', 'NOIZEOP', 'ICARUS'];
+const N_ENGINES = ENGINE_TYPES.length;
 
 /* ---- runtime state (mirrors status.json) ---- */
 let phase = 0, launched = false, lastStatusAt = -100;
@@ -85,7 +94,7 @@ let running = false, tempo = 120, step = -1, kitName = '';
 let editTrack = -1;
 let muted = new Array(N_TRACKS).fill(false);
 let active = new Array(N_TRACKS).fill(false);
-let types = new Array(N_TRACKS).fill('DRUM');
+let types = new Array(N_TRACKS).fill('EMPTY');
 let names = new Array(N_TRACKS).fill('');
 let trackNote = new Array(N_TRACKS).fill(60);
 let trackVel = new Array(N_TRACKS).fill(1.0);
@@ -126,6 +135,9 @@ let heldCell = -1, heldStart = 0, heldStepEdit = false;
 let stepEditCell = -1;
 /* track-button hold -> track settings */
 let trackHeld = -1, trackHeldStart = 0, trackActive = false;
+/* engine palette (default tracks view, top row): hold an engine pad, tap a track to
+ * assign. paletteConsumed suppresses the pad-release audition once an assign happened. */
+let paletteHeld = -1, paletteHeldStart = 0, paletteConsumed = false;
 let knobShow = null;                /* 'pitch'|'vel'|'pan'|null (big readout) */
 let rateView = -1, rateViewUntil = 0;   /* transient big clock-rate readout (cursor keys) */
 /* FX view */
@@ -229,7 +241,8 @@ function trackPulseOn(t) {
  * track's generator hue — pulsing bright when it has events & is playing, else dim. */
 function stepColor(t) {
     if (editTrack === t) return SEL_COLOR;
-    var pair = TYPE_COL[types[t]];              /* types default to 'DRUM', always a valid key */
+    var pair = TYPE_COL[types[t]];
+    if (!pair) return OFF_COLOR;                /* empty / unassigned track -> dark */
     /* a soloed track silences every other one — show them as muted without touching flags */
     if (muted[t] || (solo >= 0 && solo !== t)) return pair[1];   /* muted / not-soloed -> dim */
     if (active[t]) return (running ? (trackPulseOn(t) ? pair[0] : pair[1]) : pair[0]);  /* events */
@@ -290,7 +303,16 @@ function renderLEDs() {
         return;
     }
     if (editTrack < 0) {
-        for (let c = 0; c < 32; c++) setLED(PAD_NOTES[c], OFF_COLOR);
+        /* DEFAULT tracks view: top row (cells 0..7) = the engine palette; rest dark.
+         * A held engine pad shows white; the others glow in their engine hue. */
+        for (let c = 0; c < 32; c++) {
+            let color = OFF_COLOR;
+            if (c < N_ENGINES) {
+                let pair = TYPE_COL[ENGINE_TYPES[c]];
+                color = (paletteHeld === c) ? White : (pair ? pair[0] : DIM_COLOR);
+            }
+            setLED(PAD_NOTES[c], color);
+        }
     } else {
         const len = editLen();
         for (let c = 0; c < 32; c++) {
@@ -431,9 +453,9 @@ function drawScreen() {
     if (!ready) { print(0, 12, 'POUNDHARD', 2); print(0, 40, engine ? 'booting engine...' : 'starting...', 1); return; }
     if (editTrack < 0) {
         print(0, 6, 'POUNDHARD', 2);
-        print(0, 30, (kitName || 'kit') + '   ' + Math.round(tempo) + ' BPM', 1);
-        print(0, 44, (running ? 'PLAY' : 'STOP') + '  hold trk = edit', 1);
-        print(0, 56, 'cpu ' + cpu + '%  shift+vol+Trk1 kit', 1);
+        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP'), 1);
+        print(0, 44, 'pad=hear  shift+pad=gen', 1);
+        print(0, 56, 'hold pad+trk=assign  cpu' + cpu + '%', 1);
     } else {
         var n = 0, len = editLen();
         for (var i = 0; i < len; i++) n += editSteps[i] ? 1 : 0;
@@ -518,7 +540,7 @@ globalThis.init = function () {
     running = false; tempo = 120; step = -1; kitName = '';
     editTrack = -1;
     muted = new Array(N_TRACKS).fill(false); active = new Array(N_TRACKS).fill(false);
-    types = new Array(N_TRACKS).fill('DRUM'); names = new Array(N_TRACKS).fill('');
+    types = new Array(N_TRACKS).fill('EMPTY'); names = new Array(N_TRACKS).fill('');
     trackNote = new Array(N_TRACKS).fill(60); trackVel = new Array(N_TRACKS).fill(1.0);
     trackVol = new Array(N_TRACKS).fill(0.8);
     trackPan = new Array(N_TRACKS).fill(0.0); trackRate = new Array(N_TRACKS).fill(1.0);
@@ -643,9 +665,18 @@ globalThis.onMidiMessageInternal = function (data) {
         return;
     }
 
-    /* Step buttons (16..31) = tracks: Shift=edit, tap=mute, hold=track settings. */
+    /* Step buttons (16..31) = tracks: tap=mute, double-tap=solo, hold=edit; while an
+     * engine pad is held (default view), a tap ASSIGNS that engine's sound to the track. */
     if (status === 0x90 && d2 > 0 && d1 >= STEP_BASE && d1 <= STEP_BASE + 15) {
         const t = d1 - STEP_BASE;
+        if (paletteHeld >= 0 && !fxView && !patView && !projView && !recView && editTrack < 0) {
+            sendCmd('assign', -1, { p: { engine: paletteHeld, track: t } });
+            types[t] = ENGINE_TYPES[paletteHeld]; names[t] = ENGINE_TYPES[paletteHeld];  /* optimistic */
+            paletteConsumed = true;                       /* suppress the pad-release audition */
+            showAction(ENGINE_TYPES[paletteHeld] + '->T' + (t + 1));
+            ledDirty = true; screenDirty = true;
+            return;
+        }
         if (fxView) {                                     /* FX view: step button = mute only */
             muted[t] = !muted[t]; sendCmd('mute', t); ledDirty = true; screenDirty = true;
         } else {
@@ -718,6 +749,28 @@ globalThis.onMidiMessageInternal = function (data) {
         if (cell >= FX_CELL0) { fxHeld = -1; ledDirty = true; screenDirty = true; }   /* any FX-pad release clears the hold */
         return;
     }
+    /* DEFAULT tracks view: top-row pads = engine palette. Short-press = audition the
+     * engine's current sound; Shift+pad = regenerate it; hold + tap a track = assign
+     * (handled in the step-button branch above). */
+    const _defView = !fxView && !patView && !projView && !recView && editTrack < 0;
+    if (_defView && status === 0x90 && d2 > 0 && d1 >= 68 && d1 <= 99) {
+        const cell = NOTE_TO_CELL[d1];
+        if (cell < N_ENGINES) {
+            if (shiftHeld) { sendCmd('palettegen', cell); showAction('GEN ' + ENGINE_TYPES[cell]); }
+            else { paletteHeld = cell; paletteHeldStart = Date.now(); paletteConsumed = false; }
+            ledDirty = true; screenDirty = true;
+        }
+        return;
+    }
+    if (_defView && (status === 0x80 || (status === 0x90 && d2 === 0)) && d1 >= 68 && d1 <= 99) {
+        const cell = NOTE_TO_CELL[d1];
+        if (paletteHeld === cell) {
+            if (!paletteConsumed) { sendCmd('audition', cell); showAction('HEAR ' + ENGINE_TYPES[cell]); }
+            paletteHeld = -1; paletteConsumed = false; ledDirty = true; screenDirty = true;
+        }
+        return;
+    }
+
     /* Pads (68..99): EDIT view only. Shift = set last step; else tap/hold. */
     if (status === 0x90 && d2 > 0 && d1 >= 68 && d1 <= 99) {
         if (editTrack < 0) return;
@@ -780,18 +833,18 @@ globalThis.onMidiMessageInternal = function (data) {
         }
         if (d1 === MoveRow2 && d2 > 0) {                  /* Track 2 = FX view toggle */
             fxView = !fxView; fxHeld = -1;
-            if (fxView) { patView = false; projView = false; recView = false; editTrack = -1; stepEditCell = -1; trackHeld = -1; }
+            if (fxView) { patView = false; projView = false; recView = false; editTrack = -1; stepEditCell = -1; trackHeld = -1; paletteHeld = -1; }
             ledDirty = true; screenDirty = true; showAction(fxView ? 'FX' : 'TRACKS');
             return;
         }
         if (d1 === MoveRow3 && d2 > 0) {                  /* Track 3 = PATTERN view; Shift+Track3 = RECORDER */
             if (shiftHeld) {
                 recView = !recView;
-                if (recView) { patView = false; projView = false; fxView = false; fxHeld = -1; editTrack = -1; stepEditCell = -1; trackHeld = -1; }
+                if (recView) { patView = false; projView = false; fxView = false; fxHeld = -1; editTrack = -1; stepEditCell = -1; trackHeld = -1; paletteHeld = -1; }
                 showAction(recView ? 'RECORDER' : 'TRACKS');
             } else {
                 patView = !patView;
-                if (patView) { projView = false; recView = false; fxView = false; fxHeld = -1; editTrack = -1; stepEditCell = -1; trackHeld = -1; }
+                if (patView) { projView = false; recView = false; fxView = false; fxHeld = -1; editTrack = -1; stepEditCell = -1; trackHeld = -1; paletteHeld = -1; }
                 showAction(patView ? 'PATTERNS' : 'TRACKS');
             }
             ledDirty = true; screenDirty = true;
@@ -799,13 +852,14 @@ globalThis.onMidiMessageInternal = function (data) {
         }
         if (d1 === MoveMenu && d2 > 0) {                  /* Menu = PROJECT view toggle */
             projView = !projView;
-            if (projView) { patView = false; recView = false; fxView = false; fxHeld = -1; editTrack = -1; stepEditCell = -1; trackHeld = -1; }
+            if (projView) { patView = false; recView = false; fxView = false; fxHeld = -1; editTrack = -1; stepEditCell = -1; trackHeld = -1; paletteHeld = -1; }
             ledDirty = true; screenDirty = true; showAction(projView ? 'PROJECTS' : 'TRACKS');
             return;
         }
         if (d1 === MoveRow1 && d2 > 0) {
-            if (shiftHeld && masterTouched) { sendCmd('genkit', -1); showAction('NEW KIT'); }
-            else if (shiftHeld) {
+            /* Shift+Track1 = re-roll the OPEN track's sound within its assigned engine.
+             * (Whole-kit regen is retired — the engine palette generates & assigns now.) */
+            if (shiftHeld) {
                 if (editTrack >= 0) { sendCmd('randtrack', editTrack, { p: { track: editTrack } }); showAction('RND T' + (editTrack + 1)); }
                 else showAction('open a track first');
             } else { fxView = false; editTrack = -1; stepEditCell = -1; heldCell = -1; sendCmd('editexit', -1); showAction('TRACKS'); }

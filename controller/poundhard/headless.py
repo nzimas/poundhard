@@ -23,7 +23,6 @@ from pathlib import Path
 
 from .catalog import FX_SPECS, N_FX
 from .engine_bridge import EngineBridge
-from .kits import ROLE_NAMES
 from .tracks import DRUM_TRACKS, N_PATTERNS, N_STEPS, N_TRACKS, Project
 
 
@@ -86,8 +85,8 @@ class Controller:
         # web UI (download recordings) — daemon thread, survives on its own
         from . import webserver
         webserver.serve(WEB_PORT, RECORDINGS_DIR, N_RECORDINGS)
-        # Fresh session: a curated kit loaded, empty patterns, stopped.
-        self.state.new_kit()
+        # Fresh session: all 16 tracks start EMPTY (no engine, silent) — the user
+        # builds a rig by assigning engines from the palette. Stopped, no patterns.
         self.bridge.start(on_ready=self._on_ready)
         for fn in (self._control_loop, self._status_loop, self._handshake_loop):
             t = threading.Thread(target=self._safe_loop, args=(fn,), daemon=True)
@@ -364,8 +363,19 @@ class Controller:
         elif cmd == "randtrack":
             t = int(p.get("track", st.edit_track))
             if 0 <= t < N_TRACKS:
-                st.randomize_track(t)
+                st.randomize_track(t)                 # re-rolls the track's assigned engine
                 self.bridge.push_track(t, st.tracks[t])
+        elif cmd == "audition":                       # engine palette: short-press a pad
+            v = st.palette_voice(int(arg))
+            if v is not None:
+                self.bridge.preview(v)                # one-shot preview -> master
+        elif cmd == "palettegen":                     # engine palette: Shift+pad = re-roll
+            st.palette_regen(int(arg))
+        elif cmd == "assign":                         # hold pad + tap track = assign sound
+            idx = int(p.get("engine", -1)); t = int(p.get("track", -1))
+            if st.palette_assign(idx, t):
+                self.bridge.push_track(t, st.tracks[t])
+                self._push_mutes()                    # keep effective mutes correct (solo)
         elif cmd == "steplock":
             t = int(p.get("track", st.edit_track))
             cell = int(p.get("cell", -1))
@@ -541,7 +551,9 @@ class Controller:
             "drumTracks": DRUM_TRACKS,
             "tracks": tracks,
             "types": [tr.type for tr in st.tracks],
-            "names": ROLE_NAMES,
+            # per-track label: the assigned engine (or "" for an empty/unassigned track).
+            # Tracks no longer have fixed roles — the engine palette assigns them.
+            "names": ["" if tr.type == "EMPTY" else tr.type for tr in st.tracks],
             # FX view: per-track prevailing FX + bypass, macro positions, FX names
             "fxTop": [st.fx_top(t) for t in range(N_TRACKS)],
             "fxBypass": [st.fx_bypass[t] for t in range(N_TRACKS)],
@@ -553,7 +565,7 @@ class Controller:
             et = st.tracks[st.edit_track]
             status["edit"] = {
                 "steps": et.pattern, "type": et.type,
-                "name": ROLE_NAMES[st.edit_track], "note": et.note,
+                "name": "" if et.type == "EMPTY" else et.type, "note": et.note,
                 "length": et.length, "rate": round(et.rate, 4),
                 "defVel": round(et.vel, 3), "defPan": round(et.default_pan(), 3),
                 # effective per-step values (lock or track default) for the UI readout

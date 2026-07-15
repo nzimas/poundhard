@@ -159,6 +159,20 @@ class EngineBridge:
     def masterfilter(self, cut, res):  self.send("/ph/masterfilter", float(cut), float(res))
     def panic(self):                   self.send("/ph/panic")
 
+    def preview(self, voice: dict) -> None:
+        """Audition: spawn ONE preview voice of a palette engine straight to master.
+        Sends typeIdx, note, vel, drumMode, then flat [engine_arg, value, ...]."""
+        idx = TYPE_INDEX.get(voice.get("type", "EMPTY"), -1)
+        if idx < 0:
+            return
+        params = voice.get("params", {})
+        mode = int(round(params.get("drum.mode", 0)))
+        flat: list = []
+        for pid, val in params.items():
+            flat += [engine_arg(pid), float(val)]
+        self.send("/ph/preview", idx, float(voice.get("note", 48)),
+                  float(voice.get("vel", 1.0)), mode, *flat)
+
     def push_track(self, t: int, track) -> None:
         """Push a whole track's voice (type -> params -> note/vel/sample) + pattern
         + mute. Order matters: set the voice TYPE first (rebuilds the synth), then

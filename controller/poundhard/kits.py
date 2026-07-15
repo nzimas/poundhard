@@ -201,5 +201,54 @@ def gen_kit(seed: int | None = None) -> dict:
     return {"name": name, "seed": seed, "tracks": tracks}
 
 
+# --------------------------------------------------------------------------- #
+# ENGINE PALETTE — one generic role per assignable engine. These drive the
+# top-row "engine pads": the user auditions a generated sound, re-rolls it
+# (Shift+pad), and holds the pad + taps a track to assign it. Unlike the fixed
+# 16-track roles above, an engine can land on any track. Each role generalizes
+# its engine (wider note choices; drums roll every mode) while still pinning the
+# essentials that keep a voice idiomatic.
+# --------------------------------------------------------------------------- #
+PALETTE_ENGINES = ["DRUM", "FMTONE", "BUCHLOID", "MOLLY", "RINGS", "BEN", "NOIZEOP", "ICARUS"]
+
+# a canonical note per drum mode, so an auditioned/assigned drum sits in register
+# (mode order matches catalog DRUM enum: kick snare hihat metal clap tom noise)
+_DRUM_MODE_NOTE = [33, 49, 72, 64, 60, 45, 67]
+
+PALETTE_ROLES: dict[str, Role] = {
+    # DRUM — roll every mode; the note is fixed up per mode in gen_palette_voice.
+    "DRUM": Role("DRUM", "DRUM", note=45, jitter=0.9),
+    "FMTONE": Role("FMTONE", "FMTONE", note_choices=tuple(_SCALE), octave=0, jitter=0.85),
+    "BUCHLOID": Role("BUCHLOID", "BUCHLOID", note_choices=tuple(_SCALE), octave=12, jitter=0.85),
+    "MOLLY": Role("MOLLY", "MOLLY", note_choices=tuple(_SCALE), octave=12, jitter=0.85,
+                  bands={"molly.fold": (0.2, 0.7), "molly.grit": (0.1, 0.5)}),
+    "RINGS": Role("RINGS", "RINGS", note_choices=tuple(_SCALE), octave=0, jitter=0.85),
+    # BEN — keep osc2 LOW so it clocks the shift register (stepped sequences).
+    "BEN": Role("BEN", "BEN", note_choices=(0, 5, 7, 12), octave=0, jitter=0.85,
+                bands={"ben.freq2": (0.8, 60), "ben.rungler1": (0.05, 0.5),
+                       "ben.runglerFilt": (2.0, 16.0), "ben.filtFreq": (30, 900)}),
+    # NOIZEOP — spread the four oscillator ratios so the algorithms beat.
+    "NOIZEOP": Role("NOIZOP", "NOIZEOP", note_choices=(0, 5, 7), octave=0, jitter=0.85,
+                    bands={"noizeop.freq01": (0.5, 2.0), "noizeop.freq02": (0.75, 3.5),
+                           "noizeop.freq03": (1.0, 5.0), "noizeop.freq04": (1.5, 8.0),
+                           "noizeop.a_mod_03": (0.008, 0.15)}),
+    # ICARUS — drones / pads: long-ish envelopes, moderate feedback.
+    "ICARUS": Role("ICARUS", "ICARUS", note_choices=tuple(_SCALE), octave=0, jitter=0.85,
+                   bands={"icarus.attack": (0.05, 1.5), "icarus.decay": (0.6, 3.5),
+                          "icarus.release": (0.8, 4.0), "icarus.feedback": (0.2, 0.7),
+                          "icarus.lpf": (600, 8000)}),
+}
+
+
+def gen_palette_voice(engine: str, rng: random.Random | None = None) -> dict:
+    """Generate one fresh sound for an engine's palette pad (audition / assign)."""
+    rng = rng or random.Random()
+    voice = gen_voice(PALETTE_ROLES[engine], rng)
+    if engine == "DRUM":                       # put the drum in register for its mode
+        mode = int(round(voice["params"].get("drum.mode", 0)))
+        voice["note"] = _DRUM_MODE_NOTE[max(0, min(6, mode))]
+    return voice
+
+
 ROLE_NAMES = [r.name for r in ROLES]
 ROLE_TYPES = [r.type for r in ROLES]

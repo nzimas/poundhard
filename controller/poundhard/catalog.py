@@ -96,7 +96,9 @@ class VoiceSpec:
 
 
 # Engine `/ph/track` type indices (must match ~typeDefs in engine.scd).
-TYPE_INDEX = {"DRUM": 0, "FMTONE": 1, "BUCHLOID": 2, "MOLLY": 3, "RINGS": 4, "BEN": 5, "NOIZEOP": 6}
+# EMPTY = -1: an unassigned track (no engine, never spawns). Assignable engines 0..7.
+TYPE_INDEX = {"EMPTY": -1, "DRUM": 0, "FMTONE": 1, "BUCHLOID": 2, "MOLLY": 3,
+              "RINGS": 4, "BEN": 5, "NOIZEOP": 6, "ICARUS": 7}
 
 _COMMON_TAIL = lambda pfx, ampd=0.8, ampmus=(0.5, 1.1): [
     P(f"{pfx}.amp", "Amp", unit="dB", rmin=0.0, rmax=2.0, default=ampd, curve=Curve.DB,
@@ -422,7 +424,57 @@ NOIZEOP = VoiceSpec(
     ],
 )
 
-VOICES: dict[str, VoiceSpec] = {v.type: v for v in (DRUM, FMTONE, BUCHLOID, MOLLY, RINGS, BEN, NOIZEOP)}
+# --------------------------------------------------------------------------- #
+# ICARUS — faithful port of schollz's Icarus Norns engine
+# (github.com/schollz/icarus). A "dreamcrusher" pad/drone: VarSaw main osc + Pulse
+# sub, PWM + slow randomized detune, into a feedback delay network, a MoogLadder
+# low-pass, and a Dust-gated "destruction" dropout. Excellent for drones and pads.
+# --------------------------------------------------------------------------- #
+ICARUS = VoiceSpec(
+    type="ICARUS",
+    role="schollz's Icarus 'dreamcrusher' — evolving drones & pads (VarSaw + FB delay + MoogLadder).",
+    synthdef="phIcarus",
+    params=[
+        # sub-oscillator: octaves below the main VarSaw, and its level
+        P("icarus.subpitch", "Sub Oct", rmin=0.0, rmax=3.0, default=1.0,
+          curve=Curve.LINEAR, formatter="float1", musical=(1.0, 2.0)),
+        P("icarus.sublevel", "Sub Lvl", default=0.3, musical=(0.0, 0.7)),
+        # dreamcrusher detune / glide
+        P("icarus.detuning", "Detune", default=0.1, musical=(0.0, 0.4)),
+        P("icarus.portamento", "Glide", unit="s", rmin=0.0, rmax=2.0, default=0.1,
+          curve=Curve.EXP, formatter="float2", musical=(0.02, 0.6)),
+        # pulse-width modulation
+        P("icarus.pwmcenter", "PWM Center", default=0.5, musical=(0.25, 0.75)),
+        P("icarus.pwmwidth", "PWM Depth", default=0.05, musical=(0.0, 0.4)),
+        P("icarus.pwmfreq", "PWM Rate", unit="Hz", rmin=0.05, rmax=40.0, default=10.0,
+          curve=Curve.EXP, musical=(0.1, 12.0)),
+        # filter
+        P("icarus.lpf", "Cutoff", unit="Hz", rmin=80.0, rmax=18000.0, default=6000.0,
+          curve=Curve.EXP, formatter="Hz", musical=(300.0, 12000.0)),
+        P("icarus.resonance", "Resonance", default=0.2, musical=(0.0, 0.6),
+          danger=DangerClass.FEEDBACK),
+        # feedback delay network
+        P("icarus.feedback", "FB Amount", default=0.5, musical=(0.0, 0.85),
+          danger=DangerClass.FEEDBACK),
+        P("icarus.delaytime", "Delay", unit="s", rmin=0.001, rmax=0.5, default=0.25,
+          curve=Curve.EXP, formatter="float3", musical=(0.02, 0.45)),
+        P("icarus.destruction", "Destruction", rmin=0.0, rmax=30.0, default=0.0,
+          curve=Curve.EXP, musical=(0.0, 12.0)),
+        # amplitude envelope (long values -> sustained drones / pads)
+        P("icarus.attack", "Attack", unit="s", rmin=0.001, rmax=6.0, default=0.02,
+          curve=Curve.EXP, formatter="float2", musical=(0.005, 2.0)),
+        P("icarus.decay", "Decay", unit="s", rmin=0.02, rmax=8.0, default=1.0,
+          curve=Curve.EXP, formatter="float2", musical=(0.3, 4.0)),
+        P("icarus.sustain", "Sustain", default=0.8, musical=(0.4, 0.95)),
+        P("icarus.release", "Release", unit="s", rmin=0.02, rmax=10.0, default=1.5,
+          curve=Curve.EXP, formatter="float2", musical=(0.4, 5.0)),
+        P("icarus.gain", "Drive", rmin=0.1, rmax=6.0, default=1.0, musical=(0.6, 3.0)),
+        *_COMMON_TAIL("icarus", ampd=0.5, ampmus=(0.3, 0.7)),
+    ],
+)
+
+VOICES: dict[str, VoiceSpec] = {v.type: v for v in
+                                (DRUM, FMTONE, BUCHLOID, MOLLY, RINGS, BEN, NOIZEOP, ICARUS)}
 
 
 def macro_specs(voice_type: str) -> list[tuple[str, str, float, float]]:
@@ -432,6 +484,8 @@ def macro_specs(voice_type: str) -> list[tuple[str, str, float, float]]:
     params across their musical bands. Excludes amp/pan (dedicated knobs), enums
     (structural switches), and params flagged macro_eligible=False."""
     out: list[tuple[str, str, float, float]] = []
+    if voice_type not in VOICES:          # EMPTY / unassigned track: no macro params
+        return out
     for meta in VOICES[voice_type].params:
         if not meta.macro_eligible or meta.curve == Curve.ENUM:
             continue

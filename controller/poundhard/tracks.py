@@ -21,7 +21,7 @@ DRUM_TRACKS = 6            # tracks 0..5 are DRUM; 6..15 are the other generator
 
 @dataclass
 class Track:
-    type: str = "DRUM"
+    type: str = "EMPTY"          # unassigned by default (no engine, no sound)
     note: int = 40
     vel: float = 1.0
     sample: int = -1
@@ -72,7 +72,7 @@ class Track:
 
     @classmethod
     def from_dict(cls, d: dict) -> "Track":
-        t = cls(type=d.get("type", "DRUM"), note=int(d.get("note", 40)),
+        t = cls(type=d.get("type", "EMPTY"), note=int(d.get("note", 40)),
                 vel=float(d.get("vel", 1.0)), sample=int(d.get("sample", -1)),
                 params=dict(d.get("params", {})), muted=bool(d.get("muted", False)),
                 length=int(d.get("length", N_STEPS)), rate=float(d.get("rate", 1.0)))
@@ -117,6 +117,11 @@ class Project:
         # track is soloed every other track is effectively muted, without touching their
         # own mute flags — so un-soloing restores exactly what was muted before.
         self.solo: int = -1
+        # ENGINE PALETTE: one freshly-generated candidate sound per assignable engine
+        # (top-row pads). Auditioned, re-rolled (Shift+pad) and held-to-assign onto any
+        # track. In-memory scratch surface — the assignment lands in the track (which is
+        # persisted); the palette itself is regenerated each session.
+        self.palette: list[dict] = [kits.gen_palette_voice(e) for e in kits.PALETTE_ENGINES]
 
     # -- solo -------------------------------------------------------------- #
     def toggle_solo(self, track: int) -> int:
@@ -286,10 +291,32 @@ class Project:
         self.apply_kit(kits.gen_kit(seed))
 
     def randomize_track(self, track: int) -> None:
-        """Re-roll ONE track's sound within its fixed role (keeps pattern/locks)."""
-        import random
-        self.tracks[track].load_voice(kits.gen_voice(kits.ROLES[track], random.Random()))
+        """Re-roll ONE track's sound within its CURRENTLY-ASSIGNED engine (keeps
+        pattern/locks). No-op on an empty/unassigned track."""
+        tr = self.tracks[track]
+        if tr.type not in kits.PALETTE_ROLES:   # EMPTY / unknown -> nothing to re-roll
+            return
+        tr.load_voice(kits.gen_palette_voice(tr.type))
         self.reroll_voice_macro(track)          # fresh sound -> fresh macro directions
+
+    # -- engine palette ---------------------------------------------------- #
+    def palette_voice(self, idx: int) -> dict | None:
+        return self.palette[idx] if 0 <= idx < len(self.palette) else None
+
+    def palette_regen(self, idx: int) -> dict | None:
+        """Generate a fresh candidate sound for engine pad `idx`."""
+        if 0 <= idx < len(self.palette):
+            self.palette[idx] = kits.gen_palette_voice(kits.PALETTE_ENGINES[idx])
+            return self.palette[idx]
+        return None
+
+    def palette_assign(self, idx: int, track: int) -> bool:
+        """Assign engine pad `idx`'s current sound to `track` (keeps pattern/locks)."""
+        if 0 <= idx < len(self.palette) and 0 <= track < N_TRACKS:
+            self.tracks[track].load_voice(self.palette[idx])
+            self.reroll_voice_macro(track)
+            return True
+        return False
 
     # -- edits ------------------------------------------------------------- #
     def toggle_step(self, track: int, cell: int) -> int:

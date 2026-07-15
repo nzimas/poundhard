@@ -376,6 +376,62 @@
 		Out.ar(out, ~killbad.(~spread.(sig, pan)));
 	}).add;
 
+	// ----- ICARUS: faithful port of schollz's Icarus Norns engine -----------
+	//   github.com/schollz/icarus/blob/main/lib/Engine_Icarus.sc
+	// A "dreamcrusher" pad/drone: a VarSaw main oscillator + a Pulse sub, both with
+	// LFO-modulated PWM and slow randomized detune, run into a feedback delay network
+	// (OnePole tilt -> Rotate2 -> DelayC -> softclip), a MoogLadder low-pass, and a
+	// Dust-gated "destruction" dropout. The whole chain and its constants are the
+	// engine's own. Adaptation for PoundHard's spawn-per-hit model: the original is
+	// gate-driven (envgate on/off); here the note fires a one-shot cubic AR envelope
+	// (attack -> decay-to-sustain -> release) whose length is set by `decay`+`release`,
+	// so long values give the sustained drones/pads it's made for, and the voice
+	// self-frees. `hz` comes from the played note.
+	SynthDef(\phIcarus, { |out = 16, note = 48, vel = 1,
+		subpitch = 1, sublevel = 0.3, detuning = 0.1, portamento = 0.1,
+		pwmcenter = 0.5, pwmwidth = 0.05, pwmfreq = 10,
+		lpf = 6000, resonance = 0.2, feedback = 0.5, delaytime = 0.25, destruction = 0,
+		attack = 0.02, decay = 1.0, release = 1.5, sustain = 0.8,
+		gain = 1, amp = 0.5, pan = 0|
+		var v = vel.clip(0, 2).max(0.03);
+		var hz = note.clip(0, 127).midicps;
+		var life = attack + decay + release + 0.3;
+		var ender, in, subdiv, hzd, hzs, ampcheck, local, snd;
+		// one-shot cubic envelope (no gate): rise -> fall to sustain -> release to 0
+		ender = EnvGen.ar(Env.new(
+			curve: 'cubed', levels: [0, 1, sustain, 0],
+			times: [attack + 0.015, decay, release]));
+		// main VarSaw with LFO PWM + slow randomized detune (dreamcrusher)
+		hzd = (Lag.kr(hz + (SinOsc.kr(LFNoise0.kr(1)) * (((hz.cpsmidi + 1).midicps) - hz) * detuning), portamento).cpsmidi).midicps;
+		in = VarSaw.ar(hzd, width: LFTri.kr(pwmfreq + Rand(0.1, 0.3), mul: pwmwidth / 2, add: pwmcenter), mul: 0.5);
+		// sub-oscillator (Pulse), subpitch octaves below
+		subdiv = 2 ** subpitch;
+		hzs = (Lag.kr((hz / subdiv) + (SinOsc.kr(LFNoise0.kr(1)) * ((((hz / subdiv).cpsmidi + 1).midicps) - (hz / subdiv)) * detuning), portamento).cpsmidi).midicps;
+		in = in + Pulse.ar(hzs, width: LFTri.kr(pwmfreq + Rand(0.1, 0.3), mul: pwmwidth / 2, add: pwmcenter), mul: 0.5 * sublevel);
+		in = Splay.ar(in);
+		in = Balance2.ar(in[0], in[1], SinOsc.kr(LinLin.kr(LFNoise0.kr(0.1), -1, 1, 0.05, 0.2)) * 0.1);
+		in = in * ender;
+		ampcheck = Amplitude.kr(Mix.ar(in));
+		in = in * (ampcheck > 0.02);                               // noise gate
+		// feedback delay network
+		local = LocalIn.ar(2);
+		local = OnePole.ar(local, 0.4);
+		local = OnePole.ar(local, -0.08);
+		local = Rotate2.ar(local[0], local[1], 0.2);
+		local = DelayC.ar(local, 0.5, Lag.kr(delaytime, 0.2));
+		local = LeakDC.ar(local);
+		local = ((local + in) * 1.25).softclip;
+		local = MoogLadder.ar(local, Lag.kr(lpf.clip(20, 18000), 1), res: Lag.kr(resonance.clip(0, 1), 1));
+		// Dust-gated dropouts ("destruction")
+		local = ((local * (1 - EnvGen.kr(Env([0, 1, 0], [0.1, 0.1], curve: \sine), gate: Dust.kr(destruction)))) + local) / 2;
+		LocalOut.ar(local * Lag.kr(feedback.clip(0, 0.98), 1));
+		snd = Balance2.ar(local[0] * 0.2, local[1] * 0.2, SinOsc.kr(LinLin.kr(LFNoise0.kr(0.1), -1, 1, 0.05, 0.2)) * 0.1);
+		snd = Mix.ar([Pan2.ar(snd[0], -1 + (2 * pan.clip(-1, 1)), 1), Pan2.ar(snd[1], 1 + (2 * pan.clip(-1, 1)), 1)]);
+		snd = snd * v * amp * gain.max(0.01);
+		Line.kr(0, 1, life, doneAction: 2);
+		Out.ar(out, ~killbad.(snd));
+	}).add;
+
 	// ================= FX (per-track insert chain) =================
 	// Each FX reads its track bus (`in`), processes, and REPLACES the bus (`out`
 	// == `in`) — so a track's FX run in place, in canonical chain order. Stereo.

@@ -41,7 +41,7 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   - [Pattern view](#pattern-view)
   - [Project view](#project-view)
   - [Recorder view](#recorder-view)
-- [Kits](#kits)
+- [Sounds & the engine palette](#sounds--the-engine-palette)
 - [Patterns & projects](#patterns--projects)
 - [Recording & the web UI](#recording--the-web-ui)
 - [Deploy to the Move](#deploy-to-the-move)
@@ -55,30 +55,39 @@ buttons, encoders and screen. It runs on the same on-device stack as the
 
 ## The instrument
 
-- **16 tracks**, one per step button, grouped by sound engine into contiguous,
-  colour-coded blocks:
+- **16 tracks**, one per step button. Tracks start **empty** (dark, silent); you
+  build your rig by assigning engines from the **engine palette** (see below). Any
+  engine can go on any track — the layout is yours, per project.
+- **8 assignable engines**, one per **top-row pad** in the default view, each in
+  its own colour:
 
-  | Tracks | Engine | Colour | Voices |
-  |--------|--------|--------|--------|
-  | 1–6 | **DRUM** | 🟡 yellow | kick · snare · closed hat · open hat · clap · metallic/glitch perc |
-  | 7–8 | **RINGS** | 🩵 cyan | mallet/bell · sympathetic pluck (Mutable Rings) |
-  | 9 | **BEN** | 🟠 orange | Benjolin — chaotic generative machine |
-  | 10–11 | **BUCHLOID** | 🟣 magenta | drone · noise texture |
-  | 12 | **NOIZEOP** | 🩷 pink | 4-sine / 6-algorithm glitch-noise machine |
-  | 13–14 | **FMTONE** | 🟢 green | bass · metallic ornament |
-  | 15–16 | **MOLLY** | 🔵 blue | gritty lead/stab · corroded pad |
+  | Pad | Engine | Colour | Character |
+  |--------|--------|--------|-----------|
+  | 1 | **DRUM** | 🟡 yellow | digital drum — kick/snare/hat/metal/clap/tom/noise |
+  | 2 | **FMTONE** | 🟢 green | 2-op FM — bass / mallet / metallic / stab |
+  | 3 | **BUCHLOID** | 🟣 magenta | Buchla complex osc — drone / noise texture |
+  | 4 | **MOLLY** | 🔵 blue | gritty Moog-ladder subtractive lead/pad |
+  | 5 | **RINGS** | 🩵 cyan | Mutable Rings modal / sympathetic resonator |
+  | 6 | **BEN** | 🟠 orange | Benjolin — chaotic generative machine |
+  | 7 | **NOIZEOP** | 🩷 pink | 4-sine / 6-algorithm glitch-noise machine |
+  | 8 | **ICARUS** | 🟪 violet | dreamcrusher drone / pad (VarSaw + FB delay) |
 
+- **Engine palette** (top row of pads, default view): **short-press** a pad to
+  audition its current sound; **Shift + pad** to regenerate it; **hold a pad and
+  tap a track** (step button) to assign that engine + sound to the track. Assigning
+  keeps the track's existing sequence — only the sound changes.
 - **32-step sequencer per track**, each with independent length and clock rate
   (**polymeter** — tracks phase against each other).
 - **Per-step locks** on pitch, velocity, pan, and a **voice macro** — each step
   can carry its own tone.
-- **Kits** re-roll every voice within its fixed role, so a kit is always fresh
-  but idiomatic. Patterns and mutes survive kit regeneration.
+- **Re-roll a track's sound** in place with **Shift + Track 1** while it's open —
+  a fresh sound within its assigned engine. Patterns, mutes and locks survive.
 - **Up to 32 patterns per project**, and projects saved to disk — see
   [Patterns & projects](#patterns--projects).
 
 The step buttons for tracks that contain events **pulse at the pace of their
-sequence**, so you can read at a glance what each track is doing.
+sequence**; assigned-but-empty tracks glow steady-dim in their engine hue, and
+unassigned tracks are dark — so you can read the whole rig at a glance.
 
 ---
 
@@ -122,10 +131,20 @@ All voices are **spawned per hit and self-free** (see [voice model](#voice-model
   envelope replaces the original's continuous drone. Denominators carry a tiny bias
   and the operators are magnitude-clamped, so the spikes survive but infinities and
   NaNs never reach the DAC. All core UGens — no plugin dependency.
+- **ICARUS** — a faithful port of schollz's
+  [Icarus](https://github.com/schollz/icarus) Norns engine, a "dreamcrusher" drone/pad.
+  A **VarSaw** main oscillator and a **Pulse** sub, both with LFO-modulated pulse-width
+  and slow randomized detune, feed a **feedback delay network** (OnePole tilt → Rotate2 →
+  DelayC → softclip), a **MoogLadder** low-pass, and a Dust-gated "destruction" dropout.
+  Excellent for evolving drones and pads. Adaptation for the spawn-per-hit model: the
+  original is gate-driven; here the note fires a one-shot cubic AR envelope whose length
+  is set by attack/decay/release (long values give sustained pads), and the voice
+  self-frees. Needs **MoogLadder** (BhobUGens, from sc3-plugins).
 
-> RINGS needs the **mi-UGens** plugins and the reverb FX needs **sc3-plugins**
-> (`JPverb`) present in the SuperCollider bundle on the device. There are **no
-> silent fallbacks** — a missing dependency fails loudly at build.
+> RINGS needs the **mi-UGens** plugins; the reverb FX and **ICARUS** (`MoogLadder`),
+> **BEN** (`PulseDPW`/`SVF`/`DFM1`) need **sc3-plugins** present in the SuperCollider
+> bundle on the device. There are **no silent fallbacks** — a missing dependency fails
+> loudly at build.
 
 ---
 
@@ -138,8 +157,14 @@ everywhere.
 
 ### Tracks view (default)
 
+The **top row of pads** is the **engine palette** — one pad per assignable engine,
+in its engine colour.
+
 | Control | Action |
 |---|---|
+| **Engine pad — short-press** | audition that engine's current sound (one hit) |
+| **Engine pad — Shift + press** | regenerate that engine's sound |
+| **Hold engine pad + tap a step button** | **assign** that engine + sound to the track |
 | **Step button — tap** | mute / unmute that track |
 | **Step button — double-tap** | **solo** that track (double-tap again to un-solo) |
 | **Step button — long-press** | open that track in the [Edit view](#edit-view-per-track) |
@@ -147,16 +172,15 @@ everywhere.
 | **Track 3 button** | open the [Pattern view](#pattern-view) |
 | **Shift + Track 3 button** | open the [Recorder view](#recorder-view) |
 | **Menu button** | open the [Project view](#project-view) |
-| **Shift + Track 1** | randomize the **selected** track's sound |
-| **Shift + hold master-volume knob + Track 1** | randomize the whole 16-track kit |
+| **Shift + Track 1** | re-roll the **open** track's sound (within its engine) |
 | **Play** (lit green while running) | start / stop the sequencer |
 | **Knob 1** | master tempo (BPM) |
 | **Back** | exit the takeover (tears the stack down) |
 
-Step buttons are lit in their **engine colour**; a track with events pulses,
-a muted or empty track sits steady-dim, the open edit track is white. Soloing a
-track dims every other one — without touching their own mute flags, so un-soloing
-restores exactly what was muted before.
+Step buttons are lit in their **engine colour**; a track with events pulses, an
+assigned-but-empty track sits steady-dim, an **unassigned track is dark**, the open
+edit track is white. Soloing a track dims every other one — without touching their
+own mute flags, so un-soloing restores exactly what was muted before.
 
 > Solo is on **double-tap**, not Shift+step: **Shift + step button 13** is a fatal
 > Move firmware combo (it floods MIDI and the module gets watchdog-killed), so Shift
@@ -253,20 +277,28 @@ screen shows a giant `M:SS` counter. See
 
 ---
 
-## Kits
+## Sounds & the engine palette
 
-A **kit** is the 16 voice *sounds* (engine type, note, and parameters). There are
-**16 fixed roles** — track 1 is always a kick, track 7 always a Rings mallet, and
-so on. Generating a kit re-rolls every voice within its role's musical bands, so
-allocation is deterministic but the sound is always fresh. Notes for tonal voices
-are drawn from a low phrygian scale. Tune the roles in
+Tracks start **empty**. You build a rig by assigning engines from the **engine
+palette** (the top row of pads in the default view): audition a pad, re-roll it
+until you like it, then hold the pad and tap a track to drop the sound there. Any
+engine can go on any track, as many times as you like.
+
+Each engine generates its sound from a **generic role** — musical parameter bands
+that keep the voice idiomatic while randomizing the rest (drums roll every mode;
+tonal voices draw notes from a low phrygian scale; BEN keeps its second oscillator
+sub-audio so the rungler clocks; NOIZEOP spreads its four ratios; ICARUS leans long
+and evolving). Tune the roles in
 [`controller/poundhard/kits.py`](controller/poundhard/kits.py) — that's the
 aesthetic dial.
 
-- **Shift + Track 1** re-rolls the selected track's sound only.
-- **Shift + hold master-volume knob + Track 1** re-rolls the whole kit.
+- **Short-press an engine pad** — audition its current sound.
+- **Shift + engine pad** — regenerate that engine's sound.
+- **Hold engine pad + tap a track** — assign the engine + sound to that track.
+- **Shift + Track 1** (while a track is open) — re-roll that track's sound within
+  its assigned engine.
 
-Patterns, mutes and per-step locks survive kit regeneration.
+Assigning or re-rolling a sound keeps the track's pattern, mutes and per-step locks.
 
 ---
 
@@ -396,11 +428,12 @@ while a knob is touched.
 ### control.json (ui.js → controller)
 
 A `cmds` queue de-duped by `seq` (a single-slot mailbox lost commands when the UI
-wrote twice between polls). Commands include: `genkit`, `randtrack`, `mute`,
-`editenter` / `editexit`, `stepset`, `steplock`, `stepmacro`, `setlen`,
-`trackset`, `voicemacro`, `fxassign` / `fxbypass` / `fxmacro`, `run`, `note`,
-`savepat` / `loadpat`, `saveproj` / `loadproj`, `recpad`, `panic`. `tempo` is a
-continuous field applied on change.
+wrote twice between polls). Commands include: `audition` / `palettegen` / `assign`
+(engine palette), `randtrack`, `mute`, `solo`, `editenter` / `editexit`, `stepset`,
+`steplock`, `stepmacro`, `setlen`, `trackset`, `voicemacro`,
+`fxassign` / `fxbypass` / `fxmacro`, `run`, `note`, `savepat` / `loadpat`,
+`saveproj` / `loadproj`, `recpad`, `panic`. `tempo` is a continuous field applied
+on change.
 
 ### status.json (controller → ui.js)
 
@@ -413,10 +446,11 @@ patCur / patPending / projFilled`).
 
 ### OSC (controller → engine, sclang langPort 57120)
 
-`/ph/tempo` · `/ph/run` · `/ph/steps` · `/ph/track t typeIdx` (0=DRUM 1=FMTONE
-2=BUCHLOID 3=MOLLY 4=RINGS 5=BEN 6=NOIZEOP) · `/ph/param t "name" val` · `/ph/pattern` ·
-`/ph/stepset` · `/ph/steplock` · `/ph/stepmacro` · `/ph/clearlocks` · `/ph/mute` ·
-`/ph/note` · `/ph/vel` · `/ph/length` · `/ph/rate` · `/ph/edittrack` ·
+`/ph/tempo` · `/ph/run` · `/ph/steps` · `/ph/track t typeIdx` (**-1=empty** 0=DRUM
+1=FMTONE 2=BUCHLOID 3=MOLLY 4=RINGS 5=BEN 6=NOIZEOP 7=ICARUS) · `/ph/param t "name" val` ·
+`/ph/preview typeIdx note vel mode [name val …]` (audition one voice → master) ·
+`/ph/pattern` · `/ph/stepset` · `/ph/steplock` · `/ph/stepmacro` · `/ph/clearlocks` ·
+`/ph/mute` · `/ph/note` · `/ph/vel` · `/ph/length` · `/ph/rate` · `/ph/edittrack` ·
 `/ph/fxassign` · `/ph/fxbypass` · `/ph/fxset` · `/ph/recstart "path"` ·
 `/ph/recstop` · `/ph/mastergain` · `/ph/masterfilter` · `/ph/panic` · `/ph/ping`.
 
