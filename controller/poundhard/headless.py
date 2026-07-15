@@ -135,10 +135,11 @@ class Controller:
             self.bridge.clearlocks(t)                       # reset stale per-step locks first
             self.bridge.push_track(t, self.state.tracks[t])
             self._push_step_macros(t)
-        # FX macros (all types) then assignments + bypass
+        # FX macros + dry/wet (all types) then assignments + bypass
         for fx in range(N_FX):
             for arg, val in self.state.macro_values(fx):
                 self.bridge.fxset(fx, arg, val)
+            self.bridge.fxset(fx, "wet", self.state.fx_wet[fx])
         for t in range(N_TRACKS):
             for fx in self.state.track_fx[t]:
                 self.bridge.fxassign(t, fx, True)
@@ -480,6 +481,11 @@ class Controller:
             if 0 <= fx < N_FX:
                 for arg, val in st.set_macro(fx, float(p.get("pos", 0.5))):
                     self.bridge.fxset(fx, arg, val)
+        elif cmd == "fxwet":                   # Shift + FX macro knob = dry/wet of that FX
+            fx = int(p.get("fx", arg))
+            if 0 <= fx < N_FX:
+                w = st.set_fx_wet(fx, float(p.get("wet", 0.5)))
+                self.bridge.fxset(fx, "wet", w)   # 'wet' is a stored FX synth arg
         elif cmd == "savepat":                 # snapshot current machine state -> pattern slot
             slot = int(arg)
             if 0 <= slot < N_PATTERNS:
@@ -559,6 +565,7 @@ class Controller:
             "fxBypass": [st.fx_bypass[t] for t in range(N_TRACKS)],
             "fxOn": [list(st.track_fx[t]) for t in range(N_TRACKS)],
             "fxMacro": [round(m, 3) for m in st.fx_macro],
+            "fxWet": [round(w, 3) for w in st.fx_wet],
             "fxNames": [s.short for s in FX_SPECS],
         }
         if 0 <= st.edit_track < N_TRACKS:

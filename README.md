@@ -219,8 +219,11 @@ stage for fizz and breakup. Its macro sweeps drive/tone/fold/bias/grit together.
 | repeat to unassign | stacked FX peel off one layer at a time; the top FX's colour prevails |
 | **Tap a track pad** (no FX held) | bypass / un-bypass that track's FX chain (grey = bypassed) |
 | **Knobs 1–8** | a randomized **macro** per FX — some params move with the knob, some inverted |
+| **Shift + Knob 1–8** | **dry/wet mix** of that FX (0–100 %, shown big while turning) |
 
-All FX default to 50 % wet / 50 % dry.
+FX start at 50 % wet / 50 % dry. Both the macro and the dry/wet mix are **per FX
+type** — they apply to every track using that effect — and both are saved with
+patterns and projects.
 
 ### Pattern view
 

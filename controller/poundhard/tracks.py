@@ -97,6 +97,8 @@ class Project:
         self.track_fx: list[list[int]] = [[] for _ in range(N_TRACKS)]
         self.fx_bypass: list[bool] = [False] * N_TRACKS
         self.fx_macro: list[float] = [0.5] * N_FX
+        # per-fx-type dry/wet mix (0 = dry, 1 = wet). Set by Shift + FX macro knob.
+        self.fx_wet: list[float] = [0.5] * N_FX
         _rng = random.Random()
         self.fx_dir: list[dict] = [
             {arg: (1 if _rng.random() < 0.5 else -1) for (arg, _lo, _hi) in spec.params}
@@ -142,6 +144,7 @@ class Project:
             "track_fx": [list(s) for s in self.track_fx],
             "fx_bypass": list(self.fx_bypass),
             "fx_macro": list(self.fx_macro),
+            "fx_wet": list(self.fx_wet),
             "fx_dir": [dict(d) for d in self.fx_dir],
             "voice_macro": list(self.voice_macro),
             "voice_dir": [dict(d) for d in self.voice_dir],
@@ -169,6 +172,7 @@ class Project:
         self.track_fx = [list(s) for s in snap.get("track_fx", self.track_fx)]
         self.fx_bypass = list(snap.get("fx_bypass", self.fx_bypass))
         self.fx_macro = list(snap.get("fx_macro", self.fx_macro))
+        self.fx_wet = list(snap.get("fx_wet", self.fx_wet))
         self.fx_dir = [dict(d) for d in snap.get("fx_dir", self.fx_dir)]
         self.voice_macro = list(snap.get("voice_macro", self.voice_macro))
         self.voice_dir = [dict(d) for d in snap.get("voice_dir", self.voice_dir)]
@@ -230,6 +234,13 @@ class Project:
     def set_macro(self, fx: int, pos: float) -> list:
         self.fx_macro[fx] = max(0.0, min(1.0, pos))
         return self.macro_values(fx)
+
+    def set_fx_wet(self, fx: int, wet: float) -> float:
+        """Dry/wet mix for FX type `fx` (applies to every track using it)."""
+        w = max(0.0, min(1.0, float(wet)))
+        if 0 <= fx < N_FX:
+            self.fx_wet[fx] = w
+        return w
 
     # -- voice macro (one knob sweeps the whole current voice) -------------- #
     def reroll_voice_macro(self, track: int) -> None:

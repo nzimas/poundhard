@@ -147,6 +147,7 @@ let fxOn = [];                       /* per-track list of assigned fx indices (f
 for (let i = 0; i < N_TRACKS; i++) fxOn.push([]);
 let fxBypass = new Array(N_TRACKS).fill(false);
 let fxMacro = new Array(N_FX).fill(0.5);
+let fxWet = new Array(N_FX).fill(0.5);   /* per-fx dry/wet (Shift + FX macro knob) */
 let fxNames = ['OD', 'AMP', 'CRSH', 'RING', 'FLNG', 'GRN', 'DLY', 'VRB'];
 let overlay = null, overlayUntil = -1;
 let ledDirty = true, screenDirty = true, lastLedSig = '', lastScreenSig = '', lastDrawAt = -100;
@@ -386,6 +387,12 @@ function drawRateBig(t) {
 }
 function drawFx() {
     clear_screen();
+    if (knobShow && knobShow.indexOf('fw') === 0) {              /* an FX dry/wet knob is touched */
+        var wk = parseInt(knobShow.slice(2), 10);
+        print(0, 0, fxNames[wk] + ' DRY/WET', 1);
+        drawBig('' + Math.round(fxWet[wk] * 100), 4, 7); bar(fxWet[wk]);
+        return;
+    }
     if (knobShow && knobShow.indexOf('fx') === 0) {              /* an FX macro knob is touched */
         var mk = parseInt(knobShow.slice(2), 10);
         print(0, 0, fxNames[mk] + ' MACRO', 1);
@@ -399,7 +406,7 @@ function drawFx() {
     if (overlay && phase < overlayUntil) { print(0, 22, overlay, 2); return; }
     print(0, 6, 'FX', 2);
     print(0, 30, 'hold fx + tap tracks', 1);
-    print(0, 44, 'tap track = bypass', 1);
+    print(0, 44, 'tap track=bypass  shift+knob=wet', 1);
     print(0, 56, 'knobs 1-8 = macros', 1);
 }
 function drawRec() {
@@ -507,6 +514,7 @@ function readStatus() {
     if (Array.isArray(s.fxBypass)) fxBypass = s.fxBypass;
     if (Array.isArray(s.fxNames)) fxNames = s.fxNames;
     if (Array.isArray(s.fxMacro)) { for (var fi = 0; fi < N_FX; fi++) if (fxHeld < 0) fxMacro[fi] = s.fxMacro[fi]; }
+    if (Array.isArray(s.fxWet)) { for (var fw = 0; fw < N_FX; fw++) if (fxHeld < 0) fxWet[fw] = s.fxWet[fw]; }
     if (s.edit && Array.isArray(s.edit.steps) && s.editTrack === editTrack) {
         editSteps = s.edit.steps; editName = s.edit.name || ''; editType = s.edit.type || '';
         if (s.edit.stepNote) stepNote = s.edit.stepNote;
@@ -556,7 +564,7 @@ globalThis.init = function () {
     fxView = false; fxHeld = -1;
     fxTop = new Array(N_TRACKS).fill(-1); fxBypass = new Array(N_TRACKS).fill(false);
     fxOn = []; for (var qi = 0; qi < N_TRACKS; qi++) fxOn.push([]);
-    fxMacro = new Array(N_FX).fill(0.5);
+    fxMacro = new Array(N_FX).fill(0.5); fxWet = new Array(N_FX).fill(0.5);
     overlay = null; overlayUntil = -1; ledDirty = true; screenDirty = true;
     lastLedSig = ''; lastScreenSig = ''; lastDrawAt = -100;
     seqBeats = 0; lastPulseMs = 0; wasRunning = false; lastStepCol = new Array(N_TRACKS).fill(-1);
@@ -651,7 +659,7 @@ globalThis.onMidiMessageInternal = function (data) {
         var ki = d1 - MoveKnob1Touch;
         var touched = (status === 0x90 && d2 >= 64);
         var which = null;
-        if (fxView) which = (ki < N_FX) ? ('fx' + ki) : null;                            /* FX macro N */
+        if (fxView) which = (ki < N_FX) ? ((shiftHeld ? 'fw' : 'fx') + ki) : null;       /* FX macro / dry-wet N */
         else if (projView) which = (ki === 0) ? 'tempo' : null;                          /* project settings */
         else if (stepEditCell >= 0) which = (ki === 0) ? 'vel' : (ki === 1) ? 'pan' : (ki === 2) ? 'macro' : null;
         else if (editTrack >= 0) which = (ki === 0) ? 'vol' : (ki === 1) ? 'pan' : (ki === 2) ? 'macro' : null;
@@ -875,7 +883,13 @@ globalThis.onMidiMessageInternal = function (data) {
             const ki = d1 - MoveKnob1;
             const dn = decodeDelta(d2);
             if (dn === 0) return;
-            if (fxView) {                                        /* knob N = FX N randomized macro */
+            if (fxView) {                                        /* knob N = FX N macro; Shift = its dry/wet */
+                if (shiftHeld) {
+                    fxWet[ki] = clampf(fxWet[ki] + dn * 0.03, 0, 1);
+                    sendCmd('fxwet', ki, { p: { fx: ki, wet: fxWet[ki] } });
+                    knobShow = 'fw' + ki; screenDirty = true;
+                    return;
+                }
                 fxMacro[ki] = clampf(fxMacro[ki] + dn * 0.03, 0, 1);
                 sendCmd('fxmacro', ki, { p: { fx: ki, pos: fxMacro[ki] } });
                 knobShow = 'fx' + ki; screenDirty = true;        /* giant readout, persists while touched */
