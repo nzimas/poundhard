@@ -75,6 +75,7 @@ const TYPE_COL = {
     MOLLY:    [16, 95],   /* RoyalBlue / DarkBlue — dim MUST come from the dark band (74-107),
                            * not the bright band: Navy(17) reads as lit and swamped the pulse. */
     BEN:      [2, 67],    /* OrangeRed / Brick — track 9, the Benjolin chaos machine */
+    NOIZEOP:  [23, 109],  /* NeonPink / DeepMagenta — track 12, deeg's NoizeOp glitch-noise */
 };
 
 /* ---- runtime state (mirrors status.json) ---- */

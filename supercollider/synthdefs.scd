@@ -319,6 +319,63 @@
 		Out.ar(out, ~killbad.(~spread.(sig, pan)));
 	}).add;
 
+	// ----- NOIZEOP: faithful port of deeg's NoizeOp Norns engine ------------
+	//   github.com/deeg-deeg-deeg/noizeop/blob/main/lib/Engine_NoizeOp.sc
+	// Four sine oscillators combined through six nonlinear "algorithms" (products,
+	// ratios, truncation, hypotenuse, sum-of-squares), mixed by weight, then run
+	// through a hipass -> lowpass -> resonz filter bank. The divisions cross zero
+	// constantly, so the output is spiky, glitchy, rhythmic noise — exactly the
+	// point. The ONLY adaptation for PoundHard: the four oscillator frequencies are
+	// note-relative RATIOS (osc freq = note.midicps * freqNN) so the sequencer can
+	// transpose the whole cluster while keeping the ratios that give it its voice,
+	// and a per-hit amp envelope replaces the original's continuous drone. Every
+	// algo, mul, a_mod, a_vol, filter and Resonz is verbatim. Denominators get a
+	// tiny 1e-9 bias (kills 0/0 = NaN, inaudible) and the algos are magnitude-
+	// clamped so infinities never reach the DAC — the spikes stay, the NaNs don't.
+	SynthDef(\phNoizeop, { |out = 16, note = 48, vel = 1,
+		freq01 = 1.0, freq02 = 1.5, freq03 = 2.0, freq04 = 3.0,
+		mul01 = 1, mul02 = 1, mul03 = 1, mul04 = 1,
+		a_mod_01 = 1, a_mod_02 = 1, a_mod_03 = 0.02, a_mod_04 = 1, a_mod_05 = 1, a_mod_06 = 1,
+		a_vol_01 = 0.5, a_vol_02 = 0.5, a_vol_03 = 0.5, a_vol_04 = 0.5, a_vol_05 = 0.5, a_vol_06 = 0.5,
+		ffreq01 = 40, ffreq02 = 12000, ffreq03 = 1200, q01 = 1, q02 = 1, q03 = 1,
+		gain = 1, decay = 1.0, amp = 0.5, pan = 0|
+		var v = vel.clip(0, 2).max(0.03);
+		var life = decay.clip(0.05, 12);
+		var base = note.clip(0, 127).midicps;                    // note transposes the cluster
+		var f01 = (base * freq01).clip(0.001, 18000);
+		var f02 = (base * freq02).clip(0.001, 18000);
+		var f03 = (base * freq03).clip(0.001, 18000);
+		var f04 = (base * freq04).clip(0.001, 18000);
+		var osc01 = SinOsc.ar(f01, 0, mul01, 0);
+		var osc02 = SinOsc.ar(f02, 0, mul02, 0);
+		var osc03 = SinOsc.ar(f03, 0, mul03, 0);
+		var osc04 = SinOsc.ar(f04, 0, mul04, 0);
+		// +1e-9 bias on each denominator: prevents exact 0/0 (= NaN); inaudible.
+		var algo01, algo02, algo03, algo04, algo05, algo06, combo, sig, aEnv;
+		algo01 = ((osc01 * osc02) / ((osc03 * osc04) + 1e-9)) / a_mod_01.max(1e-3);
+		algo02 = ((osc02 * osc04) / ((osc03 - osc01) + 1e-9)) / a_mod_02.max(1e-3);
+		algo03 = ((osc01 + osc02) - (osc03 + osc04)).trunc(a_mod_03.max(1e-4));
+		// clamp the first three before they multiply, so the product stays finite
+		algo01 = algo01.clip2(50); algo02 = algo02.clip2(50); algo03 = algo03.clip2(50);
+		// original does (algo01*algo02*algo03).sqrt; the product goes negative
+		// constantly (sqrt -> NaN there), so take the magnitude — same envelope.
+		algo04 = ((algo01 * algo02 * algo03).abs.sqrt) / a_mod_04.max(1e-3);
+		algo05 = (hypot(osc01, osc02) + hypot(osc03, osc04)) * a_mod_05;
+		algo06 = ((osc01 ** 2) + (osc02 ** 2) + (osc03 ** 2) + (osc04 ** 2)) * a_mod_06;
+		combo = (algo01 * a_vol_01) + (algo02 * a_vol_02) + (algo03 * a_vol_03)
+		      + (algo04 * a_vol_04) + (algo05 * a_vol_05) + (algo06 * a_vol_06);
+		combo = combo.clip2(20);
+		// verbatim filter bank: BHiPass4 -> BLowPass4 -> Resonz
+		sig = BLowPass4.ar(BHiPass4.ar(combo, ffreq01.clip(20, 18000), q01, 1, 0),
+			ffreq02.clip(20, 18000), q02, 1, 0);
+		sig = Resonz.ar(sig, ffreq03.clip(20, 18000), q03, 1.0, 0.0);
+		sig = (sig * gain.max(0.01)).tanh;
+		aEnv = EnvGen.ar(Env([0, 1, 1, 0], [0.004, (life - 0.12).max(0.02), 0.12], [0, 0, -3]));
+		sig = LeakDC.ar(sig) * aEnv * v * amp;
+		Line.kr(0, 1, life + 0.2, doneAction: 2);
+		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+	}).add;
+
 	// ================= FX (per-track insert chain) =================
 	// Each FX reads its track bus (`in`), processes, and REPLACES the bus (`out`
 	// == `in`) — so a track's FX run in place, in canonical chain order. Stereo.

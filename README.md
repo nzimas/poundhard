@@ -64,7 +64,8 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   | 7–8 | **RINGS** | 🩵 cyan | mallet/bell · sympathetic pluck (Mutable Rings) |
   | 9 | **BEN** | 🟠 orange | Benjolin — chaotic generative machine |
   | 10–11 | **BUCHLOID** | 🟣 magenta | drone · noise texture |
-  | 12–14 | **FMTONE** | 🟢 green | sub · bass · ornament |
+  | 12 | **NOIZEOP** | 🩷 pink | 4-sine / 6-algorithm glitch-noise machine |
+  | 13–14 | **FMTONE** | 🟢 green | bass · metallic ornament |
   | 15–16 | **MOLLY** | 🔵 blue | gritty lead/stab · corroded pad |
 
 - **32-step sequencer per track**, each with independent length and clock rate
@@ -109,6 +110,18 @@ All voices are **spawned per hit and self-free** (see [voice model](#voice-model
   pace of the stepped sequences. Four filter types (LP / HP / SVF / DFM1) and seven
   output taps (tri1 · osc1 · tri2 · osc2 · pwm · sh0 · filter) are selectable, and the
   kit role rolls all of them.
+- **NOIZEOP** — a faithful port of deeg's
+  [NoizeOp](https://github.com/deeg-deeg-deeg/noizeop) Norns engine. **Four sine
+  oscillators** are combined through **six nonlinear "algorithms"** (products, ratios,
+  a truncation/quantizer, a hypotenuse, and a sum-of-squares), mixed by per-algorithm
+  weight, then run through a **hipass → lowpass → resonz** filter bank. The ratios
+  divide through zero constantly, so the output is spiky, glitchy, rhythmic noise —
+  that *is* the instrument. The only adaptation for PoundHard: the four oscillator
+  frequencies are **note-relative ratios** (so the sequencer transposes the whole
+  cluster while keeping the ratios that give it its character), and a per-hit amp
+  envelope replaces the original's continuous drone. Denominators carry a tiny bias
+  and the operators are magnitude-clamped, so the spikes survive but infinities and
+  NaNs never reach the DAC. All core UGens — no plugin dependency.
 
 > RINGS needs the **mi-UGens** plugins and the reverb FX needs **sc3-plugins**
 > (`JPverb`) present in the SuperCollider bundle on the device. There are **no
@@ -401,7 +414,7 @@ patCur / patPending / projFilled`).
 ### OSC (controller → engine, sclang langPort 57120)
 
 `/ph/tempo` · `/ph/run` · `/ph/steps` · `/ph/track t typeIdx` (0=DRUM 1=FMTONE
-2=BUCHLOID 3=MOLLY 4=RINGS) · `/ph/param t "name" val` · `/ph/pattern` ·
+2=BUCHLOID 3=MOLLY 4=RINGS 5=BEN 6=NOIZEOP) · `/ph/param t "name" val` · `/ph/pattern` ·
 `/ph/stepset` · `/ph/steplock` · `/ph/stepmacro` · `/ph/clearlocks` · `/ph/mute` ·
 `/ph/note` · `/ph/vel` · `/ph/length` · `/ph/rate` · `/ph/edittrack` ·
 `/ph/fxassign` · `/ph/fxbypass` · `/ph/fxset` · `/ph/recstart "path"` ·

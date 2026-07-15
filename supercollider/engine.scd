@@ -17,7 +17,7 @@
 
 ~nTracks = 16;
 ~maxSteps = 32;
-~typeDefs = [\phDrum, \phFmtone, \phBuchloid, \phMolly, \phRings, \phBen];  // /ph/track type index
+~typeDefs = [\phDrum, \phFmtone, \phBuchloid, \phMolly, \phRings, \phBen, \phNoizeop];  // /ph/track type index
 // DRUM is split into per-mode defs (chosen from the track's `mode` param at spawn).
 ~drumDefs = [\phDrumKick, \phDrumSnare, \phDrumHat, \phDrumMetal, \phDrumClap, \phDrumTom, \phDrumNoise];
 

@@ -96,7 +96,7 @@ class VoiceSpec:
 
 
 # Engine `/ph/track` type indices (must match ~typeDefs in engine.scd).
-TYPE_INDEX = {"DRUM": 0, "FMTONE": 1, "BUCHLOID": 2, "MOLLY": 3, "RINGS": 4, "BEN": 5}
+TYPE_INDEX = {"DRUM": 0, "FMTONE": 1, "BUCHLOID": 2, "MOLLY": 3, "RINGS": 4, "BEN": 5, "NOIZEOP": 6}
 
 _COMMON_TAIL = lambda pfx, ampd=0.8, ampmus=(0.5, 1.1): [
     P(f"{pfx}.amp", "Amp", unit="dB", rmin=0.0, rmax=2.0, default=ampd, curve=Curve.DB,
@@ -356,7 +356,73 @@ BEN = VoiceSpec(
     ],
 )
 
-VOICES: dict[str, VoiceSpec] = {v.type: v for v in (DRUM, FMTONE, BUCHLOID, MOLLY, RINGS, BEN)}
+# --------------------------------------------------------------------------- #
+# NOIZEOP — faithful port of deeg's NoizeOp Norns engine
+# (github.com/deeg-deeg-deeg/noizeop). Four sine oscillators combined through six
+# nonlinear algorithms (products / ratios / trunc / hypot / sum-of-squares),
+# mixed by weight, then hipass -> lowpass -> resonz. Glitchy rhythmic noise. The
+# four osc frequencies are note-relative ratios so the sequencer transposes the
+# whole cluster; every algo/mul/mod/vol/filter arg is the engine's own.
+# --------------------------------------------------------------------------- #
+NOIZEOP = VoiceSpec(
+    type="NOIZEOP",
+    role="deeg's NoizeOp — 4 sines through 6 nonlinear algorithms; glitchy rhythmic noise.",
+    synthdef="phNoizeop",
+    params=[
+        # osc frequency ratios vs the played note (1 = unison; detune for character)
+        P("noizeop.freq01", "Ratio 1", rmin=0.125, rmax=16.0, default=1.0,
+          curve=Curve.EXP, musical=(0.5, 4.0)),
+        P("noizeop.freq02", "Ratio 2", rmin=0.125, rmax=16.0, default=1.5,
+          curve=Curve.EXP, musical=(0.5, 6.0)),
+        P("noizeop.freq03", "Ratio 3", rmin=0.125, rmax=16.0, default=2.0,
+          curve=Curve.EXP, musical=(0.5, 8.0)),
+        P("noizeop.freq04", "Ratio 4", rmin=0.125, rmax=16.0, default=3.0,
+          curve=Curve.EXP, musical=(0.5, 12.0)),
+        # per-oscillator amplitude
+        P("noizeop.mul01", "Osc 1 Lvl", default=1.0, musical=(0.3, 1.0)),
+        P("noizeop.mul02", "Osc 2 Lvl", default=1.0, musical=(0.3, 1.0)),
+        P("noizeop.mul03", "Osc 3 Lvl", default=1.0, musical=(0.3, 1.0)),
+        P("noizeop.mul04", "Osc 4 Lvl", default=1.0, musical=(0.3, 1.0)),
+        # algorithm mod coefficients (a_mod_01/02/04 divide -> smaller = wilder;
+        # a_mod_03 is the trunc/quantize step; a_mod_05/06 scale)
+        P("noizeop.a_mod_01", "Mod 1", rmin=0.1, rmax=8.0, default=1.0,
+          curve=Curve.EXP, musical=(0.4, 4.0)),
+        P("noizeop.a_mod_02", "Mod 2", rmin=0.1, rmax=8.0, default=1.0,
+          curve=Curve.EXP, musical=(0.4, 4.0)),
+        P("noizeop.a_mod_03", "Trunc", rmin=0.001, rmax=0.5, default=0.02,
+          curve=Curve.EXP, musical=(0.005, 0.2)),
+        P("noizeop.a_mod_04", "Mod 4", rmin=0.1, rmax=8.0, default=1.0,
+          curve=Curve.EXP, musical=(0.4, 4.0)),
+        P("noizeop.a_mod_05", "Mod 5", rmin=0.05, rmax=4.0, default=1.0,
+          curve=Curve.EXP, musical=(0.2, 2.0)),
+        P("noizeop.a_mod_06", "Mod 6", rmin=0.05, rmax=4.0, default=1.0,
+          curve=Curve.EXP, musical=(0.2, 2.0)),
+        # algorithm mix weights (which of the six operators dominates the output)
+        P("noizeop.a_vol_01", "Algo 1", default=0.5, musical=(0.0, 1.0)),
+        P("noizeop.a_vol_02", "Algo 2", default=0.5, musical=(0.0, 1.0)),
+        P("noizeop.a_vol_03", "Algo 3", default=0.5, musical=(0.0, 1.0)),
+        P("noizeop.a_vol_04", "Algo 4", default=0.5, musical=(0.0, 1.0)),
+        P("noizeop.a_vol_05", "Algo 5", default=0.5, musical=(0.0, 1.0)),
+        P("noizeop.a_vol_06", "Algo 6", default=0.5, musical=(0.0, 1.0)),
+        # filter bank: hipass -> lowpass -> resonz
+        P("noizeop.ffreq01", "HP Freq", unit="Hz", rmin=20.0, rmax=8000.0, default=40.0,
+          curve=Curve.EXP, musical=(30.0, 1200.0)),
+        P("noizeop.ffreq02", "LP Freq", unit="Hz", rmin=200.0, rmax=18000.0, default=12000.0,
+          curve=Curve.EXP, musical=(800.0, 14000.0)),
+        P("noizeop.ffreq03", "Resonz", unit="Hz", rmin=60.0, rmax=12000.0, default=1200.0,
+          curve=Curve.EXP, musical=(120.0, 6000.0)),
+        P("noizeop.q01", "HP Q", rmin=0.05, rmax=2.0, default=1.0, musical=(0.3, 1.4)),
+        P("noizeop.q02", "LP Q", rmin=0.05, rmax=2.0, default=1.0, musical=(0.3, 1.4)),
+        P("noizeop.q03", "Resonz BW", rmin=0.02, rmax=1.5, default=1.0,
+          curve=Curve.EXP, musical=(0.05, 0.8), danger=DangerClass.FEEDBACK),
+        P("noizeop.gain", "Drive", rmin=0.1, rmax=12.0, default=1.0, musical=(0.5, 5.0)),
+        P("noizeop.decay", "Decay", unit="s", rmin=0.05, rmax=8.0, default=1.0,
+          curve=Curve.EXP, formatter="float2", musical=(0.12, 2.5)),
+        *_COMMON_TAIL("noizeop", ampd=0.5, ampmus=(0.3, 0.7)),
+    ],
+)
+
+VOICES: dict[str, VoiceSpec] = {v.type: v for v in (DRUM, FMTONE, BUCHLOID, MOLLY, RINGS, BEN, NOIZEOP)}
 
 
 def macro_specs(voice_type: str) -> list[tuple[str, str, float, float]]:

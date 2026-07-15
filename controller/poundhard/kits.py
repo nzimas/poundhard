@@ -6,10 +6,13 @@ It does NOT touch step patterns or mutes (those are the performance).
 The allocation is FIXED and curated for PoundHard's scope (edgy IDM, rhythmic
 noise, percussion-centric experimental electronica):
 
-  Tracks 1-8  DRUM only  — kick, snare, closed hat, open hat/cymbal, clap,
-                           metallic perc, glitch perc, rhythmic noise
-  Tracks 9-16 tonal/texture — sub bass, reese/mid bass, drone, pad, metallic
-                           ornament, sampler texture, sampler glitch, noise fx
+  Tracks 1-6   DRUM       — kick, snare, closed hat, open hat, clap, glitch perc
+  Tracks 7-8   RINGS      — mallet/bell, sympathetic pluck (Mutable Rings)
+  Track  9     BEN        — Benjolin (rungler) chaotic generative machine
+  Tracks 10-11 BUCHLOID   — drone, noise texture
+  Track  12    NOIZEOP    — deeg's 4-sine / 6-algorithm glitch-noise machine
+  Tracks 13-14 FMTONE     — bass, metallic ornament
+  Tracks 15-16 MOLLY      — gritty lead/stab, corroded pad
 
 Each role fixes the essentials (voice type, drum mode, register) and randomizes
 the rest within role-appropriate bands, so every generated kit is different but
@@ -107,12 +110,22 @@ ROLES: list[Role] = [
                 "buchloid.waveFolds": (1.0, 3.0), "buchloid.timbre": (0.4, 1.0),
                 "buchloid.pressure": (0.2, 0.7), "buchloid.decay": (0.1, 0.8),
                 "buchloid.peak": (800, 9000), "buchloid.res": (0.2, 0.7)}, vel=(0.7, 1.0)),
-    # ---- tracks 12-14: FMTONE (sub / bass / ornament) ----
-    Role("SUB", "FMTONE", note_choices=(0,), octave=0,
-         fixed={"fmtone.ratio": 1.0, "fmtone.fold": 0.0},
-         bands={"fmtone.fmAmt": (0.05, 0.35), "fmtone.decay": (0.3, 1.6),
-                "fmtone.cutoff": (200, 1400), "fmtone.drive": (0.8, 2.0),
-                "fmtone.feedback": (0.0, 0.4)}, vel=(0.9, 1.05)),
+    # ---- track 12: NOIZEOP — deeg's 4-sine / 6-algorithm glitch-noise machine ----
+    # The four oscillator RATIOS are spread apart so the algorithms (products,
+    # ratios, trunc) beat against each other; low root keeps the cluster audible.
+    Role("NOIZOP", "NOIZEOP", note_choices=(0, 5, 7), octave=0,
+         bands={"noizeop.freq01": (0.5, 2.0), "noizeop.freq02": (0.75, 3.5),
+                "noizeop.freq03": (1.0, 5.0), "noizeop.freq04": (1.5, 8.0),
+                "noizeop.a_mod_01": (0.4, 3.0), "noizeop.a_mod_02": (0.4, 3.0),
+                "noizeop.a_mod_03": (0.008, 0.15), "noizeop.a_mod_04": (0.5, 3.0),
+                "noizeop.a_mod_05": (0.2, 1.6), "noizeop.a_mod_06": (0.2, 1.6),
+                "noizeop.a_vol_01": (0.0, 1.0), "noizeop.a_vol_02": (0.0, 1.0),
+                "noizeop.a_vol_03": (0.0, 1.0), "noizeop.a_vol_04": (0.0, 0.8),
+                "noizeop.a_vol_05": (0.0, 0.7), "noizeop.a_vol_06": (0.0, 0.7),
+                "noizeop.ffreq01": (30, 800), "noizeop.ffreq02": (1500, 14000),
+                "noizeop.ffreq03": (200, 5000), "noizeop.q03": (0.06, 0.6),
+                "noizeop.gain": (0.7, 4.0), "noizeop.decay": (0.15, 1.6)}, vel=(0.7, 1.0)),
+    # ---- tracks 13-14: FMTONE (bass / ornament) ----
     Role("BASS", "FMTONE", note_choices=(0, 3, 5), octave=0,
          bands={"fmtone.ratio": (0.5, 3.0), "fmtone.fmAmt": (0.2, 0.7),
                 "fmtone.feedback": (0.0, 1.2), "fmtone.decay": (0.15, 0.8),
