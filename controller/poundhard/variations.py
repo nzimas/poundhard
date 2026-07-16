@@ -7,19 +7,20 @@ recognizable as parts of the same piece. It first *analyses* the existing patter
 applies bounded, musical transformations that ramp from subtle (variation 1) to bold
 (variation 8).
 
-Crucial architecture constraint: pattern LOAD is groove-only (see Project._GROOVE_KEYS
-— pattern / muted / length / rate / step_note / step_vel / step_pan / step_macro).
-`note` is a *sound* field and is NOT applied on a live switch. So every variation
-expresses melody as **per-step pitch locks** and rhythm as the on/off pattern — all
-groove keys — which keeps the kit sounds identical (that's the family resemblance)
-and works with live switching. The only thing that touches the kit is *adding* a
-complementary instrument: its sound is written into the shared live state (an empty
-track), silent in the base pattern and played in some variations.
+Patterns are **self-contained**: a load restores every engine's params, the
+engine-to-track assignment, FX and the sequences. So each variation carries the base's
+sounds verbatim (that's the family resemblance) and only its *groove* is transformed —
+and a variation that introduces a complementary instrument can simply carry that
+instrument's sound itself, leaving the seed pattern untouched.
+
+Melody is expressed as **per-step pitch locks** rather than by moving a track's default
+note: it keeps the voice's identity intact while giving the line real movement.
 """
 from __future__ import annotations
 
 import random
 
+from . import catalog
 from . import kits
 from .tracks import Track, N_TRACKS, N_STEPS, N_PATTERNS
 
@@ -244,9 +245,10 @@ def _vary_dynamics(tr: Track, intensity: float, rng) -> None:
 # --------------------------------------------------------------------------- #
 # adding a complementary instrument (sparingly)
 # --------------------------------------------------------------------------- #
-def _decide_additions(project, analysis: dict, rng) -> list[int]:
-    """Add 0–2 complementary instruments to EMPTY tracks when there's a clear gap.
-    Returns the track indices added (their sound goes into the shared live kit)."""
+def _decide_additions(analysis: dict, rng) -> list[tuple[int, dict]]:
+    """Pick 0–2 complementary instruments for EMPTY tracks when there's a clear gap.
+    PURE: returns [(track_idx, voice)] — the sound is installed into the variations that
+    use it, so the seed pattern is never touched."""
     empty = list(analysis["empty_tracks"])
     engines = analysis["engines"]
     if not empty:
@@ -269,9 +271,7 @@ def _decide_additions(project, analysis: dict, rng) -> list[int]:
         if engine == "DRUM":                   # force a hi-hat so it complements, not doubles the kick
             voice["params"]["drum.mode"] = 2
             voice["note"] = 72
-        project.tracks[t].load_voice(voice)
-        project.reroll_voice_macro(t)
-        added.append(t)
+        added.append((t, voice))
     return added
 
 
@@ -292,14 +292,16 @@ def _added_groove(tr: Track, engine: str, L: int, intensity: float, rng) -> None
 # --------------------------------------------------------------------------- #
 # variation assembly
 # --------------------------------------------------------------------------- #
-def _make_variation(base: dict, analysis: dict, added: list[int], engine_of: dict,
+def _make_variation(base: dict, analysis: dict, added: list[tuple[int, dict]],
                     intensity: float, rng) -> dict:
     snap = {k: (list(v) if isinstance(v, list) else v) for k, v in base.items()}
+    snap["voice_dir"] = [dict(d) for d in base.get("voice_dir", [])]
     src_tracks = base["tracks"]
     new_tracks = []
     active = set(analysis["active"])
     anchor = analysis["anchor"]
     pcs = analysis["pcs"]
+    add_map = dict(added)
 
     # how many non-anchor active tracks to transform this variation (>=1, grows w/ intensity)
     variable = [i for i in analysis["active"] if i != anchor]
@@ -308,11 +310,14 @@ def _make_variation(base: dict, analysis: dict, added: list[int], engine_of: dic
 
     for i, td in enumerate(src_tracks):
         tr = Track.from_dict(td)
-        if i in added:                         # a freshly-added instrument
+        if i in add_map:                       # a complementary instrument for THIS variation
             if rng.random() < 0.35 + 0.5 * intensity:
-                L = max(1, int(td.get("length", N_STEPS)))
-                _added_groove(tr, engine_of[i], L, intensity, rng)
-            new_tracks.append(tr.to_dict())
+                voice = add_map[i]
+                tr.load_voice(voice)           # the variation carries the sound itself
+                _added_groove(tr, voice["type"], 16, intensity, rng)
+                snap["voice_dir"][i] = {arg: (1 if rng.random() < 0.5 else -1)
+                                        for (_pid, arg, _lo, _hi) in catalog.macro_specs(voice["type"])}
+            new_tracks.append(tr.to_dict())    # otherwise the track stays EMPTY here
             continue
         if i not in active:
             new_tracks.append(td)
@@ -334,6 +339,187 @@ def _make_variation(base: dict, analysis: dict, added: list[int], engine_of: dic
 
     snap["tracks"] = new_tracks
     return snap
+
+
+# --------------------------------------------------------------------------- #
+# FULL PATTERN RANDOMISER (Shift + volume touch + Track 3)
+#
+# Builds a whole self-contained pattern from nothing: picks an ensemble of 4–10
+# tracks, assigns engines, generates their sounds, writes idiomatic parts, and sets
+# a little FX. Aesthetic target: between IDM and rhythmic noise — and NOT cacophonic,
+# which is what most of the rules below are actually for:
+#   * every voice comes from a curated role in kits.ROLES, so notes are all drawn
+#     from the same low phrygian scale over the same root -> it's always in key
+#   * roles fix the register (sub / bass / mid / ornament), so voices don't mask
+#   * per-category level + pan placement keeps the mix readable
+#   * a density budget thins the busiest voices when the whole thing gets too full
+#   * only 0–3 FX, at moderate wet — no wall of mud
+# --------------------------------------------------------------------------- #
+_CAT = {                                   # role name -> ensemble category
+    "KICK": "kick",
+    "SNARE": "perc", "CL HAT": "perc", "OP HAT": "perc", "CLAP": "perc", "PERC": "perc",
+    "BASS": "bass",
+    "RING M": "tonal", "RING P": "tonal", "ORNMNT": "tonal", "M LEAD": "tonal",
+    "NOIZOP": "texture", "NOISE": "texture", "BEN": "texture",
+    "M PAD": "pad", "DRONE": "pad",
+}
+# category -> (level band, pan spread). Textures and pads sit back; drums lead.
+_LEVEL = {"kick": (0.85, 1.0), "perc": (0.6, 0.9), "bass": (0.75, 0.95),
+          "tonal": (0.45, 0.7), "texture": (0.3, 0.55), "pad": (0.35, 0.6)}
+_MAX_ONSETS = 72                           # total density budget across the pattern
+
+
+def _role_pool() -> dict:
+    pool = {r.name: r for r in kits.ROLES}
+    pool["ICARUS"] = kits.PALETTE_ROLES["ICARUS"]     # pad engine that isn't in ROLES
+    _CAT["ICARUS"] = "pad"
+    return pool
+
+
+def _part_for(name: str, cat: str, L: int, rng) -> list[int]:
+    """An idiomatic part for a role, on the in-length grid."""
+    pat = [0] * N_STEPS
+    def put(row):
+        for i, v in enumerate(row[:L]):
+            pat[i] = v
+    if cat == "kick":
+        put(_euclid(rng.choice([3, 4, 4, 5, 6]), L))      # euclid always lands a hit on 0
+    elif name in ("SNARE", "CLAP"):
+        if rng.random() < 0.6:                            # backbeat
+            for i in range(L):
+                if i % 8 == 4:
+                    pat[i] = 1
+        else:
+            put(_rotate(_euclid(rng.choice([2, 3]), L), L, rng.choice([2, 4])))
+    elif name == "CL HAT":
+        put(_euclid(rng.choice([6, 8, 10, 12]), L))
+    elif name == "OP HAT":
+        put(_rotate(_euclid(rng.choice([2, 3, 4]), L), L, rng.choice([1, 2, 3])))
+    elif name == "PERC":
+        put(_rotate(_euclid(rng.choice([3, 5, 7]), L), L, rng.randrange(L)))
+    elif cat == "bass":
+        put(_euclid(rng.choice([3, 4, 5, 6]), L))
+    elif cat == "tonal":
+        put(_rotate(_euclid(rng.choice([3, 4, 5, 6, 7]), L), L, rng.choice([0, 0, 1, 2])))
+    elif cat == "texture":
+        if name == "BEN":                                  # it self-patterns; retrigger rarely
+            put(_euclid(rng.choice([1, 2, 3]), L))
+        else:                                              # rhythmic noise
+            put(_rotate(_euclid(rng.choice([3, 4, 5, 6, 8]), L), L, rng.randrange(L)))
+    else:                                                  # pad / drone
+        pat[0] = 1
+        if rng.random() < 0.4:
+            pat[L // 2] = 1
+    return pat
+
+
+def _pick_ensemble(rng) -> list[str]:
+    """4–10 roles that actually work together: a kick, some percussion, and a
+    balanced spread of bass / tonal / texture / pad."""
+    n = rng.randint(4, 10)
+    chosen = ["KICK", rng.choice(["SNARE", "CLAP", "CL HAT", "PERC"])]
+    buckets = {
+        "perc": [r for r in ("SNARE", "CL HAT", "OP HAT", "CLAP", "PERC")],
+        "bass": ["BASS"],
+        "tonal": ["RING M", "RING P", "ORNMNT", "M LEAD"],
+        "texture": ["NOIZOP", "NOISE", "BEN"],
+        "pad": ["M PAD", "DRONE", "ICARUS"],
+    }
+    # aim for a sensible shape before filling at random
+    order = ["bass", "tonal", "perc", "texture", "pad", "tonal", "texture", "perc"]
+    caps = {"perc": 3, "bass": 1, "tonal": 3, "texture": 2, "pad": 1}
+    used = {"perc": 1, "bass": 0, "tonal": 0, "texture": 0, "pad": 0}
+    for cat in order:
+        if len(chosen) >= n:
+            break
+        if used[cat] >= caps[cat]:
+            continue
+        opts = [r for r in buckets[cat] if r not in chosen]
+        if not opts:
+            continue
+        chosen.append(rng.choice(opts))
+        used[cat] += 1
+    return chosen[:n]
+
+
+def random_pattern(project, rng: random.Random | None = None) -> list[str]:
+    """Fully randomise the CURRENT pattern in place (no new slots). Returns the role
+    names used. Tempo is left alone — it's a global performance control."""
+    rng = rng or random.Random()
+    st = project
+    pool = _role_pool()
+    names = _pick_ensemble(rng)
+
+    # wipe the machine, then place the ensemble on spread-out tracks
+    st.tracks = [Track() for _ in range(N_TRACKS)]
+    st.track_fx = [[] for _ in range(N_TRACKS)]
+    st.fx_bypass = [False] * N_TRACKS
+    st.solo = -1
+    slots = sorted(rng.sample(range(N_TRACKS), len(names)))
+
+    base_len = rng.choice([16, 16, 16, 32])
+    total = 0
+    placed = []
+    for idx, (t, name) in enumerate(zip(slots, names)):
+        role = pool[name]
+        cat = _CAT[name]
+        voice = kits.gen_voice(role, rng)
+        # level + stereo placement keep the mix readable (kick/bass centred)
+        lo, hi = _LEVEL[cat]
+        pfx = voice["type"].lower()
+        voice["params"][pfx + ".amp"] = round(rng.uniform(lo, hi), 3)
+        voice["params"][pfx + ".pan"] = 0.0 if cat in ("kick", "bass") else round(rng.uniform(-0.7, 0.7), 3)
+        tr = st.tracks[t]
+        tr.load_voice(voice)
+        # mostly the shared length; the odd voice runs polymetric against it
+        L = base_len if rng.random() < 0.75 else rng.choice([12, 20, 24, 32])
+        tr.length = min(N_STEPS, L)
+        tr.rate = 1.0 if rng.random() < 0.85 else rng.choice([0.5, 2.0])
+        tr.pattern = _part_for(name, cat, tr.length, rng)
+        # melodic voices get a per-step line drawn from the role's own scale material
+        if voice["type"] in _MELODIC and cat in ("tonal", "bass") and rng.random() < 0.7:
+            pcs = {(kits._ROOT + s) % 12 for s in kits._SCALE}
+            for i in _onsets(tr.pattern, tr.length):
+                if rng.random() < 0.6:
+                    tr.step_note[i] = max(24, min(96, _snap(tr.note + rng.choice(
+                        [-12, -5, -3, 0, 0, 0, 2, 3, 5, 7, 12]), pcs)))
+        st.reroll_voice_macro(t)
+        total += len(_onsets(tr.pattern, tr.length))
+        placed.append((t, name, cat))
+
+    # density budget: if it's too busy, thin the fullest non-kick voices until it breathes
+    while total > _MAX_ONSETS:
+        cands = [(len(_onsets(st.tracks[t].pattern, st.tracks[t].length)), t)
+                 for t, nm, c in placed if c != "kick"]
+        if not cands:
+            break
+        _n, t = max(cands)
+        tr = st.tracks[t]
+        before = len(_onsets(tr.pattern, tr.length))
+        tr.pattern = _thin(tr.pattern, tr.length, 0.4, rng, {0})
+        after = len(_onsets(tr.pattern, tr.length))
+        if after == before:
+            break
+        total -= (before - after)
+
+    # a little FX: 0-3 inserts at moderate wet. Reverb favours pads/tonal, drive the noise.
+    for t, name, cat in placed:
+        if rng.random() < {"pad": 0.7, "tonal": 0.45, "texture": 0.4}.get(cat, 0.15):
+            fx = 7 if cat in ("pad", "tonal") else rng.choice([0, 2, 6])   # VERB / OD / CRSH / DLY
+            if sum(1 for s in st.track_fx if s) < 3:
+                st.track_fx[t] = [fx]
+                st.fx_macro[fx] = round(rng.uniform(0.3, 0.7), 3)
+                st.fx_wet[fx] = round(rng.uniform(0.15, 0.5), 3)
+    st.kit_name = "RND-%04d" % rng.randrange(10000)
+
+    # the randomised pattern IS the current pattern (no extra slots created)
+    if st.pattern_cur < 0:
+        free = next((s for s in range(N_PATTERNS) if st.patterns[s] is None), -1)
+        if free >= 0:
+            st.pattern_cur = free
+    if st.pattern_cur >= 0:
+        st.patterns[st.pattern_cur] = st.snapshot()
+    return names
 
 
 def generate(project, count: int = 8, rng: random.Random | None = None) -> tuple[list[int], list[int]]:
@@ -363,15 +549,10 @@ def generate(project, count: int = 8, rng: random.Random | None = None) -> tuple
         return ([], [])
 
     analysis = analyze(base, st.patterns)
-    added = _decide_additions(st, analysis, rng)
-    engine_of = {i: st.tracks[i].type for i in added}
-    if added:
-        st.commit_current()                    # base slot now carries the (silent) new tracks
-        base = st.snapshot()
-        analysis = analyze(base, st.patterns)
+    added = _decide_additions(analysis, rng)   # pure — the seed pattern is left alone
 
     slots = empty_slots[:count]
     for v, slot in enumerate(slots):
         intensity = 0.25 + 0.65 * (v / max(1, count - 1))
-        st.patterns[slot] = _make_variation(base, analysis, added, engine_of, intensity, rng)
-    return (added, slots)
+        st.patterns[slot] = _make_variation(base, analysis, added, intensity, rng)
+    return ([t for t, _v in added], slots)

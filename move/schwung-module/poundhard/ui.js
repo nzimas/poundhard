@@ -108,6 +108,7 @@ let voiceMacro = new Array(N_TRACKS).fill(0.5);   /* knob-3 voice-macro position
 let patView = false, projView = false;
 let patFilled = new Array(N_STEPS).fill(false), patCur = -1, patPending = -1;
 let projFilled = new Array(N_STEPS).fill(false);
+let autoSave = false;               /* an autosave recovery file exists (Shift+Menu restores) */
 /* RECORDER view (Shift + Track3): 8 pads = 8 recording slots. */
 let recView = false;
 let recSlots = new Array(8).fill(false), recSlot = -1, recState = 'idle', recElapsed = 0;
@@ -439,8 +440,9 @@ function drawSlots() {
     if (projView) {
         var np = 0; for (var i = 0; i < 32; i++) np += projFilled[i] ? 1 : 0;
         print(0, 6, 'PROJECTS', 2);
-        print(0, 32, np + '/32 saved', 1);
-        print(0, 48, 'tap=load  shift+pad=save', 1);
+        print(0, 30, np + '/32 saved', 1);
+        print(0, 44, 'tap=load  shift+pad=save', 1);
+        print(0, 56, autoSave ? 'sh+Menu = restore autosave' : 'autosave: none yet', 1);
     } else {
         var n = 0; for (var j = 0; j < 32; j++) n += patFilled[j] ? 1 : 0;
         print(0, 6, 'PATTERNS', 2);
@@ -494,6 +496,7 @@ function readStatus() {
     kitName = s.kit || '';
     if (Array.isArray(s.patFilled)) patFilled = s.patFilled;
     if (Array.isArray(s.projFilled)) projFilled = s.projFilled;
+    if (s.autoSave != null) autoSave = !!s.autoSave;
     if (s.solo != null) solo = s.solo;
     if (s.patCur != null) patCur = s.patCur;
     if (s.patPending != null) patPending = s.patPending;
@@ -873,6 +876,13 @@ globalThis.onMidiMessageInternal = function (data) {
         }
         if (d1 === MoveRow3 && d2 > 0) {                  /* Track 3 = PATTERN view; Shift+Track3 = RECORDER,
                                                            * or GENERATE VARIATIONS when already in pattern view */
+            /* Shift + hold volume knob + Track3 = fully randomise the CURRENT pattern
+             * (in place — no new slots). Checked first: it's the most specific combo. */
+            if (shiftHeld && masterTouched) {
+                sendCmd('randpat', -1); showAction('RANDOM PATTERN');
+                ledDirty = true; screenDirty = true;
+                return;
+            }
             if (shiftHeld && patView) {                   /* pattern view: Shift+Track3 = generate variations */
                 sendCmd('genvar', -1); showAction('GEN VARIATIONS');
                 ledDirty = true; screenDirty = true;
@@ -891,6 +901,11 @@ globalThis.onMidiMessageInternal = function (data) {
             return;
         }
         if (d1 === MoveMenu && d2 > 0) {                  /* Menu = PROJECT view toggle */
+            if (shiftHeld && projView) {                  /* project view: Shift+Menu = restore autosave */
+                sendCmd('loadauto', -1); showAction('RESTORE AUTOSAVE');
+                ledDirty = true; screenDirty = true;
+                return;
+            }
             projView = !projView;
             if (projView) { patView = false; recView = false; fxView = false; fxHeld = -1; editTrack = -1; stepEditCell = -1; trackHeld = -1; paletteHeld = -1; }
             ledDirty = true; screenDirty = true; showAction(projView ? 'PROJECTS' : 'TRACKS');

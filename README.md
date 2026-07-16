@@ -43,6 +43,7 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   - [Recorder view](#recorder-view)
 - [Sounds & the engine palette](#sounds--the-engine-palette)
 - [Patterns & projects](#patterns--projects)
+- [Autosave](#autosave)
 - [Recording & the web UI](#recording--the-web-ui)
 - [Deploy to the Move](#deploy-to-the-move)
 - [Develop off-device](#develop-off-device)
@@ -57,7 +58,8 @@ buttons, encoders and screen. It runs on the same on-device stack as the
 
 - **16 tracks**, one per step button. Tracks start **empty** (dark, silent); you
   build your rig by assigning engines from the **engine palette** (see below). Any
-  engine can go on any track — the layout is yours, per project.
+  engine can go on any track, and the assignment is **per pattern** — two patterns can
+  carry completely different rigs.
 - **8 assignable engines**, one per **top-row pad** in the default view, each in
   its own colour:
 
@@ -82,8 +84,9 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   can carry its own tone.
 - **Re-roll a track's sound** in place with **Shift + Track 1** while it's open —
   a fresh sound within its assigned engine. Patterns, mutes and locks survive.
-- **Up to 32 patterns per project**, and projects saved to disk — see
-  [Patterns & projects](#patterns--projects).
+- **Patterns are self-contained** — engines, every parameter, FX, mutes and sequences.
+  Up to 32 per project, with projects saved to disk and an
+  [autosave](#autosave) recovery file — see [Patterns & projects](#patterns--projects).
 
 The step buttons for tracks that contain events **pulse at the pace of their
 sequence**; assigned-but-empty tracks glow steady-dim in their engine hue, and
@@ -96,7 +99,8 @@ unassigned tracks are dark — so you can read the whole rig at a glance.
 All voices are **spawned per hit and self-free** (see [voice model](#voice-model)).
 
 - **DRUM** — a full digital drum voice with 7 modes (kick / snare / hihat /
-  metal / clap / tom / noise); the role fixes the mode per track.
+  metal / clap / tom / noise); generating a drum sound rolls the mode and pitches it
+  to suit.
 - **FMTONE** — 2-operator FM with feedback, wavefolding and a filter.
 - **BUCHLOID** — Buchla-flavoured complex-oscillator/wavefolder voice for
   drones and noise textures.
@@ -180,6 +184,7 @@ in its engine colour.
 | **Shift + Track 3 button** | open the [Recorder view](#recorder-view) |
 | **Menu button** | open the [Project view](#project-view) |
 | **Shift + Track 1** | re-roll the **open** track's sound (within its engine) |
+| **Shift + hold volume knob + Track 3** | **fully randomise** the current pattern (4–10 tracks) |
 | **Play** (lit green while running) | start / stop the sequencer |
 | **Knob 1** | master tempo (BPM) |
 | **Undo** | step back one discrete action (20 levels, works in any view) |
@@ -244,6 +249,7 @@ patterns and projects.
 | **X (Delete) + pad** | **delete** that pattern — the bank **closes the gap** (see below) |
 | **Copy + pad** | **copy** that pattern; **further pads paste it** while Copy is held |
 | **Shift + Track 3** | **generate variations** of the current pattern (see below) |
+| **Shift + hold volume knob + Track 3** | **fully randomise** this pattern in place (see below) |
 
 **Delete closes the gap.** Deleting a pattern shifts every pattern to its right one
 slot left, so the bank never has blanks between patterns. The current/queued pointers
@@ -260,14 +266,21 @@ effect on the next **16-step bar** boundary (the queued slot pulses until then).
 Loading while stopped switches immediately. Slot colours: **periwinkle** = saved,
 white = currently playing, pulsing = queued, dim = empty.
 
-A live pattern load applies the **groove only** — step patterns, lengths, rates,
-mutes, and all per-step locks. Sounds, FX and tempo stay put, so you switch the
-groove without disrupting the sound.
+Patterns are **entirely self-contained** — loading one restores the whole machine
+(see [Patterns & projects](#patterns--projects)). **Tempo is the one exception**: it
+stays global, so it never jumps under you mid-performance.
 
 ### Project view
 
 **Menu** opens the project view — the same 32-slot grid for whole projects,
 which persist to disk.
+
+| Control | Action |
+|---|---|
+| **Shift + pad** | save the whole project to that slot |
+| **Pad — tap** | load that project (restores everything, tempo included) |
+| **Shift + Menu** | restore the **autosave** recovery file (see below) |
+| **Knob 1** | master tempo |
 
 | Control | Action |
 |---|---|
@@ -328,16 +341,59 @@ Assigning or re-rolling a sound keeps the track's pattern, mutes and per-step lo
 
 ## Patterns & projects
 
-- A **pattern** is a full machine snapshot (sequences, sounds, FX, tempo, all
-  locks) at save time. A live pattern *load* applies the **groove only** so the
-  sound is left alone.
-- A **project** is a collection of up to 32 patterns plus the kit, written to
-  `/data/UserData/poundhard/projects/proj_NN.json`. Loading a project restores
-  the **entire** machine state.
+A **pattern is an entirely self-contained unit.** Saving one snapshots the whole
+machine at that instant, and loading one restores all of it:
 
-The queued pattern switch is bar-accurate: the engine fires `/ph/cycle` on the
-last step of each fixed 16-step bar, and the controller applies the pending
-pattern's groove right before the downbeat.
+- **which engine sits on which track** — the engine-to-track assignment is
+  pattern-level, so two patterns can have completely different rigs
+- every **engine parameter** of every voice, plus notes, velocities and pans
+- the **FX** state — chains per track, bypass, the macros and the dry/wet mixes
+- **mutes**, sequences, lengths, clock rates and every per-step lock
+
+**Tempo is the single exception**: it stays a global performance control (knob 1) and
+is never recalled by a pattern switch — otherwise nudging the BPM live and changing
+section would snap it back under you. A **project** load *does* restore its tempo.
+
+A **project** is a collection of up to 32 patterns plus the current state, written to
+`/data/UserData/poundhard/projects/proj_NN.json`.
+
+The queued pattern switch is bar-accurate: the engine fires `/ph/cycle` on the last
+step of each fixed 16-step bar, and the controller restores the pending pattern right
+before the downbeat.
+
+### Randomise a whole pattern
+
+**Shift + hold the volume knob + Track 3** fully randomises the **currently selected
+pattern**, in place — it replaces that pattern rather than generating new ones. Tempo
+is left alone.
+
+It builds a complete rig from nothing: an ensemble of **4–10 tracks**, engines assigned,
+sounds generated, idiomatic parts written, and a little FX. The aesthetic target is
+between **IDM and rhythmic noise** — and the rules that keep it from turning into
+cacophony are the point:
+
+- every voice comes from a **curated role** ([`kits.py`](controller/poundhard/kits.py)),
+  so all notes are drawn from the same low phrygian scale over the same root — it is
+  always in key, and roles fix the register so voices don't mask each other
+- the ensemble is **balanced by category** — always a kick and percussion, then a
+  measured spread of bass / tonal / texture / pad, never a pile of the same thing
+- **levels and stereo placement** are set per category (kick and bass centred and
+  forward; textures and pads sat back), so the mix stays readable
+- a **density budget** thins the busiest non-kick voices when the whole thing gets
+  too full
+- **0–3 FX only**, at moderate wet — reverb favours pads and tonal voices, drive the
+  noise. No wall of mud.
+
+### Autosave
+
+The controller **autosaves the whole project** (all 32 patterns plus the live state) to
+a **recovery file** — `projects/autosave.json`, deliberately separate from your 32
+project slots, so it **never overwrites anything you saved by hand**. It writes only
+when something actually changed, and no more than once every 30 s (`PH_AUTOSAVE_SEC`):
+a project is a chunky JSON and SD churn is what makes the Move's UI stall.
+
+**Shift + Menu** in the project view restores it. The project view shows whether a
+recovery file exists.
 
 ### Generate variations
 
@@ -363,13 +419,14 @@ bounded, musical transforms that **ramp from subtle (variation 1) to bold
 - **Feel & structure** — light velocity accents, the odd mute for contrast, an
   occasional polymetric length change on a non-anchor voice.
 - **New instruments (sparingly)** — when there's a clear gap and empty tracks, it may
-  add **0–2 complementary voices** (e.g. an ICARUS pad, or a NOIZEOP / hi-hat
-  shimmer). Their *sound* joins the shared kit (silent in the original pattern, played
-  in some variations) — an instrument introduced for a later section.
+  add **0–2 complementary voices** (e.g. an ICARUS pad, or a NOIZEOP / hi-hat shimmer).
+  Because patterns are self-contained, a variation simply **carries that instrument's
+  sound itself** — your seed pattern is never touched, and the instrument appears only
+  in the sections that use it.
 
-Because variations only ever touch **groove** data (patterns, lengths, mutes, per-step
-locks) and never the retained tracks' sounds, they switch live like any other pattern
-and keep an unmistakable family resemblance to the original.
+Each variation carries the seed's sounds **verbatim** and transforms only its groove —
+that's the family resemblance. Generating is **non-destructive**: the pattern you're on
+is left exactly as it was.
 
 ---
 
@@ -489,8 +546,9 @@ wrote twice between polls). Commands include: `audition` / `palettegen` / `assig
 `steplock`, `stepmacro`, `setlen`, `trackset`, `voicemacro`,
 `fxassign` / `fxbypass` / `fxmacro` / `fxwet`, `run`, `note`, `savepat` / `loadpat`,
 `patdel` / `patcopy` / `patpaste` / `patclipclear`, `undo`, `genvar` (generate
-variations), `saveproj` / `loadproj`, `recpad`, `panic`. `tempo` is a continuous
-field applied on change.
+variations), `randpat` (randomise this pattern), `saveproj` / `loadproj`, `loadauto`
+(restore the autosave), `recpad`, `panic`. `tempo` is a continuous field applied on
+change.
 
 ### status.json (controller → ui.js)
 

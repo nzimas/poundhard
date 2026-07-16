@@ -48,6 +48,12 @@ REC_SILENCE_THRESH = float(_env("PH_REC_SILENCE", "0.004"))   # master level cou
 REC_SILENCE_SEC = 1.2                              # ...must stay below it this long to end the take
 CONTROL_HZ = float(_env("PH_CONTROL_HZ", "30"))    # control.json poll rate
 SNAP_HZ = float(_env("PH_SNAPSHOT_HZ", "5"))       # status.json write rate (lower = less SD I/O)
+# AUTOSAVE: a recovery file, deliberately SEPARATE from the 32 user project slots — it
+# never overwrites anything you saved by hand. Written only when something changed, and
+# not often: a whole project is a chunky JSON and SD churn is what makes the Move's UI
+# stall. Restore it with Shift+Menu in the project view.
+AUTOSAVE_FILE = PROJECTS_DIR / "autosave.json"
+AUTOSAVE_SEC = float(_env("PH_AUTOSAVE_SEC", "30"))
 
 
 class Controller:
@@ -68,6 +74,8 @@ class Controller:
         self.bridge.on_amp = self._on_amp      # master level while recording -> ends the tail
         self._quiet_since: float | None = None
         self._proj_slots = [False] * N_PATTERNS  # which project files exist on disk (cached)
+        self._dirty = False                      # state changed since the last autosave
+        self._autosaved = False                  # a recovery file exists (for the UI)
         # performance recording
         self._rec_state = "idle"                 # idle | armed | recording
         self._rec_slot = -1                      # armed / recording slot
@@ -87,8 +95,10 @@ class Controller:
         webserver.serve(WEB_PORT, RECORDINGS_DIR, N_RECORDINGS)
         # Fresh session: all 16 tracks start EMPTY (no engine, silent) — the user
         # builds a rig by assigning engines from the palette. Stopped, no patterns.
+        self._autosaved = AUTOSAVE_FILE.exists()
         self.bridge.start(on_ready=self._on_ready)
-        for fn in (self._control_loop, self._status_loop, self._handshake_loop):
+        for fn in (self._control_loop, self._status_loop, self._handshake_loop,
+                   self._autosave_loop):
             t = threading.Thread(target=self._safe_loop, args=(fn,), daemon=True)
             t.start()
             self._threads.append(t)
@@ -158,23 +168,6 @@ class Controller:
             if pairs is not None:
                 self.bridge.stepmacro(t, cell, pairs)
 
-    def _push_groove(self) -> None:
-        """Push ONLY the groove to the engine (used on a pattern switch): sequences,
-        lengths, rates, mutes, and per-step locks — sounds/FX/tempo are untouched."""
-        st = self.state
-        for t in range(N_TRACKS):
-            tr = st.tracks[t]
-            self.bridge.clearlocks(t)
-            self.bridge.pattern(t, tr.pattern)
-            self.bridge.length(t, tr.length)
-            self.bridge.rate(t, tr.rate)
-            self.bridge.mute(t, st.eff_muted(t))       # honour solo
-            for cell in range(N_STEPS):
-                if (tr.step_note[cell] is not None or tr.step_vel[cell] is not None
-                        or tr.step_pan[cell] is not None):
-                    self.bridge.steplock(t, cell, tr.eff_note(cell), tr.eff_vel(cell), tr.eff_pan(cell))
-            self._push_step_macros(t)
-
     # -- patterns & projects ----------------------------------------------- #
     def _on_cycle(self) -> None:
         """Bar boundary (from the engine): apply a queued pattern switch, if any."""
@@ -182,9 +175,11 @@ class Controller:
             st = self.state
             if 0 <= st.pattern_pending < N_PATTERNS and st.patterns[st.pattern_pending] is not None:
                 st.commit_current()             # preserve the outgoing pattern's live edits
-                st.apply_groove(st.patterns[st.pattern_pending])
+                # patterns are self-contained: restore the WHOLE machine (engines, params,
+                # FX, mutes, sequences). Tempo alone stays global.
+                st.apply_full(st.patterns[st.pattern_pending], with_tempo=False)
                 st.pattern_cur = st.pattern_pending
-                self._push_groove()
+                self._push_all()
             st.pattern_pending = -1
 
     def _save_project_file(self, slot: int) -> None:
@@ -197,6 +192,34 @@ class Controller:
             self._proj_slots[slot] = True
         except OSError:
             pass
+
+    # -- autosave (recovery file; never touches the user's project slots) ----- #
+    def _autosave_loop(self) -> None:
+        while not self._stop.is_set():
+            time.sleep(AUTOSAVE_SEC)
+            if self._stop.is_set() or not self._dirty:
+                continue
+            with self._lock:
+                self.state.commit_current()      # fold live edits into the current pattern
+                doc = self.state.project_to_dict()
+                self._dirty = False
+            tmp = AUTOSAVE_FILE.with_suffix(".json.tmp")
+            try:
+                tmp.write_text(json.dumps(doc))
+                tmp.replace(AUTOSAVE_FILE)       # atomic: a torn file would be worse than none
+                self._autosaved = True
+            except OSError:
+                self._dirty = True               # failed — try again next tick
+
+    def _load_autosave(self) -> None:
+        try:
+            d = json.loads(AUTOSAVE_FILE.read_text())
+        except (OSError, json.JSONDecodeError):
+            return
+        self.state.pattern_pending = -1
+        self.state.project_from_dict(d)
+        self._push_all()
+        print("[poundhard] restored autosave", flush=True)
 
     def _load_project_file(self, slot: int) -> None:
         path = PROJECTS_DIR / f"proj_{slot:02d}.json"
@@ -336,6 +359,7 @@ class Controller:
             self._last_tempo = tempo
             self.state.tempo = float(tempo)
             self.bridge.tempo(self.state.tempo)
+            self._dirty = True
         # one-shot commands: a queue so rapid commands aren't lost when the UI
         # overwrites control.json between polls. Process every entry newer than
         # the last seq we handled (de-dup by seq), in order.
@@ -361,14 +385,21 @@ class Controller:
     # deliberately excluded — they'd flood the 20-level stack with sub-gesture noise.
     _UNDOABLE = frozenset({
         "assign", "randtrack", "mute", "solo", "stepset", "steptoggle", "clearpat",
-        "setlen", "savepat", "loadpat", "patdel", "patpaste", "genvar",
-        "fxassign", "fxbypass", "loadproj",
+        "setlen", "savepat", "loadpat", "patdel", "patpaste", "genvar", "randpat",
+        "fxassign", "fxbypass", "loadproj", "loadauto",
+    })
+    # Commands that change no persisted state — they don't mark the project dirty.
+    _NO_STATE = frozenset({
+        "editenter", "editexit", "audition", "palettegen", "recpad", "run",
+        "patcopy", "patclipclear", "saveproj", "panic",
     })
 
     def _dispatch(self, cmd: str, arg, p: dict) -> None:
         st = self.state
         if cmd in self._UNDOABLE:
             st.push_undo()                     # capture the state BEFORE the action
+        if cmd not in self._NO_STATE:
+            self._dirty = True                 # something worth autosaving changed
         if cmd == "genkit":
             st.new_kit()
             self._push_voices()
@@ -508,9 +539,9 @@ class Controller:
                     st.pattern_pending = slot   # applied at the next bar boundary (/ph/cycle)
                 else:
                     st.commit_current()         # preserve the outgoing pattern's live edits
-                    st.apply_groove(st.patterns[slot])
+                    st.apply_full(st.patterns[slot], with_tempo=False)
                     st.pattern_cur = slot
-                    self._push_groove()
+                    self._push_all()
         elif cmd == "patdel":                  # hold X + pattern pad: delete, closing the gap
             slot = int(arg)
             if st.delete_pattern(slot):
@@ -525,11 +556,16 @@ class Controller:
             if st.undo():
                 self._push_all()               # re-push the restored machine to the engine
                 print("[poundhard] undo", flush=True)
+        elif cmd == "randpat":                 # Shift + volume touch + Track3: randomise this pattern
+            from . import variations
+            names = variations.random_pattern(st)
+            self._push_all()
+            print(f"[poundhard] randomised pattern {st.pattern_cur + 1}: {names}", flush=True)
+        elif cmd == "loadauto":                # Shift+Menu in project view: restore the autosave
+            self._load_autosave()
         elif cmd == "genvar":                  # Shift+Track3 in pattern view: generate variations
             from . import variations
             added, slots = variations.generate(st, count=8)
-            for t in added:                    # newly-added instruments join the shared live kit
-                self.bridge.push_track(t, st.tracks[t])
             if slots:
                 print(f"[poundhard] generated {len(slots)} variations into slots "
                       f"{[s + 1 for s in slots]}" + (f", added tracks {[t + 1 for t in added]}" if added else ""),
@@ -581,6 +617,7 @@ class Controller:
             "patCur": st.pattern_cur,
             "patPending": st.pattern_pending,
             "projFilled": list(self._proj_slots),
+            "autoSave": self._autosaved,       # a recovery file exists (Shift+Menu restores it)
             # performance recorder
             "recSlots": list(self._rec_slots),
             "recSlot": self._rec_slot,

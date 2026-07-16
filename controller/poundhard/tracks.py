@@ -156,21 +156,16 @@ class Project:
             "voice_dir": [dict(d) for d in self.voice_dir],
         }
 
-    _GROOVE_KEYS = ("pattern", "muted", "length", "rate",
-                    "step_note", "step_vel", "step_pan", "step_macro")
+    def apply_full(self, snap: dict, with_tempo: bool = True) -> None:
+        """Restore the ENTIRE machine state — every engine's params, the engine-to-track
+        assignment, FX (chains, bypass, macros, dry/wet), mutes, sequences and per-step
+        locks. Patterns are self-contained units, so a pattern load restores all of it.
 
-    def apply_groove(self, snap: dict) -> None:
-        """Apply ONLY the groove (sequences / lengths / rates / mutes / per-step locks).
-        Sounds, FX and tempo are left untouched — the live-switch behaviour."""
-        for i, td in enumerate(snap.get("tracks", [])[:N_TRACKS]):
-            src = Track.from_dict(td)
-            dst = self.tracks[i]
-            for k in self._GROOVE_KEYS:
-                setattr(dst, k, getattr(src, k))
-
-    def apply_full(self, snap: dict) -> None:
-        """Restore the ENTIRE machine state (sounds + FX + tempo + groove)."""
-        self.tempo = float(snap.get("tempo", self.tempo))
+        `with_tempo=False` for a pattern switch: BPM is a global performance control
+        (knob 1) and must never jump under the player. A PROJECT load does take its
+        tempo."""
+        if with_tempo:
+            self.tempo = float(snap.get("tempo", self.tempo))
         self.kit_name = snap.get("kit_name", self.kit_name)
         self.tracks = [Track.from_dict(td) for td in snap.get("tracks", [])][:N_TRACKS]
         while len(self.tracks) < N_TRACKS:
