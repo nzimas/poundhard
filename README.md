@@ -377,22 +377,50 @@ before the downbeat.
 **Shift + hold the volume knob + Track 3** fully randomises the **currently selected
 pattern**, in place — it replaces that pattern rather than generating new ones.
 
-It builds a complete rig from nothing: an ensemble of **4–10 tracks**, engines assigned,
-sounds generated, idiomatic parts written, and a little FX. The aesthetic target is
-between **IDM and rhythmic noise** — and the rules that keep it from turning into
-cacophony are the point:
+It builds a complete rig from nothing: an ensemble of **up to 8 tracks**, engines
+assigned, sounds generated, idiomatic parts written, and a little FX. The aesthetic
+target is between **IDM and rhythmic noise** — and the rules that keep it from turning
+into cacophony (or into XRuns) are the point:
 
+**One archetype per pattern.** A pattern is built to a single identity rather than from
+uniform randomness — `MINIMAL`, `BROKEN`, `NOISE`, `HYPNOTIC`, `TEXTURAL` or
+`PERCUSSIVE`. Each sets its own size, density, ensemble bias and rhythmic character.
+That's what makes one pattern feel *intentional* while the set stays *diverse*: a
+different identity every time. The archetype names the kit (`BROK-035`, `TEXT-670`…).
+
+- **Parts interlock with the kick** rather than doubling it — a secondary part's hits
+  are pushed off the kick onto free steps. This is the single biggest thing that makes
+  a generated groove sound arranged instead of merely layered.
 - every voice comes from a **curated role** ([`kits.py`](controller/poundhard/kits.py)),
   so all notes are drawn from the same low phrygian scale over the same root — it is
   always in key, and roles fix the register so voices don't mask each other
-- the ensemble is **balanced by category** — always a kick and percussion, then a
-  measured spread of bass / tonal / texture / pad, never a pile of the same thing
 - **levels and stereo placement** are set per category (kick and bass centred and
   forward; textures and pads sat back), so the mix stays readable
-- a **density budget** thins the busiest non-kick voices when the whole thing gets
-  too full
-- **0–3 FX only**, at moderate wet — reverb favours pads and tonal voices, drive the
-  noise. No wall of mud.
+- **at most 2 FX inserts and only ever one reverb**, at moderate wet
+- a **density cap** thins the busiest non-kick voices when the whole thing gets too full
+
+**The CPU budget** (this is what fixes the XRuns). FX are per-track *inserts*, not
+sends, and voices are spawned per hit — so a wide, expensive pattern could genuinely
+overrun the audio thread. Every engine and effect was **measured on the device**
+(`scsynth /status`, one track at density 0.5, over a 4.9% idle baseline):
+
+| Engine | %CPU/track | | FX | %CPU each |
+|---|---|---|---|---|
+| DRUM | 5.3 | | CRSH | 0.8 |
+| FMTONE | 5.5 | | RING | 1.0 |
+| BUCHLOID | 6.0 | | FLNG | 1.1 |
+| RINGS | 9.6 | | AMP | 1.7 |
+| BEN | 9.7 | | DLY | 2.0 |
+| MOLLY | 11.7 | | OD | 2.5 |
+| NOIZEOP | 12.0 | | GRN | 4.5 |
+| ICARUS | 13.2 | | **VRB** | **10.0** |
+
+Reverb costs as much as an entire ICARUS voice, and ten expensive tracks with three
+reverbs came to **~160% CPU** — which is exactly what XRuns sound like. The generator
+now estimates cost from these numbers (scaled by density, since concurrent voices
+saturate at the poly cap) and **thins, then drops, the priciest non-kick voices until
+it fits a 52% budget** — leaving ~45% headroom for peaks. Measured across 10 generated
+patterns on the device: **worst sustained 47%, worst peak 50%**.
 - **Tempo is the algorithm's call**, judged against what it just built: a busy,
   texture-heavy pattern lands slower so it stays legible; a sparse one can run fast.
   It spans roughly 85–175 BPM (with the occasional outlier for character) and **sets

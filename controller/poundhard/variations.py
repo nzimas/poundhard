@@ -366,7 +366,47 @@ _CAT = {                                   # role name -> ensemble category
 # category -> (level band, pan spread). Textures and pads sit back; drums lead.
 _LEVEL = {"kick": (0.85, 1.0), "perc": (0.6, 0.9), "bass": (0.75, 0.95),
           "tonal": (0.45, 0.7), "texture": (0.3, 0.55), "pad": (0.35, 0.6)}
-_MAX_ONSETS = 72                           # total density budget across the pattern
+_MAX_ONSETS = 56                           # musical restraint: total onsets across the pattern
+
+# ---- CPU budget -----------------------------------------------------------
+# MEASURED on the device (scsynth /status, one track at density 0.5, maxPoly 3,
+# 120bpm), as %CPU above a 4.9% idle baseline. These are why generated patterns
+# could XRun: ten expensive tracks is >130% CPU before a single effect.
+_ENGINE_COST = {"DRUM": 5.3, "FMTONE": 5.5, "BUCHLOID": 6.0, "RINGS": 9.6,
+                "BEN": 9.7, "MOLLY": 11.7, "NOIZEOP": 12.0, "ICARUS": 13.2}
+# Measured per FX INSTANCE (they're per-track inserts, not sends!). Reverb costs as
+# much as a whole ICARUS voice, so a pattern gets at most one.
+_FX_COST = [2.5, 1.7, 0.8, 1.0, 1.1, 4.5, 2.0, 10.0]   # OD AMP CRSH RING FLNG GRN DLY VRB
+_CPU_BUDGET = 52.0                         # leaves ~45% headroom for peaks/jitter on the ARM
+_MAX_TRACKS = 8
+
+
+def _voice_cost(engine: str, onsets: int, length: int) -> float:
+    """Estimated %CPU for a voice. Cost tracks how many voices are alive at once, which
+    saturates at ~maxPoly around density 0.5; a sparse part still rings, hence the floor."""
+    d = onsets / max(1, length)
+    return _ENGINE_COST.get(engine, 6.0) * max(0.5, min(1.0, d / 0.5))
+
+
+# ---- archetypes -----------------------------------------------------------
+# A pattern is built to ONE of these, not from uniform randomness. That's what makes a
+# generated pattern feel intentional (it has a clear identity) while the set stays
+# diverse (a different identity each time). Cheap ensembles may run wider; expensive,
+# textural ones stay small — which happens to align with the CPU budget.
+_ARCHETYPES = [
+    {"name": "MINIMAL",   "n": (4, 5), "want": {"perc": 1, "bass": 1, "tonal": 1, "pad": 1},
+     "dens": 0.55, "interlock": 0.7},
+    {"name": "BROKEN",    "n": (5, 7), "want": {"perc": 2, "bass": 1, "tonal": 1, "texture": 1},
+     "dens": 0.9, "interlock": 0.85},
+    {"name": "NOISE",     "n": (4, 6), "want": {"perc": 1, "bass": 1, "texture": 2},
+     "dens": 1.0, "interlock": 0.5},
+    {"name": "HYPNOTIC",  "n": (5, 7), "want": {"perc": 2, "bass": 1, "tonal": 1, "pad": 1},
+     "dens": 0.8, "interlock": 0.4},
+    {"name": "TEXTURAL",  "n": (4, 6), "want": {"perc": 1, "tonal": 1, "texture": 1, "pad": 1},
+     "dens": 0.45, "interlock": 0.6},
+    {"name": "PERCUSSIVE", "n": (6, 8), "want": {"perc": 4, "bass": 1, "tonal": 1},
+     "dens": 1.0, "interlock": 0.8},
+]
 
 
 def _role_pool() -> dict:
@@ -389,69 +429,95 @@ def _layout_key(name: str, pool: dict) -> tuple[int, int]:
     return (engine, _ROLE_ORDER.get(name, 99))
 
 
-def _part_for(name: str, cat: str, L: int, rng) -> list[int]:
+def _used_fx(voices: list[dict]) -> list[int]:
+    return [k for v in voices for k in v["fx"]]
+
+
+def _has_verb(voices: list[dict]) -> bool:
+    return 7 in _used_fx(voices)
+
+
+def _scale_k(choices: list[int], dens: float, L: int, rng) -> int:
+    """Pick a pulse count and scale it by the archetype's density."""
+    return max(1, min(L, round(rng.choice(choices) * dens)))
+
+
+def _part_for(name: str, cat: str, L: int, dens: float, rng) -> list[int]:
     """An idiomatic part for a role, on the in-length grid."""
     pat = [0] * N_STEPS
     def put(row):
         for i, v in enumerate(row[:L]):
             pat[i] = v
     if cat == "kick":
-        put(_euclid(rng.choice([3, 4, 4, 5, 6]), L))      # euclid always lands a hit on 0
+        put(_euclid(_scale_k([3, 4, 4, 5, 6], dens, L, rng), L))   # euclid lands a hit on 0
     elif name in ("SNARE", "CLAP"):
         if rng.random() < 0.6:                            # backbeat
             for i in range(L):
                 if i % 8 == 4:
                     pat[i] = 1
         else:
-            put(_rotate(_euclid(rng.choice([2, 3]), L), L, rng.choice([2, 4])))
+            put(_rotate(_euclid(_scale_k([2, 3], dens, L, rng), L), L, rng.choice([2, 4])))
     elif name == "CL HAT":
-        put(_euclid(rng.choice([6, 8, 10, 12]), L))
+        put(_euclid(_scale_k([6, 8, 10, 12], dens, L, rng), L))
     elif name == "OP HAT":
-        put(_rotate(_euclid(rng.choice([2, 3, 4]), L), L, rng.choice([1, 2, 3])))
+        put(_rotate(_euclid(_scale_k([2, 3, 4], dens, L, rng), L), L, rng.choice([1, 2, 3])))
     elif name == "PERC":
-        put(_rotate(_euclid(rng.choice([3, 5, 7]), L), L, rng.randrange(L)))
+        put(_rotate(_euclid(_scale_k([3, 5, 7], dens, L, rng), L), L, rng.randrange(L)))
     elif cat == "bass":
-        put(_euclid(rng.choice([3, 4, 5, 6]), L))
+        put(_euclid(_scale_k([3, 4, 5, 6], dens, L, rng), L))
     elif cat == "tonal":
-        put(_rotate(_euclid(rng.choice([3, 4, 5, 6, 7]), L), L, rng.choice([0, 0, 1, 2])))
+        put(_rotate(_euclid(_scale_k([3, 4, 5, 6, 7], dens, L, rng), L), L, rng.choice([0, 0, 1, 2])))
     elif cat == "texture":
         if name == "BEN":                                  # it self-patterns; retrigger rarely
-            put(_euclid(rng.choice([1, 2, 3]), L))
+            put(_euclid(_scale_k([1, 2, 3], dens, L, rng), L))
         else:                                              # rhythmic noise
-            put(_rotate(_euclid(rng.choice([3, 4, 5, 6, 8]), L), L, rng.randrange(L)))
-    else:                                                  # pad / drone
+            put(_rotate(_euclid(_scale_k([3, 4, 5, 6, 8], dens, L, rng), L), L, rng.randrange(L)))
+    else:                                                  # pad / drone: one long hit, maybe two
         pat[0] = 1
-        if rng.random() < 0.4:
+        if rng.random() < 0.35 * dens:
             pat[L // 2] = 1
     return pat
 
 
-def _pick_ensemble(rng) -> list[str]:
-    """4–10 roles that actually work together: a kick, some percussion, and a
-    balanced spread of bass / tonal / texture / pad."""
-    n = rng.randint(4, 10)
-    chosen = ["KICK", rng.choice(["SNARE", "CLAP", "CL HAT", "PERC"])]
+def _interlock(pat: list[int], L: int, kick: list[int], rng, avoid: float) -> list[int]:
+    """Push a part OFF the kick so the two interlock instead of doubling up. This is most
+    of what makes a generated groove sound arranged rather than merely layered."""
+    out = list(pat)
+    for i in range(L):
+        if out[i] and kick[i] and rng.random() < avoid:
+            out[i] = 0
+            for j in (i + 1, i - 1, i + 2):               # nudge to a free, kick-less step
+                j %= L
+                if not out[j] and not kick[j]:
+                    out[j] = 1
+                    break
+    if not any(out[:L]):                                   # never silence a voice entirely
+        out[rng.randrange(L)] = 1
+    return out
+
+
+def _pick_ensemble(arch: dict, rng) -> list[str]:
+    """Roles that fit the archetype: always a kick, then its wanted categories."""
+    n = min(_MAX_TRACKS, rng.randint(*arch["n"]))
     buckets = {
-        "perc": [r for r in ("SNARE", "CL HAT", "OP HAT", "CLAP", "PERC")],
+        "perc": ["SNARE", "CL HAT", "OP HAT", "CLAP", "PERC"],
         "bass": ["BASS"],
         "tonal": ["RING M", "RING P", "ORNMNT", "M LEAD"],
         "texture": ["NOIZOP", "NOISE", "BEN"],
         "pad": ["M PAD", "DRONE", "ICARUS"],
     }
-    # aim for a sensible shape before filling at random
-    order = ["bass", "tonal", "perc", "texture", "pad", "tonal", "texture", "perc"]
-    caps = {"perc": 3, "bass": 1, "tonal": 3, "texture": 2, "pad": 1}
-    used = {"perc": 1, "bass": 0, "tonal": 0, "texture": 0, "pad": 0}
-    for cat in order:
+    chosen = ["KICK"]
+    # take the archetype's wants in a shuffled order so the same shape isn't always filled
+    wants: list[str] = []
+    for cat, cnt in arch["want"].items():
+        wants += [cat] * cnt
+    rng.shuffle(wants)
+    for cat in wants:
         if len(chosen) >= n:
             break
-        if used[cat] >= caps[cat]:
-            continue
         opts = [r for r in buckets[cat] if r not in chosen]
-        if not opts:
-            continue
-        chosen.append(rng.choice(opts))
-        used[cat] += 1
+        if opts:
+            chosen.append(rng.choice(opts))
     return chosen[:n]
 
 
@@ -462,72 +528,116 @@ def random_pattern(project, rng: random.Random | None = None) -> list[str]:
     st = project
     st.chaos_invalidate()                      # a new pattern -> a new chaos-macro safe zone
     pool = _role_pool()
-    names = _pick_ensemble(rng)
-    # group by engine type (palette order) so the used tracks form contiguous,
-    # colour-coded blocks on the step buttons — readable at a glance
-    names.sort(key=lambda n: _layout_key(n, pool))
+    arch = rng.choice(_ARCHETYPES)             # ONE identity per pattern -> intentional
+    dens = arch["dens"]
+    names = _pick_ensemble(arch, rng)
 
-    # wipe the machine, then place the ensemble on CONTIGUOUS tracks from track 1
-    st.tracks = [Track() for _ in range(N_TRACKS)]
-    st.track_fx = [[] for _ in range(N_TRACKS)]
-    st.fx_bypass = [False] * N_TRACKS
-    st.solo = -1
-    slots = list(range(len(names)))
-
+    # --- build the voices first (unplaced), so the budget can trim before layout ---
     base_len = rng.choice([16, 16, 16, 32])
-    total = 0
-    placed = []
-    for idx, (t, name) in enumerate(zip(slots, names)):
+    voices = []                                # [{name, cat, voice, pattern, length, rate, locks}]
+    kick_row: list[int] = [0] * N_STEPS
+    for name in names:
         role = pool[name]
         cat = _CAT[name]
         voice = kits.gen_voice(role, rng)
-        # level + stereo placement keep the mix readable (kick/bass centred)
         lo, hi = _LEVEL[cat]
         pfx = voice["type"].lower()
         voice["params"][pfx + ".amp"] = round(rng.uniform(lo, hi), 3)
         voice["params"][pfx + ".pan"] = 0.0 if cat in ("kick", "bass") else round(rng.uniform(-0.7, 0.7), 3)
-        tr = st.tracks[t]
-        tr.load_voice(voice)
-        # mostly the shared length; the odd voice runs polymetric against it
-        L = base_len if rng.random() < 0.75 else rng.choice([12, 20, 24, 32])
-        tr.length = min(N_STEPS, L)
-        tr.rate = 1.0 if rng.random() < 0.85 else rng.choice([0.5, 2.0])
-        tr.pattern = _part_for(name, cat, tr.length, rng)
-        # melodic voices get a per-step line drawn from the role's own scale material
+        L = min(N_STEPS, base_len if rng.random() < 0.8 else rng.choice([12, 20, 24, 32]))
+        rate = 1.0 if rng.random() < 0.88 else rng.choice([0.5, 2.0])
+        pat = _part_for(name, cat, L, dens, rng)
+        if cat == "kick":
+            kick_row = list(pat)
+        elif cat in ("perc", "bass", "tonal"):
+            # interlock with the kick: the single biggest thing that makes it sound arranged
+            # rather than merely layered. The bass leans on the kick more than it dodges it.
+            avoid = arch["interlock"] * (0.5 if cat == "bass" else 1.0)
+            pat = _interlock(pat, L, kick_row, rng, avoid)
+        locks: dict[int, int] = {}
         if voice["type"] in _MELODIC and cat in ("tonal", "bass") and rng.random() < 0.7:
             pcs = {(kits._ROOT + s) % 12 for s in kits._SCALE}
-            for i in _onsets(tr.pattern, tr.length):
+            for i in _onsets(pat, L):
                 if rng.random() < 0.6:
-                    tr.step_note[i] = max(24, min(96, _snap(tr.note + rng.choice(
+                    locks[i] = max(24, min(96, _snap(voice["note"] + rng.choice(
                         [-12, -5, -3, 0, 0, 0, 2, 3, 5, 7, 12]), pcs)))
-        st.reroll_voice_macro(t)
-        total += len(_onsets(tr.pattern, tr.length))
-        placed.append((t, name, cat))
+        voices.append({"name": name, "cat": cat, "voice": voice, "pattern": pat,
+                       "length": L, "rate": rate, "locks": locks, "fx": []})
 
-    # density budget: if it's too busy, thin the fullest non-kick voices until it breathes
-    while total > _MAX_ONSETS:
-        cands = [(len(_onsets(st.tracks[t].pattern, st.tracks[t].length)), t)
-                 for t, nm, c in placed if c != "kick"]
+    # --- FX: at most 2 inserts, and at most ONE reverb (measured at 10% CPU each) ---
+    fx_budget = 0.0
+    for v in voices:
+        if len(_used_fx(voices)) >= 2:
+            break
+        p = {"pad": 0.6, "tonal": 0.35, "texture": 0.35}.get(v["cat"], 0.12)
+        if rng.random() >= p:
+            continue
+        want_verb = v["cat"] in ("pad", "tonal") and not _has_verb(voices)
+        fx = 7 if want_verb else rng.choice([0, 2, 6])          # VERB / OD, CRSH, DLY
+        if fx_budget + _FX_COST[fx] > 12.0:                     # keep FX off the voices' budget
+            continue
+        v["fx"] = [fx]
+        fx_budget += _FX_COST[fx]
+
+    # --- CPU BUDGET (measured costs): thin the priciest voices, then drop them ---
+    def est() -> float:
+        c = sum(_voice_cost(v["voice"]["type"], len(_onsets(v["pattern"], v["length"])), v["length"])
+                for v in voices)
+        return c + sum(_FX_COST[k] for v in voices for k in v["fx"])
+    guard = 0
+    while est() > _CPU_BUDGET and len(voices) > 3 and guard < 64:
+        guard += 1
+        cands = [v for v in voices if v["cat"] != "kick"]
         if not cands:
             break
-        _n, t = max(cands)
-        tr = st.tracks[t]
-        before = len(_onsets(tr.pattern, tr.length))
-        tr.pattern = _thin(tr.pattern, tr.length, 0.4, rng, {0})
-        after = len(_onsets(tr.pattern, tr.length))
-        if after == before:
+        worst = max(cands, key=lambda v: _voice_cost(
+            v["voice"]["type"], len(_onsets(v["pattern"], v["length"])), v["length"]))
+        before = len(_onsets(worst["pattern"], worst["length"]))
+        if before > 2:                                          # thin it first — keep the voice
+            worst["pattern"] = _thin(worst["pattern"], worst["length"], 0.4, rng, {0})
+            if len(_onsets(worst["pattern"], worst["length"])) < before:
+                continue
+        voices.remove(worst)                                    # already sparse -> it has to go
+    # musical restraint on top of the CPU rule
+    guard = 0
+    while sum(len(_onsets(v["pattern"], v["length"])) for v in voices) > _MAX_ONSETS and guard < 64:
+        guard += 1
+        cands = [v for v in voices if v["cat"] != "kick"]
+        if not cands:
             break
-        total -= (before - after)
+        busiest = max(cands, key=lambda v: len(_onsets(v["pattern"], v["length"])))
+        before = len(_onsets(busiest["pattern"], busiest["length"]))
+        busiest["pattern"] = _thin(busiest["pattern"], busiest["length"], 0.4, rng, {0})
+        if len(_onsets(busiest["pattern"], busiest["length"])) == before:
+            break
 
-    # a little FX: 0-3 inserts at moderate wet. Reverb favours pads/tonal, drive the noise.
-    for t, name, cat in placed:
-        if rng.random() < {"pad": 0.7, "tonal": 0.45, "texture": 0.4}.get(cat, 0.15):
-            fx = 7 if cat in ("pad", "tonal") else rng.choice([0, 2, 6])   # VERB / OD / CRSH / DLY
-            if sum(1 for s in st.track_fx if s) < 3:
-                st.track_fx[t] = [fx]
-                st.fx_macro[fx] = round(rng.uniform(0.3, 0.7), 3)
-                st.fx_wet[fx] = round(rng.uniform(0.15, 0.5), 3)
-    st.kit_name = "RND-%04d" % rng.randrange(10000)
+    # --- lay out: grouped by engine, contiguous from track 1 ---
+    voices.sort(key=lambda v: _layout_key(v["name"], pool))
+    st.tracks = [Track() for _ in range(N_TRACKS)]
+    st.track_fx = [[] for _ in range(N_TRACKS)]
+    st.fx_bypass = [False] * N_TRACKS
+    st.solo = -1
+    total = 0
+    placed = []
+    for t, v in enumerate(voices):
+        tr = st.tracks[t]
+        tr.load_voice(v["voice"])
+        tr.length = v["length"]
+        tr.rate = v["rate"]
+        tr.pattern = v["pattern"]
+        for i, n in v["locks"].items():
+            if i < N_STEPS and tr.pattern[i]:
+                tr.step_note[i] = n
+        st.reroll_voice_macro(t)
+        if v["fx"]:
+            fx = v["fx"][0]
+            st.track_fx[t] = [fx]
+            st.fx_macro[fx] = round(rng.uniform(0.3, 0.7), 3)
+            st.fx_wet[fx] = round(rng.uniform(0.15, 0.45), 3)
+        total += len(_onsets(tr.pattern, tr.length))
+        placed.append((t, v["name"], v["cat"]))
+    names = [v["name"] for v in voices]
+    st.kit_name = "%s-%03d" % (arch["name"][:4], rng.randrange(1000))
 
     # TEMPO is the algorithm's call, judged against what it just built. IDM / rhythmic
     # noise spans roughly 85-175: a busy, texture-heavy pattern needs room to stay
