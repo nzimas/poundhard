@@ -27,7 +27,8 @@
 import {
     Black, VividYellow, White, BrightGreen,
     MoveShift, MoveBack, MovePlay, MoveKnob1, MoveKnob1Touch, MoveKnob8Touch,
-    MoveMasterTouch, MoveRow1, MoveRow2, MoveRow3, MoveMenu, MoveLeft, MoveRight, MoveMainKnob, MoveMainTouch
+    MoveMasterTouch, MoveRow1, MoveRow2, MoveRow3, MoveMenu, MoveLeft, MoveRight, MoveMainKnob, MoveMainTouch,
+    MoveDelete, MoveCopy, MoveUndo
 } from '/data/UserData/move-anything/shared/constants.mjs';
 import { setLED, setButtonLED, decodeDelta } from '/data/UserData/move-anything/shared/input_filter.mjs';
 
@@ -128,6 +129,9 @@ let seqBeats = 0, lastPulseMs = 0, wasRunning = false;
 let lastStepCol = new Array(N_TRACKS).fill(-1);
 
 let shiftHeld = false, masterTouched = false;
+/* Pattern-view modifiers: X (Delete) + pad = delete & close the gap; Copy + pad = copy,
+ * then further pads paste while Copy stays down. Releasing Copy forgets the clipboard. */
+let deleteHeld = false, copyHeld = false, copyArmed = false;
 let seq = 0, cmdQueue = [];
 let tempoLocal = 120, tempoDirty = false, controlDirty = false;
 /* pad hold -> per-step param lock */
@@ -406,7 +410,7 @@ function drawFx() {
     if (overlay && phase < overlayUntil) { print(0, 22, overlay, 2); return; }
     print(0, 6, 'FX', 2);
     print(0, 30, 'hold fx + tap tracks', 1);
-    print(0, 44, 'tap track=bypass  shift+knob=wet', 1);
+    print(0, 44, 'tap trk=bypass  sh+knob=wet', 1);
     print(0, 56, 'knobs 1-8 = macros', 1);
 }
 function drawRec() {
@@ -441,8 +445,10 @@ function drawSlots() {
         var n = 0; for (var j = 0; j < 32; j++) n += patFilled[j] ? 1 : 0;
         print(0, 6, 'PATTERNS', 2);
         print(0, 30, n + '/32' + (patCur >= 0 ? ('  cur' + (patCur + 1)) : '') + (patPending >= 0 ? (' >' + (patPending + 1)) : ''), 1);
-        print(0, 44, 'tap=load  shift+pad=save', 1);
-        print(0, 56, 'shift+Trk3 = generate variations', 1);
+        if (copyHeld) print(0, 44, copyArmed ? 'COPIED - tap pad to paste' : 'COPY: tap a pattern', 1);
+        else if (deleteHeld) print(0, 44, 'DELETE: tap a pattern', 1);
+        else print(0, 44, 'tap=load  shift+pad=save', 1);
+        print(0, 56, 'X=del copy=cp/pst sh+T3=gen', 1);
     }
 }
 function drawScreen() {
@@ -723,7 +729,14 @@ globalThis.onMidiMessageInternal = function (data) {
             if (recView) {
                 if (slot < 8) { sendCmd('recpad', slot); }        /* arm/start/stop that recording slot */
             } else if (patView) {
-                if (shiftHeld) { patFilled[slot] = true; sendCmd('savepat', slot); showAction('SAVE PAT ' + (slot + 1)); }
+                if (deleteHeld) {                                    /* X + pad = delete, bank closes the gap */
+                    sendCmd('patdel', slot); showAction('DEL PAT ' + (slot + 1));
+                } else if (copyHeld) {                               /* Copy + pad = copy, then paste while held */
+                    if (!copyArmed) {
+                        if (patFilled[slot]) { sendCmd('patcopy', slot); copyArmed = true; showAction('COPY PAT ' + (slot + 1)); }
+                        else showAction('PAT ' + (slot + 1) + ' EMPTY');
+                    } else { patFilled[slot] = true; sendCmd('patpaste', slot); showAction('PASTE PAT ' + (slot + 1)); }
+                } else if (shiftHeld) { patFilled[slot] = true; sendCmd('savepat', slot); showAction('SAVE PAT ' + (slot + 1)); }
                 else { sendCmd('loadpat', slot); showAction((running ? 'QUEUE ' : 'LOAD ') + 'PAT ' + (slot + 1)); }
             } else {
                 if (shiftHeld) { projFilled[slot] = true; sendCmd('saveproj', slot); showAction('SAVE PROJ ' + (slot + 1)); }
@@ -815,6 +828,18 @@ globalThis.onMidiMessageInternal = function (data) {
             return;
         }
         if (d1 === MoveShift) { shiftHeld = d2 > 0; return; }
+        /* X (Delete) + pattern pad = delete that pattern (bank closes the gap). */
+        if (d1 === MoveDelete) { deleteHeld = d2 > 0; return; }
+        /* Copy + pattern pad = copy; further pads paste while Copy is held. The
+         * clipboard is forgotten the moment Copy is released. */
+        if (d1 === MoveCopy) {
+            copyHeld = d2 > 0;
+            if (!copyHeld && copyArmed) { copyArmed = false; sendCmd('patclipclear', -1); }
+            screenDirty = true;
+            return;
+        }
+        /* Undo button = step back one discrete action (20 levels, whole machine). */
+        if (d1 === MoveUndo && d2 > 0) { sendCmd('undo', -1); showAction('UNDO'); return; }
         /* Jog wheel = PITCH (note) — easier than the tiny knob for a step lock or track. */
         if (d1 === MoveMainKnob) {
             var jd = decodeDelta(d2);

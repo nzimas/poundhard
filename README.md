@@ -155,6 +155,13 @@ button. Knob readouts are drawn in a **giant block font** and stay on screen the
 whole time the knob is **touched** (not just while turning) — the same rule
 everywhere.
 
+**Undo** works anywhere: the dedicated **Undo** button steps back through the last
+**20 discrete actions** — step edits, mutes/solos, engine assigns and sound re-rolls,
+pattern save/load/delete/paste, generated variations, FX assign/bypass, project
+loads. It restores the *whole machine* (sounds, grooves, FX, the pattern bank) and
+re-pushes it to the engine. Continuous knob moves (tempo, pan, macros, dry/wet) are
+deliberately **not** undoable — they'd flood the 20 levels with sub-gesture noise.
+
 ### Tracks view (default)
 
 The **top row of pads** is the **engine palette** — one pad per assignable engine,
@@ -175,6 +182,7 @@ in its engine colour.
 | **Shift + Track 1** | re-roll the **open** track's sound (within its engine) |
 | **Play** (lit green while running) | start / stop the sequencer |
 | **Knob 1** | master tempo (BPM) |
+| **Undo** | step back one discrete action (20 levels, works in any view) |
 | **Back** | exit the takeover (tears the stack down) |
 
 Step buttons are lit in their **engine colour**; a track with events pulses, an
@@ -233,7 +241,19 @@ patterns and projects.
 |---|---|
 | **Shift + pad** | save the current machine state to that slot |
 | **Pad — tap** | load that pattern |
+| **X (Delete) + pad** | **delete** that pattern — the bank **closes the gap** (see below) |
+| **Copy + pad** | **copy** that pattern; **further pads paste it** while Copy is held |
 | **Shift + Track 3** | **generate variations** of the current pattern (see below) |
+
+**Delete closes the gap.** Deleting a pattern shifts every pattern to its right one
+slot left, so the bank never has blanks between patterns. The current/queued pointers
+follow their patterns; if you delete the pattern you're *on*, it simply detaches (the
+live state keeps playing, it's just no longer tied to a slot).
+
+**Copy/paste is a held gesture.** Hold **Copy** and tap a pattern to take it; keep
+holding and tap any other pads to paste it there. **Releasing Copy forgets the
+clipboard** — it never persists between gestures. Pasted patterns are deep-copied, so
+the two slots are fully independent.
 
 Loading a pattern while the sequencer is **playing queues the switch**: it takes
 effect on the next **16-step bar** boundary (the queued slot pulses until then).
@@ -468,8 +488,9 @@ wrote twice between polls). Commands include: `audition` / `palettegen` / `assig
 (engine palette), `randtrack`, `mute`, `solo`, `editenter` / `editexit`, `stepset`,
 `steplock`, `stepmacro`, `setlen`, `trackset`, `voicemacro`,
 `fxassign` / `fxbypass` / `fxmacro` / `fxwet`, `run`, `note`, `savepat` / `loadpat`,
-`genvar` (generate variations), `saveproj` / `loadproj`, `recpad`, `panic`. `tempo`
-is a continuous field applied on change.
+`patdel` / `patcopy` / `patpaste` / `patclipclear`, `undo`, `genvar` (generate
+variations), `saveproj` / `loadproj`, `recpad`, `panic`. `tempo` is a continuous
+field applied on change.
 
 ### status.json (controller → ui.js)
 

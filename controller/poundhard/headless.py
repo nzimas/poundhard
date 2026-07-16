@@ -356,8 +356,19 @@ class Controller:
                 with self._lock:
                     self._dispatch(doc.get("cmd", ""), doc.get("arg", -1), doc.get("p", {}))
 
+    # Discrete, structural actions get an undo level each. Continuous streams (knobs:
+    # trackset / voicemacro / fxmacro / fxwet / steplock / stepmacro / note / tempo) are
+    # deliberately excluded — they'd flood the 20-level stack with sub-gesture noise.
+    _UNDOABLE = frozenset({
+        "assign", "randtrack", "mute", "solo", "stepset", "steptoggle", "clearpat",
+        "setlen", "savepat", "loadpat", "patdel", "patpaste", "genvar",
+        "fxassign", "fxbypass", "loadproj",
+    })
+
     def _dispatch(self, cmd: str, arg, p: dict) -> None:
         st = self.state
+        if cmd in self._UNDOABLE:
+            st.push_undo()                     # capture the state BEFORE the action
         if cmd == "genkit":
             st.new_kit()
             self._push_voices()
@@ -500,6 +511,20 @@ class Controller:
                     st.apply_groove(st.patterns[slot])
                     st.pattern_cur = slot
                     self._push_groove()
+        elif cmd == "patdel":                  # hold X + pattern pad: delete, closing the gap
+            slot = int(arg)
+            if st.delete_pattern(slot):
+                print(f"[poundhard] deleted pattern {slot + 1} (bank compacted)", flush=True)
+        elif cmd == "patcopy":                 # hold Copy + pattern pad: take a copy
+            st.copy_pattern(int(arg))
+        elif cmd == "patpaste":                # ...still holding Copy: paste into another pad
+            st.paste_pattern(int(arg))
+        elif cmd == "patclipclear":            # Copy button released -> clipboard is forgotten
+            st.clear_clipboard()
+        elif cmd == "undo":                    # Undo button: step back one discrete action
+            if st.undo():
+                self._push_all()               # re-push the restored machine to the engine
+                print("[poundhard] undo", flush=True)
         elif cmd == "genvar":                  # Shift+Track3 in pattern view: generate variations
             from . import variations
             added, slots = variations.generate(st, count=8)

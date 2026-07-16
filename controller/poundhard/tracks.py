@@ -6,6 +6,7 @@ survive kit regeneration.
 """
 from __future__ import annotations
 
+import copy
 import random
 from dataclasses import dataclass, field
 
@@ -17,6 +18,7 @@ N_TRACKS = 16
 N_STEPS = 32
 N_PATTERNS = 32     # pattern slots per project (and project slots on disk)
 DRUM_TRACKS = 6            # tracks 0..5 are DRUM; 6..15 are the other generators
+UNDO_LEVELS = 20           # depth of the global undo stack (discrete actions)
 
 
 @dataclass
@@ -124,6 +126,10 @@ class Project:
         # track. In-memory scratch surface — the assignment lands in the track (which is
         # persisted); the palette itself is regenerated each session.
         self.palette: list[dict] = [kits.gen_palette_voice(e) for e in kits.PALETTE_ENGINES]
+        # PATTERN CLIPBOARD: held only while the Copy button is down (see copy/paste).
+        self.clipboard: dict | None = None
+        # UNDO: a stack of whole-machine states, pushed before each discrete action.
+        self.undo_stack: list[dict] = []
 
     # -- solo -------------------------------------------------------------- #
     def toggle_solo(self, track: int) -> int:
@@ -188,6 +194,68 @@ class Project:
         goes stale relative to the working state / the project's `base`."""
         if 0 <= self.pattern_cur < N_PATTERNS:
             self.patterns[self.pattern_cur] = self.snapshot()
+
+    # -- pattern delete / copy / paste -------------------------------------- #
+    def delete_pattern(self, slot: int) -> bool:
+        """Delete a pattern and CLOSE THE GAP: everything to its right shifts one slot
+        left, so the bank never has blanks between patterns."""
+        if not (0 <= slot < N_PATTERNS) or self.patterns[slot] is None:
+            return False
+        del self.patterns[slot]
+        self.patterns.append(None)
+        # slots moved — keep the current/queued pointers on the right patterns
+        if self.pattern_cur == slot:
+            self.pattern_cur = -1              # the live pattern's slot is gone
+        elif self.pattern_cur > slot:
+            self.pattern_cur -= 1
+        if self.pattern_pending == slot:
+            self.pattern_pending = -1
+        elif self.pattern_pending > slot:
+            self.pattern_pending -= 1
+        return True
+
+    def copy_pattern(self, slot: int) -> bool:
+        """Copy a pattern to the clipboard (held only while Copy is down)."""
+        if 0 <= slot < N_PATTERNS and self.patterns[slot] is not None:
+            self.clipboard = self.patterns[slot]
+            return True
+        return False
+
+    def paste_pattern(self, slot: int) -> bool:
+        if self.clipboard is None or not (0 <= slot < N_PATTERNS):
+            return False
+        # deep copy: the two slots must never alias, or editing one would edit the other
+        self.patterns[slot] = copy.deepcopy(self.clipboard)
+        return True
+
+    def clear_clipboard(self) -> None:
+        self.clipboard = None
+
+    # -- undo (whole-machine states; discrete actions only) ------------------ #
+    def _undo_state(self) -> dict:
+        """Everything a discrete action can change. `snapshot()` already deep-copies the
+        tracks; the pattern snapshots are immutable once stored (always replaced, never
+        mutated in place), so a shallow list of them is a safe, cheap capture."""
+        return {"base": self.snapshot(), "patterns": list(self.patterns),
+                "pattern_cur": self.pattern_cur, "pattern_pending": self.pattern_pending,
+                "solo": self.solo}
+
+    def push_undo(self) -> None:
+        self.undo_stack.append(self._undo_state())
+        if len(self.undo_stack) > UNDO_LEVELS:
+            self.undo_stack.pop(0)
+
+    def undo(self) -> bool:
+        """Restore the state from before the last discrete action."""
+        if not self.undo_stack:
+            return False
+        s = self.undo_stack.pop()
+        self.apply_full(s["base"])
+        self.patterns = list(s["patterns"])
+        self.pattern_cur = s["pattern_cur"]
+        self.pattern_pending = s["pattern_pending"]
+        self.solo = s["solo"]
+        return True
 
     def project_to_dict(self) -> dict:
         """A whole project = its 32 pattern slots + the current live sound as `base`
