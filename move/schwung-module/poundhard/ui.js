@@ -276,7 +276,9 @@ function renderLEDs() {
                 else color = recSlots[c] ? BrightGreen : 124;       /* green = has a take / dark-grey empty */
             } else if (projView) color = projFilled[c] ? 16 : 95;   /* RoyalBlue filled / DarkBlue empty */
             else if (c === patPending) color = trackPulseOn(0) ? White : 50;  /* queued: pulse periwinkle */
-            else if (c === patCur) color = White;                   /* currently playing */
+            /* current slot: White when it holds a pattern, LightGrey when it's an empty
+             * slot you've SELECTED as the destination for the next generate/write. */
+            else if (c === patCur) color = patFilled[c] ? White : 118;
             else color = patFilled[c] ? 50 : 102;                   /* LavenderBlue(periwinkle) / DarkIndigo empty */
             setLED(PAD_NOTES[c], color);
         }
@@ -762,7 +764,13 @@ globalThis.onMidiMessageInternal = function (data) {
                         else showAction('PAT ' + (slot + 1) + ' EMPTY');
                     } else { patFilled[slot] = true; sendCmd('patpaste', slot); showAction('PASTE PAT ' + (slot + 1)); }
                 } else if (shiftHeld) { patFilled[slot] = true; sendCmd('savepat', slot); showAction('SAVE PAT ' + (slot + 1)); }
-                else { sendCmd('loadpat', slot); showAction((running ? 'QUEUE ' : 'LOAD ') + 'PAT ' + (slot + 1)); }
+                else if (patFilled[slot]) { sendCmd('loadpat', slot); showAction((running ? 'QUEUE ' : 'LOAD ') + 'PAT ' + (slot + 1)); }
+                else {
+                    /* empty pad = pick this slot as the destination for the next
+                     * generate / hand-written pattern. Nothing loads, nothing changes. */
+                    sendCmd('loadpat', slot); patCur = slot;        /* optimistic */
+                    showAction('SELECT PAT ' + (slot + 1));
+                }
             } else {
                 if (shiftHeld) { projFilled[slot] = true; sendCmd('saveproj', slot); showAction('SAVE PROJ ' + (slot + 1)); }
                 else { sendCmd('loadproj', slot); showAction('LOAD PROJ ' + (slot + 1)); }

@@ -538,16 +538,25 @@ class Controller:
             slot = int(arg)
             if 0 <= slot < N_PATTERNS:
                 st.save_pattern(slot)
-        elif cmd == "loadpat":                 # recall a pattern's GROOVE (queued if running)
+        elif cmd == "loadpat":                 # tap a pad: load a pattern, or SELECT an empty slot
             slot = int(arg)
-            if 0 <= slot < N_PATTERNS and st.patterns[slot] is not None:
-                if st.running:
-                    st.pattern_pending = slot   # applied at the next bar boundary (/ph/cycle)
+            if 0 <= slot < N_PATTERNS:
+                if st.patterns[slot] is not None:
+                    if st.running:
+                        st.pattern_pending = slot   # applied at the next bar boundary (/ph/cycle)
+                    else:
+                        st.commit_current()     # preserve the outgoing pattern's live edits
+                        st.apply_full(st.patterns[slot], with_tempo=False)
+                        st.pattern_cur = slot
+                        self._push_all()
                 else:
-                    st.commit_current()         # preserve the outgoing pattern's live edits
-                    st.apply_full(st.patterns[slot], with_tempo=False)
+                    # EMPTY slot -> just SELECT it as the destination for whatever you do
+                    # next (generate, or write a pattern by hand). Nothing to load and
+                    # nothing sounds different: the live state keeps playing and now
+                    # belongs to this slot. Immediate even while running.
+                    st.commit_current()         # the outgoing slot keeps its edits
                     st.pattern_cur = slot
-                    self._push_all()
+                    st.pattern_pending = -1
         elif cmd == "patdel":                  # hold X + pattern pad: delete, closing the gap
             slot = int(arg)
             if st.delete_pattern(slot):

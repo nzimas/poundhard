@@ -248,7 +248,8 @@ patterns and projects.
 | Control | Action |
 |---|---|
 | **Shift + pad** | save the current machine state to that slot |
-| **Pad — tap** | load that pattern |
+| **Pad — tap** (holds a pattern) | load that pattern |
+| **Pad — tap** (empty) | **select** that slot as the destination for what you do next |
 | **X (Delete) + pad** | **delete** that pattern — the bank **closes the gap** (see below) |
 | **Copy + pad** | **copy** that pattern; **further pads paste it** while Copy is held |
 | **Shift + Track 3** | **generate variations** of the current pattern (see below) |
@@ -267,7 +268,14 @@ the two slots are fully independent.
 Loading a pattern while the sequencer is **playing queues the switch**: it takes
 effect on the next **16-step bar** boundary (the queued slot pulses until then).
 Loading while stopped switches immediately. Slot colours: **periwinkle** = saved,
-white = currently playing, pulsing = queued, dim = empty.
+white = currently playing, **light grey** = an empty slot you've selected, pulsing =
+queued, dim = empty.
+
+**Empty pads are selectable.** Tapping one picks it as the destination for whatever you
+do next — generate a pattern into it, or write one by hand — so you decide *where* a
+pattern lands before making it. Nothing loads and nothing sounds different: the live
+state keeps playing and now belongs to that slot, and the pattern you came from keeps
+its own edits. It's immediate even while running (there's nothing to queue).
 
 Patterns are **entirely self-contained** — loading one restores the whole machine
 (see [Patterns & projects](#patterns--projects)). **Tempo is the one exception**: it
