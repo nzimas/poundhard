@@ -384,6 +384,11 @@ cacophony are the point:
 - **0–3 FX only**, at moderate wet — reverb favours pads and tonal voices, drive the
   noise. No wall of mud.
 
+The generated tracks are laid out **contiguously from track 1 and grouped by engine**
+(in palette order — DRUM · FMTONE · BUCHLOID · MOLLY · RINGS · BEN · NOIZEOP · ICARUS,
+with roles in musical order inside each block). Since the step buttons are coloured by
+engine, a generated rig reads as **contiguous colour blocks** rather than a scatter.
+
 ### Autosave
 
 The controller **autosaves the whole project** (all 32 patterns plus the live state) to

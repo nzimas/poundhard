@@ -376,6 +376,19 @@ def _role_pool() -> dict:
     return pool
 
 
+# Layout order for a generated pattern: engines in palette order, and within an engine
+# the roles keep their musical order from kits.ROLES (kick before snare before hats…).
+# The step buttons are coloured by engine, so grouping this way makes the generated rig
+# read as contiguous colour blocks instead of a scatter.
+_ROLE_ORDER = {r.name: i for i, r in enumerate(kits.ROLES)}
+
+
+def _layout_key(name: str, pool: dict) -> tuple[int, int]:
+    t = pool[name].type
+    engine = kits.PALETTE_ENGINES.index(t) if t in kits.PALETTE_ENGINES else len(kits.PALETTE_ENGINES)
+    return (engine, _ROLE_ORDER.get(name, 99))
+
+
 def _part_for(name: str, cat: str, L: int, rng) -> list[int]:
     """An idiomatic part for a role, on the in-length grid."""
     pat = [0] * N_STEPS
@@ -449,13 +462,16 @@ def random_pattern(project, rng: random.Random | None = None) -> list[str]:
     st = project
     pool = _role_pool()
     names = _pick_ensemble(rng)
+    # group by engine type (palette order) so the used tracks form contiguous,
+    # colour-coded blocks on the step buttons — readable at a glance
+    names.sort(key=lambda n: _layout_key(n, pool))
 
-    # wipe the machine, then place the ensemble on spread-out tracks
+    # wipe the machine, then place the ensemble on CONTIGUOUS tracks from track 1
     st.tracks = [Track() for _ in range(N_TRACKS)]
     st.track_fx = [[] for _ in range(N_TRACKS)]
     st.fx_bypass = [False] * N_TRACKS
     st.solo = -1
-    slots = sorted(rng.sample(range(N_TRACKS), len(names)))
+    slots = list(range(len(names)))
 
     base_len = rng.choice([16, 16, 16, 32])
     total = 0
