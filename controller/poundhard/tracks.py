@@ -126,6 +126,13 @@ class Project:
         # track. In-memory scratch surface — the assignment lands in the track (which is
         # persisted); the palette itself is regenerated each session.
         self.palette: list[dict] = [kits.gen_palette_voice(e) for e in kits.PALETTE_ENGINES]
+        # CHAOS MACRO (knob 8, tracks view): one knob sweeps EVERY param of EVERY
+        # assigned engine at once, each in its own random direction. Position 0.5 is the
+        # SAFE ZONE — the stored state captured when the knob was first engaged; turning
+        # either way drifts away from it, turning back (or Shift+touch) returns to it.
+        self.chaos_pos: float = 0.5
+        self.chaos_base: dict | None = None      # {track: {pid: value}} — the safe zone
+        self.chaos_dir: list[dict] = [{} for _ in range(N_TRACKS)]
         # PATTERN CLIPBOARD: held only while the Copy button is down (see copy/paste).
         self.clipboard: dict | None = None
         # UNDO: a stack of whole-machine states, pushed before each discrete action.
@@ -166,6 +173,7 @@ class Project:
         tempo."""
         if with_tempo:
             self.tempo = float(snap.get("tempo", self.tempo))
+        self.chaos_invalidate()               # new sounds -> the old safe zone is void
         self.kit_name = snap.get("kit_name", self.kit_name)
         self.tracks = [Track.from_dict(td) for td in snap.get("tracks", [])][:N_TRACKS]
         while len(self.tracks) < N_TRACKS:
@@ -189,6 +197,65 @@ class Project:
         goes stale relative to the working state / the project's `base`."""
         if 0 <= self.pattern_cur < N_PATTERNS:
             self.patterns[self.pattern_cur] = self.snapshot()
+
+    # -- chaos macro (knob 8, tracks view) ---------------------------------- #
+    def chaos_invalidate(self) -> None:
+        """Forget the safe zone — the underlying sounds changed, so the old baseline is
+        meaningless. The next knob move captures a fresh one."""
+        self.chaos_base = None
+        self.chaos_pos = 0.5
+
+    def _chaos_capture(self) -> None:
+        """Snapshot every assigned engine's params: this is the safe zone to return to."""
+        rng = random.Random()
+        base: dict = {}
+        for t in range(N_TRACKS):
+            tr = self.tracks[t]
+            specs = catalog.macro_specs(tr.type)
+            if not specs:
+                continue
+            base[t] = {pid: float(tr.params.get(pid, 0.0)) for (pid, _a, _lo, _hi) in specs}
+            # a random +/- per param: the knob pushes some up and some down at once,
+            # whichever way it's turned
+            self.chaos_dir[t] = {arg: (1 if rng.random() < 0.5 else -1)
+                                 for (_pid, arg, _lo, _hi) in specs}
+        self.chaos_base = base
+
+    def set_chaos(self, pos: float) -> list[tuple[int, str, float]]:
+        """Sweep every param of every assigned engine away from the safe zone.
+        Returns [(track, pid, value)] to push. pos 0.5 == exactly the stored state."""
+        pos = max(0.0, min(1.0, float(pos)))
+        if self.chaos_base is None:
+            self._chaos_capture()
+        self.chaos_pos = pos
+        dev = (pos - 0.5) * 2.0                  # -1..+1
+        out: list[tuple[int, str, float]] = []
+        for t, params in self.chaos_base.items():
+            tr = self.tracks[t]
+            spec = catalog.VOICES.get(tr.type)
+            if spec is None:
+                continue
+            metas = {m.id: m for m in spec.params}
+            for (pid, arg, lo, hi) in catalog.macro_specs(tr.type):
+                if pid not in params or pid not in metas:
+                    continue
+                d = self.chaos_dir[t].get(arg, 1)
+                # excursion is scaled by the param's own musical span, then clamped to
+                # its absolute range — at dev == 0 this is exactly the baseline
+                val = metas[pid].clamp(params[pid] + d * dev * (hi - lo) * 0.5)
+                tr.params[pid] = round(val, 5)
+                out.append((t, pid, tr.params[pid]))
+        return out
+
+    def chaos_reset(self) -> list[tuple[int, str, float]]:
+        """Shift + touch knob 8: jump straight back to the safe zone."""
+        out: list[tuple[int, str, float]] = []
+        for t, params in (self.chaos_base or {}).items():
+            for pid, v in params.items():
+                self.tracks[t].params[pid] = v
+                out.append((t, pid, v))
+        self.chaos_invalidate()
+        return out
 
     # -- pattern delete / copy / paste -------------------------------------- #
     def delete_pattern(self, slot: int) -> bool:
@@ -372,6 +439,7 @@ class Project:
             return
         tr.load_voice(kits.gen_palette_voice(tr.type))
         self.reroll_voice_macro(track)          # fresh sound -> fresh macro directions
+        self.chaos_invalidate()
 
     # -- engine palette ---------------------------------------------------- #
     def palette_voice(self, idx: int) -> dict | None:
@@ -389,6 +457,7 @@ class Project:
         if 0 <= idx < len(self.palette) and 0 <= track < N_TRACKS:
             self.tracks[track].load_voice(self.palette[idx])
             self.reroll_voice_macro(track)
+            self.chaos_invalidate()
             return True
         return False
 

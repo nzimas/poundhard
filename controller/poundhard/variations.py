@@ -457,9 +457,10 @@ def _pick_ensemble(rng) -> list[str]:
 
 def random_pattern(project, rng: random.Random | None = None) -> list[str]:
     """Fully randomise the CURRENT pattern in place (no new slots). Returns the role
-    names used. Tempo is left alone — it's a global performance control."""
+    names used. The algorithm also picks the global tempo to suit what it built."""
     rng = rng or random.Random()
     st = project
+    st.chaos_invalidate()                      # a new pattern -> a new chaos-macro safe zone
     pool = _role_pool()
     names = _pick_ensemble(rng)
     # group by engine type (palette order) so the used tracks form contiguous,
@@ -527,6 +528,22 @@ def random_pattern(project, rng: random.Random | None = None) -> list[str]:
                 st.fx_macro[fx] = round(rng.uniform(0.3, 0.7), 3)
                 st.fx_wet[fx] = round(rng.uniform(0.15, 0.5), 3)
     st.kit_name = "RND-%04d" % rng.randrange(10000)
+
+    # TEMPO is the algorithm's call, judged against what it just built. IDM / rhythmic
+    # noise spans roughly 85-175: a busy, texture-heavy pattern needs room to stay
+    # legible, while a sparse one can run fast without turning to mush.
+    span = max(1, sum(st.tracks[t].length for t, _n, _c in placed))
+    density = total / span
+    if density > 0.30:
+        band = (86, 122)                       # dense -> slower, heavier
+    elif density > 0.18:
+        band = (112, 148)
+    else:
+        band = (130, 174)                      # sparse -> can run fast
+    tempo = rng.uniform(*band)
+    if rng.random() < 0.12:                    # the occasional outlier for character
+        tempo = rng.uniform(80, 96) if rng.random() < 0.5 else rng.uniform(168, 180)
+    st.tempo = float(round(max(80.0, min(180.0, tempo))))
 
     # the randomised pattern IS the current pattern (no extra slots created)
     if st.pattern_cur < 0:

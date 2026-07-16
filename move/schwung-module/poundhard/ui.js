@@ -104,6 +104,9 @@ let trackPan = new Array(N_TRACKS).fill(0.0);
 let trackRate = new Array(N_TRACKS).fill(1.0);
 let trackLen = new Array(N_TRACKS).fill(N_STEPS);
 let voiceMacro = new Array(N_TRACKS).fill(0.5);   /* knob-3 voice-macro position per track */
+/* CHAOS macro (knob 8, tracks view): sweeps every param of every assigned engine, each
+ * in its own random direction. 0.5 = the safe zone (the stored state). */
+let chaosPos = 0.5;
 /* PATTERN + PROJECT views (Track3 button / Menu button): 32 pads = 32 slots. */
 let patView = false, projView = false;
 let patFilled = new Array(N_STEPS).fill(false), patCur = -1, patPending = -1;
@@ -356,6 +359,12 @@ function drawParamBig(head, valStr, kind, frac) {
     else { drawBig(valStr, 4, 7); if (kind === 'uni') bar(frac); else bbar(frac); }
 }
 function drawTempoBig() { drawParamBig('TEMPO', '' + Math.round(tempo), 'uni', clampf((tempo - 20) / 280, 0, 1)); }
+/* CHAOS: bipolar around the safe zone — 0 = exactly the stored state. */
+function drawChaosBig() {
+    var dev = Math.round((chaosPos - 0.5) * 200);
+    drawParamBig('CHAOS', dev === 0 ? 'SAFE' : ((dev > 0 ? '+' : '') + dev),
+        'bi', clampf((chaosPos - 0.5) * 2, -1, 1));
+}
 function drawStepParam() {
     var c = stepEditCell;
     if (knobShow === 'pitch') drawParamBig('STEP PITCH', noteName(stepNote[c]), null, 0);
@@ -458,6 +467,7 @@ function drawScreen() {
     if (recView) { drawRec(); return; }
     /* giant TEMPO readout while knob 1 is touched (tracks view + project view) */
     if (knobShow === 'tempo' && !fxView && !patView && !recView && editTrack < 0 && stepEditCell < 0) { drawTempoBig(); return; }
+    if (knobShow === 'chaos' && !fxView && !patView && !projView && !recView && editTrack < 0) { drawChaosBig(); return; }
     if (patView || projView) { drawSlots(); return; }
     if (fxView) { drawFx(); return; }
     if (stepEditCell >= 0) { drawStepParam(); return; }
@@ -471,7 +481,7 @@ function drawScreen() {
         print(0, 6, 'POUNDHARD', 2);
         print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP'), 1);
         print(0, 44, 'pad=hear  shift+pad=gen', 1);
-        print(0, 56, 'hold pad+trk=assign  cpu' + cpu + '%', 1);
+        print(0, 56, 'k8=chaos  hold pad+trk=assign', 1);
     } else {
         var n = 0, len = editLen();
         for (var i = 0; i < len; i++) n += editSteps[i] ? 1 : 0;
@@ -497,6 +507,9 @@ function readStatus() {
     if (Array.isArray(s.patFilled)) patFilled = s.patFilled;
     if (Array.isArray(s.projFilled)) projFilled = s.projFilled;
     if (s.autoSave != null) autoSave = !!s.autoSave;
+    /* don't fight a live turn: only adopt the controller's chaos position when the
+     * knob isn't the thing on screen (it re-syncs after a reset / pattern change) */
+    if (s.chaos != null && knobShow !== 'chaos') chaosPos = s.chaos;
     if (s.solo != null) solo = s.solo;
     if (s.patCur != null) patCur = s.patCur;
     if (s.patPending != null) patPending = s.patPending;
@@ -575,6 +588,7 @@ globalThis.init = function () {
     fxTop = new Array(N_TRACKS).fill(-1); fxBypass = new Array(N_TRACKS).fill(false);
     fxOn = []; for (var qi = 0; qi < N_TRACKS; qi++) fxOn.push([]);
     fxMacro = new Array(N_FX).fill(0.5); fxWet = new Array(N_FX).fill(0.5);
+    chaosPos = 0.5;
     overlay = null; overlayUntil = -1; ledDirty = true; screenDirty = true;
     lastLedSig = ''; lastScreenSig = ''; lastDrawAt = -100;
     seqBeats = 0; lastPulseMs = 0; wasRunning = false; lastStepCol = new Array(N_TRACKS).fill(-1);
@@ -673,7 +687,15 @@ globalThis.onMidiMessageInternal = function (data) {
         else if (projView) which = (ki === 0) ? 'tempo' : null;                          /* project settings */
         else if (stepEditCell >= 0) which = (ki === 0) ? 'vel' : (ki === 1) ? 'pan' : (ki === 2) ? 'macro' : null;
         else if (editTrack >= 0) which = (ki === 0) ? 'vol' : (ki === 1) ? 'pan' : (ki === 2) ? 'macro' : null;
-        else if (!patView && !recView) which = (ki === 0) ? 'tempo' : null;              /* tracks view: knob1 = tempo */
+        else if (!patView && !recView) {                                                 /* tracks view */
+            /* Shift + touch knob 8 = jump back to the chaos macro's SAFE ZONE */
+            if (ki === 7 && touched && shiftHeld) {
+                sendCmd('chaosreset', -1); chaosPos = 0.5;
+                showAction('SAFE ZONE'); screenDirty = true;
+                return;
+            }
+            which = (ki === 0) ? 'tempo' : (ki === 7) ? 'chaos' : null;                  /* knob1 = tempo, knob8 = chaos */
+        }
         /* Uniform rule: the giant readout shows the whole time the knob is TOUCHED
          * (not just while turning), and clears on release. */
         if (which) {
@@ -960,6 +982,14 @@ globalThis.onMidiMessageInternal = function (data) {
                 voiceMacro[t] = clampf(voiceMacro[t] + dn * 0.03, 0, 1); knobShow = 'macro';
                 sendCmd('voicemacro', t, { p: { track: t, pos: voiceMacro[t] } });
                 screenDirty = true; return;
+            }
+            /* knob 8 (tracks view) = CHAOS: sweep every param of every assigned engine,
+             * each in its own random direction. 0.5 = safe (the stored pattern state). */
+            if (ki === 7 && editTrack < 0 && !patView && !projView && !recView) {
+                chaosPos = clampf(chaosPos + dn * 0.02, 0, 1);
+                sendCmd('chaos', -1, { p: { pos: chaosPos } });
+                knobShow = 'chaos'; screenDirty = true;
+                return;
             }
             if (ki === 0 && !patView && !recView) {              /* knob 1 = master tempo (tracks + project views) */
                 tempoLocal = clampi(Math.round(tempo) + dn, 20, 300);

@@ -468,6 +468,12 @@ class Controller:
                     self.bridge.param(t, st.tracks[t].type.lower() + ".amp", v)
                 elif kind == "rate":
                     self.bridge.rate(t, v)
+        elif cmd == "chaos":                   # knob 8 (tracks view): sweep EVERY engine's params
+            for t, pid, val in st.set_chaos(float(p.get("pos", 0.5))):
+                self.bridge.param(t, pid, val)
+        elif cmd == "chaosreset":              # Shift + touch knob 8: back to the safe zone
+            for t, pid, val in st.chaos_reset():
+                self.bridge.param(t, pid, val)
         elif cmd == "voicemacro":              # one knob sweeps the whole current voice
             t = int(p.get("track", st.edit_track))
             if 0 <= t < N_TRACKS:
@@ -559,8 +565,9 @@ class Controller:
         elif cmd == "randpat":                 # Shift + volume touch + Track3: randomise this pattern
             from . import variations
             names = variations.random_pattern(st)
-            self._push_all()
-            print(f"[poundhard] randomised pattern {st.pattern_cur + 1}: {names}", flush=True)
+            self._push_all()                   # includes the algorithm's chosen tempo
+            print(f"[poundhard] randomised pattern {st.pattern_cur + 1} "
+                  f"@ {st.tempo:.0f} BPM: {names}", flush=True)
         elif cmd == "loadauto":                # Shift+Menu in project view: restore the autosave
             self._load_autosave()
         elif cmd == "genvar":                  # Shift+Track3 in pattern view: generate variations
@@ -637,6 +644,7 @@ class Controller:
             "fxOn": [list(st.track_fx[t]) for t in range(N_TRACKS)],
             "fxMacro": [round(m, 3) for m in st.fx_macro],
             "fxWet": [round(w, 3) for w in st.fx_wet],
+            "chaos": round(st.chaos_pos, 3),   # knob-8 macro position (0.5 == safe zone)
             "fxNames": [s.short for s in FX_SPECS],
         }
         if 0 <= st.edit_track < N_TRACKS:

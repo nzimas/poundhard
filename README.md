@@ -43,6 +43,7 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   - [Recorder view](#recorder-view)
 - [Sounds & the engine palette](#sounds--the-engine-palette)
 - [Patterns & projects](#patterns--projects)
+- [The chaos macro](#the-chaos-macro-knob-8)
 - [Autosave](#autosave)
 - [Recording & the web UI](#recording--the-web-ui)
 - [Deploy to the Move](#deploy-to-the-move)
@@ -187,6 +188,8 @@ in its engine colour.
 | **Shift + hold volume knob + Track 3** | **fully randomise** the current pattern (4–10 tracks) |
 | **Play** (lit green while running) | start / stop the sequencer |
 | **Knob 1** | master tempo (BPM) |
+| **Knob 8** | **chaos macro** — sweeps every param of every assigned engine (see below) |
+| **Shift + touch Knob 8** | snap back to the chaos macro's **safe zone** |
 | **Undo** | step back one discrete action (20 levels, works in any view) |
 | **Back** | exit the takeover (tears the stack down) |
 
@@ -364,8 +367,7 @@ before the downbeat.
 ### Randomise a whole pattern
 
 **Shift + hold the volume knob + Track 3** fully randomises the **currently selected
-pattern**, in place — it replaces that pattern rather than generating new ones. Tempo
-is left alone.
+pattern**, in place — it replaces that pattern rather than generating new ones.
 
 It builds a complete rig from nothing: an ensemble of **4–10 tracks**, engines assigned,
 sounds generated, idiomatic parts written, and a little FX. The aesthetic target is
@@ -383,11 +385,37 @@ cacophony are the point:
   too full
 - **0–3 FX only**, at moderate wet — reverb favours pads and tonal voices, drive the
   noise. No wall of mud.
+- **Tempo is the algorithm's call**, judged against what it just built: a busy,
+  texture-heavy pattern lands slower so it stays legible; a sparse one can run fast.
+  It spans roughly 85–175 BPM (with the occasional outlier for character) and **sets
+  the global tempo**. This is the one thing that generates a tempo — switching between
+  existing patterns still never moves it.
 
 The generated tracks are laid out **contiguously from track 1 and grouped by engine**
 (in palette order — DRUM · FMTONE · BUCHLOID · MOLLY · RINGS · BEN · NOIZEOP · ICARUS,
 with roles in musical order inside each block). Since the step buttons are coloured by
 engine, a generated rig reads as **contiguous colour blocks** rather than a scatter.
+
+### The chaos macro (knob 8)
+
+In the tracks view, **knob 8 sweeps every parameter of every engine currently assigned
+to a track**, all at once. Each parameter gets its own **random direction**, so a single
+turn pushes some values up and others down regardless of which way you turn the knob —
+one gesture smears the whole machine.
+
+**Position 0.5 is the safe zone**: exactly the stored state, captured the moment you
+first move the knob. Turning either way drifts away from it, and the two directions
+give different deviations.
+
+Two ways back:
+- **turn knob 8 back to centre** — the values return to where they were, or
+- **Shift + touch knob 8** — jump straight back to the safe zone.
+
+Each parameter's excursion is scaled by its own musical range and clamped to its
+absolute limits, and **amp/pan are excluded** — so chaos re-voices the machine without
+blowing up levels or collapsing the stereo image. Loading a pattern, assigning an engine
+or randomising re-takes the safe zone, since the old baseline no longer means anything.
+The readout stays on screen the whole time the knob is **touched**.
 
 ### Autosave
 
@@ -550,7 +578,8 @@ wrote twice between polls). Commands include: `audition` / `palettegen` / `assig
 (engine palette), `randtrack`, `mute`, `solo`, `editenter` / `editexit`, `stepset`,
 `steplock`, `stepmacro`, `setlen`, `trackset`, `voicemacro`,
 `fxassign` / `fxbypass` / `fxmacro` / `fxwet`, `run`, `note`, `savepat` / `loadpat`,
-`patdel` / `patcopy` / `patpaste` / `patclipclear`, `undo`, `genvar` (generate
+`patdel` / `patcopy` / `patpaste` / `patclipclear`, `undo`, `chaos` / `chaosreset`
+(knob-8 macro), `genvar` (generate
 variations), `randpat` (randomise this pattern), `saveproj` / `loadproj`, `loadauto`
 (restore the autosave), `recpad`, `panic`. `tempo` is a continuous field applied on
 change.
