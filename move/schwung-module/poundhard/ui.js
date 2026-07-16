@@ -440,8 +440,9 @@ function drawSlots() {
     } else {
         var n = 0; for (var j = 0; j < 32; j++) n += patFilled[j] ? 1 : 0;
         print(0, 6, 'PATTERNS', 2);
-        print(0, 32, n + '/32' + (patCur >= 0 ? ('  cur' + (patCur + 1)) : '') + (patPending >= 0 ? (' >' + (patPending + 1)) : ''), 1);
-        print(0, 48, 'tap=load  shift+pad=save', 1);
+        print(0, 30, n + '/32' + (patCur >= 0 ? ('  cur' + (patCur + 1)) : '') + (patPending >= 0 ? (' >' + (patPending + 1)) : ''), 1);
+        print(0, 44, 'tap=load  shift+pad=save', 1);
+        print(0, 56, 'shift+Trk3 = generate variations', 1);
     }
 }
 function drawScreen() {
@@ -845,7 +846,13 @@ globalThis.onMidiMessageInternal = function (data) {
             ledDirty = true; screenDirty = true; showAction(fxView ? 'FX' : 'TRACKS');
             return;
         }
-        if (d1 === MoveRow3 && d2 > 0) {                  /* Track 3 = PATTERN view; Shift+Track3 = RECORDER */
+        if (d1 === MoveRow3 && d2 > 0) {                  /* Track 3 = PATTERN view; Shift+Track3 = RECORDER,
+                                                           * or GENERATE VARIATIONS when already in pattern view */
+            if (shiftHeld && patView) {                   /* pattern view: Shift+Track3 = generate variations */
+                sendCmd('genvar', -1); showAction('GEN VARIATIONS');
+                ledDirty = true; screenDirty = true;
+                return;
+            }
             if (shiftHeld) {
                 recView = !recView;
                 if (recView) { patView = false; projView = false; fxView = false; fxHeld = -1; editTrack = -1; stepEditCell = -1; trackHeld = -1; paletteHeld = -1; }

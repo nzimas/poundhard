@@ -500,6 +500,15 @@ class Controller:
                     st.apply_groove(st.patterns[slot])
                     st.pattern_cur = slot
                     self._push_groove()
+        elif cmd == "genvar":                  # Shift+Track3 in pattern view: generate variations
+            from . import variations
+            added, slots = variations.generate(st, count=8)
+            for t in added:                    # newly-added instruments join the shared live kit
+                self.bridge.push_track(t, st.tracks[t])
+            if slots:
+                print(f"[poundhard] generated {len(slots)} variations into slots "
+                      f"{[s + 1 for s in slots]}" + (f", added tracks {[t + 1 for t in added]}" if added else ""),
+                      flush=True)
         elif cmd == "saveproj":                # write the 32 pattern slots + kit to disk
             slot = int(arg)
             if 0 <= slot < N_PATTERNS:

@@ -233,6 +233,7 @@ patterns and projects.
 |---|---|
 | **Shift + pad** | save the current machine state to that slot |
 | **Pad — tap** | load that pattern |
+| **Shift + Track 3** | **generate variations** of the current pattern (see below) |
 
 Loading a pattern while the sequencer is **playing queues the switch**: it takes
 effect on the next **16-step bar** boundary (the queued slot pulses until then).
@@ -317,6 +318,38 @@ Assigning or re-rolling a sound keeps the track's pattern, mutes and per-step lo
 The queued pattern switch is bar-accurate: the engine fires `/ph/cycle` on the
 last step of each fixed 16-step bar, and the controller applies the pending
 pattern's groove right before the downbeat.
+
+### Generate variations
+
+In the pattern view, **Shift + Track 3** generates **up to 8 new patterns** derived
+from the pattern you're on — structurally and musically related, but distinct enough
+to read as different **parts of the same piece**. They land in the next empty slots,
+ready to load or queue like any pattern.
+
+It **analyses before it generates**
+([`controller/poundhard/variations.py`](controller/poundhard/variations.py)): which
+tracks play and how densely, each track's onsets and role (the kick becomes the
+**anchor** and is held nearly fixed), and the piece's **pitch material** gathered
+across every saved pattern — so new melodic material stays in key. Then it applies
+bounded, musical transforms that **ramp from subtle (variation 1) to bold
+(variation 8)**:
+
+- **Rhythm** — Euclidean re-interpretation at similar density, rotation/displacement,
+  thinning, off-beat thickening (syncopation), end-of-phrase fills; the anchor barely
+  moves and no track is ever emptied.
+- **Melody** — expressed as **per-step pitch locks** (never the track's default note,
+  so the *sound* is untouched): the line is transposed by a consonant interval and/or
+  given stepwise contour, everything **snapped back into the scale**.
+- **Feel & structure** — light velocity accents, the odd mute for contrast, an
+  occasional polymetric length change on a non-anchor voice.
+- **New instruments (sparingly)** — when there's a clear gap and empty tracks, it may
+  add **0–2 complementary voices** (e.g. an ICARUS pad, or a NOIZEOP / hi-hat
+  shimmer). Their *sound* joins the shared kit (silent in the original pattern, played
+  in some variations) — an instrument introduced for a later section.
+
+Because variations only ever touch **groove** data (patterns, lengths, mutes, per-step
+locks) and never the retained tracks' sounds, they switch live like any other pattern
+and keep an unmistakable family resemblance to the original.
 
 ---
 
@@ -434,9 +467,9 @@ A `cmds` queue de-duped by `seq` (a single-slot mailbox lost commands when the U
 wrote twice between polls). Commands include: `audition` / `palettegen` / `assign`
 (engine palette), `randtrack`, `mute`, `solo`, `editenter` / `editexit`, `stepset`,
 `steplock`, `stepmacro`, `setlen`, `trackset`, `voicemacro`,
-`fxassign` / `fxbypass` / `fxmacro`, `run`, `note`, `savepat` / `loadpat`,
-`saveproj` / `loadproj`, `recpad`, `panic`. `tempo` is a continuous field applied
-on change.
+`fxassign` / `fxbypass` / `fxmacro` / `fxwet`, `run`, `note`, `savepat` / `loadpat`,
+`genvar` (generate variations), `saveproj` / `loadproj`, `recpad`, `panic`. `tempo`
+is a continuous field applied on change.
 
 ### status.json (controller → ui.js)
 
@@ -467,7 +500,7 @@ patCur / patPending / projFilled`).
 ## Repository layout
 
 ```
-controller/poundhard/   catalog.py  kits.py  tracks.py  engine_bridge.py  headless.py  webserver.py  params.py
+controller/poundhard/   catalog.py  kits.py  variations.py  tracks.py  engine_bridge.py  headless.py  webserver.py  params.py
 controller/vendor/      pythonosc (vendored — no pip on the device)
 supercollider/          boot.scd  engine.scd  synthdefs.scd
 move/                   run-*.sh  stop-stack.sh  deploy*.sh  sc/ph-boot.scd
