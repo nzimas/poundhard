@@ -19,6 +19,36 @@ N_STEPS = 32
 N_PATTERNS = 32     # pattern slots per project (and project slots on disk)
 
 
+# Keyword buckets for living-step flavours — a param's engine-arg name is matched
+# against these substrings to decide what kind of movement it produces. The order
+# matters: fx/filter/env are claimed first, everything else falls through to "tone".
+_KW_FX = ("fold", "crush", "down", "grit", "ring", "drive", "dist", "wavefold",
+          "destruction", "feedback", "morph", "harm", "struct", "fmamt", "fm1", "fm2",
+          "rungler", "a_mod", "a_vol", "mul", "scale", "pwm", "aux", "bits", "res")
+_KW_FILTER = ("cutoff", "lpf", "ffreq", "filt", "freq", "bright", "damp", "timbre",
+              "peak", "tone", "pos", "runglerfilt")
+_KW_ENV = ("attack", "decay", "release", "hold", "sustain", "arel", "asus", "adecay",
+           "ampdecay", "pitchdecay", "noisedecay", "life")
+
+
+def _classify_params(specs) -> dict:
+    """Group (pid, arg, rmin, rmax, mlo, mhi) tuples into fx / filter / env / tone by the
+    engine-arg name. Returns {group: {arg: (rmin, rmax, mlo, mhi)}}."""
+    groups: dict = {"fx": {}, "filter": {}, "env": {}, "tone": {}}
+    for (_pid, arg, rmin, rmax, mlo, mhi) in specs:
+        a = arg.lower()
+        if any(k in a for k in _KW_ENV):
+            g = "env"
+        elif any(k in a for k in _KW_FILTER):
+            g = "filter"
+        elif any(k in a for k in _KW_FX):
+            g = "fx"
+        else:
+            g = "tone"
+        groups[g][arg] = (rmin, rmax, mlo, mhi)
+    return groups
+
+
 def _snap_scale(note: int, pcs: set) -> int:
     """Nearest note whose pitch-class is in the scale set."""
     if not pcs:
@@ -473,33 +503,79 @@ class Project:
         return self.tracks[track].step_period[cell]
 
     def reroll_living(self, track: int, cell: int) -> None:
-        """Roll a fresh transformation for a living step: ratchets, a random subset of the
-        voice's timbral params (envelope / grit / 'fx' params included), and pitch / vel /
-        pan jitter. For PLAITS and RINGS the model-selecting param is an ENUM, which
-        macro_specs already excludes — so the model stays fixed and only its voice moves."""
+        """Roll a fresh transformation for a living step. Each cycle picks a distinct
+        FLAVOUR and drives the relevant params HARD, so the movement is obvious and
+        varied — not a wash of timid random tweaks. The flavours reach into each engine's
+        own character/fx params (bitcrush, wavefold, ringmod, drive on the analog voices;
+        morph/harmonics on Plaits; structure/position on Rings), its filter, its envelope,
+        pitch (octave leaps, scale jumps), and ratchets. For PLAITS/RINGS the model is an
+        ENUM that macro_specs excludes, so the model stays fixed while everything else moves."""
         rng = random
         tr = self.tracks[track]
-        specs = catalog.macro_specs(tr.type)          # excludes enums (model) + amp/pan
-        pairs = []
-        if specs:
-            k = rng.randint(1, min(4, len(specs)))
-            for (_pid, arg, lo, hi) in rng.sample(specs, k):
-                pairs.append((arg, round(rng.uniform(lo, hi), 5)))
-        tr.step_xmacro[cell] = pairs or None
-        # ratchets — weighted toward the subtle end so it adds movement, not chaos
-        tr.step_ratchet[cell] = rng.choice([1, 1, 1, 2, 2, 3, 4])
-        # pitch jitter, snapped into the scale (or occasionally back to the track note)
-        if tr.type not in ("EMPTY", "DRUM") and rng.random() < 0.55:
+        specs = catalog.macro_specs_full(tr.type)     # (pid, arg, rmin, rmax, mlo, mhi)
+        by_kw = _classify_params(specs)               # arg -> (rmin, rmax, mlo, mhi), grouped
+
+        # reset the whole transform, then rebuild it for the chosen flavour(s)
+        tr.step_xmacro[cell] = None
+        tr.step_ratchet[cell] = 1
+        tr.step_note[cell] = None
+        tr.step_vel[cell] = None
+        tr.step_pan[cell] = None
+        pairs: dict[str, float] = {}
+
+        def drive(group, n, extreme):
+            """Set up to n params from a keyword group; `extreme` pushes toward the rails."""
+            items = list(by_kw.get(group, {}).items())
+            if not items:
+                return
+            rng.shuffle(items)
+            for arg, (rmin, rmax, mlo, mhi) in items[:n]:
+                if extreme and rng.random() < 0.7:
+                    # jump to one end of the FULL range (real fx/character), not the polite band
+                    v = rmin if rng.random() < 0.5 else rmax
+                    v = v * 0.85 + (rmax if v == rmin else rmin) * 0.15   # back off the hard rail a touch
+                else:
+                    v = rng.uniform(mlo, mhi)
+                pairs[arg] = round(v, 5)
+
+        # one or two flavours per transform (two = a combo, for extra variety)
+        flavours = ["fx", "fx", "filter", "pitch", "envelope", "ratchet", "wild"]
+        chosen = {rng.choice(flavours)}
+        if rng.random() < 0.45:
+            chosen.add(rng.choice(flavours))
+        if "wild" in chosen:
+            chosen |= {"fx", "filter", "pitch", "envelope", "ratchet"}
+
+        if "fx" in chosen:
+            drive("fx", rng.randint(1, 3), extreme=True)
+        if "filter" in chosen:
+            drive("filter", rng.randint(1, 2), extreme=rng.random() < 0.6)
+        if "envelope" in chosen:
+            drive("env", rng.randint(1, 2), extreme=rng.random() < 0.7)
+        # always nudge a couple of general tone params so no transform is inert
+        drive("tone", rng.randint(1, 2), extreme=False)
+
+        if "ratchet" in chosen:
+            tr.step_ratchet[cell] = rng.choice([2, 2, 3, 3, 4, 6])
+        else:
+            tr.step_ratchet[cell] = rng.choice([1, 1, 1, 2, 3])
+
+        if "pitch" in chosen and tr.type not in ("EMPTY", "DRUM"):
             pcs = {(kits._ROOT + s) % 12 for s in kits._SCALE}
-            cand = tr.note + rng.choice([-12, -7, -5, -3, 0, 0, 2, 3, 5, 7, 12])
+            cand = tr.note + rng.choice([-24, -12, -12, -7, -5, 5, 7, 12, 12, 19, 24])
             tr.step_note[cell] = max(24, min(96, _snap_scale(cand, pcs)))
-        elif rng.random() < 0.35:
-            tr.step_note[cell] = None
-        # velocity / pan movement
-        if rng.random() < 0.6:
-            tr.step_vel[cell] = round(max(0.2, min(1.3, tr.vel * rng.uniform(0.55, 1.25))), 3)
-        if rng.random() < 0.4:
-            tr.step_pan[cell] = round(rng.uniform(-0.85, 0.85), 3)
+        elif tr.type not in ("EMPTY", "DRUM") and rng.random() < 0.5:
+            pcs = {(kits._ROOT + s) % 12 for s in kits._SCALE}
+            cand = tr.note + rng.choice([-12, -5, -3, 0, 0, 2, 3, 5, 7, 12])
+            tr.step_note[cell] = max(24, min(96, _snap_scale(cand, pcs)))
+
+        # velocity / pan movement (accents + spatial jumps) — always some
+        if rng.random() < 0.7:
+            tr.step_vel[cell] = round(max(0.2, min(1.35, tr.vel * rng.uniform(0.5, 1.3))), 3)
+        if rng.random() < 0.5:
+            tr.step_pan[cell] = round(rng.uniform(-0.9, 0.9), 3)
+
+        tr.step_xmacro[cell] = [(a, v) for a, v in pairs.items()] or None
 
     def tick_living(self, track: int) -> list[int]:
         """Advance one cycle for a track's living steps; return the cells that re-rolled

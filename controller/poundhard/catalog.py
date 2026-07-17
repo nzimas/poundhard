@@ -528,6 +528,25 @@ def macro_specs(voice_type: str) -> list[tuple[str, str, float, float]]:
     return out
 
 
+def macro_specs_full(voice_type: str) -> list[tuple[str, str, float, float, float, float]]:
+    """(pid, arg, rmin, rmax, musical_lo, musical_hi) for every macro-sweepable param.
+    Like macro_specs but also carries the FULL parameter range — so a transform can push
+    a param to an extreme (real fx/character), not just across its polite musical band."""
+    out: list[tuple[str, str, float, float, float, float]] = []
+    if voice_type not in VOICES:
+        return out
+    for meta in VOICES[voice_type].params:
+        if not meta.macro_eligible or meta.curve == Curve.ENUM:
+            continue
+        arg = engine_arg(meta.id)
+        if arg in ("amp", "pan"):
+            continue
+        mlo = meta.musical_min if meta.musical_min is not None else meta.rmin
+        mhi = meta.musical_max if meta.musical_max is not None else meta.rmax
+        out.append((meta.id, arg, float(meta.rmin), float(meta.rmax), float(mlo), float(mhi)))
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # FX chain — 8 insert effects in canonical signal-flow order (index == chain
 # position == FX pad, left to right; VERB is last/rightmost). Must match
