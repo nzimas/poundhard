@@ -385,10 +385,14 @@ _MAX_TRACKS = 8
 
 
 def _voice_cost(engine: str, onsets: int, length: int) -> float:
-    """Estimated %CPU for a voice. Cost tracks how many voices are alive at once, which
-    saturates at ~maxPoly around density 0.5; a sparse part still rings, hence the floor."""
+    """Estimated %CPU for a voice, scaled by how many voices are alive at once.
+    _ENGINE_COST was measured at density 0.5, so that's the 1.0 calibration point; a
+    denser part overlaps more voices (up to the maxPoly=3 cap), so it costs MORE — the
+    factor keeps rising past 0.5 instead of flattening there (a flat cap under-budgeted
+    the busiest patterns, which is what let them XRun). A sparse part still rings once,
+    hence the 0.5 floor."""
     d = onsets / max(1, length)
-    return _ENGINE_COST.get(engine, 6.0) * max(0.5, min(1.0, d / 0.5))
+    return _ENGINE_COST.get(engine, 6.0) * min(1.8, max(0.5, 0.5 + d))
 
 
 # ---- archetypes -----------------------------------------------------------

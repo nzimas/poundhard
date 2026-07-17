@@ -153,6 +153,7 @@ class EngineBridge:
     def recstart(self, path):          self.send("/ph/recstart", str(path))
     def recstop(self):                 self.send("/ph/recstop")
     def fxassign(self, t, fx, on):     self.send("/ph/fxassign", int(t), int(fx), 1 if on else 0)
+    def fxclear(self):                 self.send("/ph/fxclear")
     def fxbypass(self, t, on):         self.send("/ph/fxbypass", int(t), 1 if on else 0)
     def fxset(self, fx, arg, val):     self.send("/ph/fxset", int(fx), str(arg), float(val))
     def mastergain(self, g):           self.send("/ph/mastergain", float(g))

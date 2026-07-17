@@ -150,6 +150,7 @@ class Controller:
             for arg, val in self.state.macro_values(fx):
                 self.bridge.fxset(fx, arg, val)
             self.bridge.fxset(fx, "wet", self.state.fx_wet[fx])
+        self.bridge.fxclear()   # drop any FX the engine still holds from a previous state
         for t in range(N_TRACKS):
             for fx in self.state.track_fx[t]:
                 self.bridge.fxassign(t, fx, True)

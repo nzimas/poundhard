@@ -261,6 +261,13 @@
 		var t = m[1].asInteger.clip(0, ~nTracks - 1), k = m[2].asInteger.clip(0, 7);
 		~assigned[t][k] = m[3].asInteger; ~rebuildFx.(t);
 	}, '/ph/fxassign'),
+	// Wipe EVERY track's FX assignments and free their synths. A full state push (pattern
+	// switch / generate / project load) sends this first, then re-assigns only the current
+	// FX — otherwise the engine's ~assigned array would only ever grow, and stale FX chains
+	// (a reverb is ~10% CPU each) would pile up across generations until the box XRuns.
+	OSCdef(\phFxClear, { |m|
+		~nTracks.do { |t| 8.do { |k| ~assigned[t][k] = 0 }; ~rebuildFx.(t) };
+	}, '/ph/fxclear'),
 	OSCdef(\phFxBypass, { |m|
 		var t = m[1].asInteger.clip(0, ~nTracks - 1), on = m[2].asInteger;
 		~fxBypass[t] = on;
