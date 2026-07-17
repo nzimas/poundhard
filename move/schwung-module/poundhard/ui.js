@@ -28,7 +28,7 @@ import {
     Black, VividYellow, White, BrightGreen,
     MoveShift, MoveBack, MovePlay, MoveKnob1, MoveKnob1Touch, MoveKnob8Touch,
     MoveMasterTouch, MoveRow1, MoveRow2, MoveRow3, MoveMenu, MoveLeft, MoveRight, MoveMainKnob, MoveMainTouch,
-    MoveDelete, MoveCopy, MoveUndo
+    MoveDelete, MoveCopy, MoveUndo, MoveRec
 } from '/data/UserData/move-anything/shared/constants.mjs';
 import { setLED, setButtonLED, decodeDelta } from '/data/UserData/move-anything/shared/input_filter.mjs';
 
@@ -61,6 +61,7 @@ const TRACK_COLOR = VividYellow;    /* active step / unmuted track */
 const DIM_COLOR = 74;               /* very-dark-yellow: in-length inactive step */
 const SEL_COLOR = White;            /* playhead / selected edit track */
 const OFF_COLOR = Black;            /* muted track / out-of-length step */
+const LIVE_ON = 23, LIVE_DIM = 109; /* NeonPink / DeepMagenta — a LIVING (self-transforming) step */
 /* 8 distinct FX pad colours (canonical chain order: OD AMP CRSH RING FLNG GRN DLY VRB) */
 const FX_COLORS = [3, 27, 14, 21, 12, 31, 16, 20];
 const BYPASS_COLOR = 118;           /* light grey: a track whose FX are bypassed (visible) */
@@ -130,6 +131,9 @@ let stepNote = new Array(N_STEPS).fill(60);
 let stepVel = new Array(N_STEPS).fill(1.0);
 let stepPan = new Array(N_STEPS).fill(0.0);
 let stepMacro = new Array(N_STEPS).fill(0.5);   /* per-step voice-macro lock position */
+let editLiving = new Array(N_STEPS).fill(false); /* which steps are LIVING (self-transforming) */
+let editPeriod = new Array(N_STEPS).fill(4);     /* per-step transform period (cycles) */
+let recHeld = false;                             /* Rec button held -> pad marks a living step */
 /* step-button pulse: a local beat clock (tempo-driven) drives the per-track pulse so
  * event-tracks blink at their sequence pace. lastStepCol dedups setLED (only send on change). */
 let seqBeats = 0, lastPulseMs = 0, wasRunning = false;
@@ -333,7 +337,10 @@ function renderLEDs() {
             let color;
             if (c >= len) color = OFF_COLOR;                       /* past the last step */
             else if (running && c === step) color = SEL_COLOR;     /* playhead */
+            else if (editLiving[c]) color = LIVE_ON;               /* living step: distinct hue, pulsing */
             else color = editSteps[c] ? TRACK_COLOR : DIM_COLOR;   /* active / dim idle */
+            /* living steps pulse so you can see they're 'alive' */
+            if (editLiving[c] && !(running && c === step)) color = (phase % 18 < 9) ? LIVE_ON : LIVE_DIM;
             setLED(PAD_NOTES[c], color);
         }
     }
@@ -376,11 +383,12 @@ function drawStepParam() {
     else if (knobShow === 'vel') drawParamBig('STEP VELOCITY', '' + velMidi(stepVel[c]), 'uni', clampf(stepVel[c] / 2, 0, 1));
     else if (knobShow === 'pan') drawParamBig('STEP PAN', panLbl(stepPan[c]), 'bi', clampf(stepPan[c], -1, 1));
     else if (knobShow === 'macro') drawParamBig('STEP MACRO', '' + Math.round(stepMacro[c] * 100), 'uni', clampf(stepMacro[c], 0, 1));
+    else if (knobShow === 'period') drawParamBig('LIVE / ' + editPeriod[c] + 'cyc', '' + editPeriod[c], 'uni', clampf(editPeriod[c] / 16, 0, 1));
     else {
         clear_screen();
-        print(0, 2, 'STEP ' + (c + 1), 2);
+        print(0, 2, 'STEP ' + (c + 1) + (editLiving[c] ? ' *LIVE*' : ''), 2);
         print(0, 30, noteName(stepNote[c]) + ' v' + velMidi(stepVel[c]) + ' ' + panLbl(stepPan[c]), 2);
-        print(0, 54, 'jog pit k1vel k2pan k3macro', 1);
+        print(0, 54, editLiving[c] ? ('living / every ' + editPeriod[c] + ' cyc') : 'jog pit k1vel k2pan k3macro k4live', 1);
     }
 }
 function drawTrackParam() {
@@ -551,6 +559,8 @@ function readStatus() {
         if (s.edit.stepVel) stepVel = s.edit.stepVel;
         if (s.edit.stepPan) stepPan = s.edit.stepPan;
         if (s.edit.stepMacro) stepMacro = s.edit.stepMacro;
+        if (s.edit.living) editLiving = s.edit.living;
+        if (s.edit.period) editPeriod = s.edit.period;
     }
     var fxSig = fxView ? ('X' + fxHeld + '|' + fxTop.join('.') + '|' + fxBypass.map(function (b) { return b ? '1' : '0'; }).join('') + '|' + fxOn.map(function (a) { return a.join(','); }).join(';')) : '';
     var base = (ready ? '1' : '0') + (running ? 'R' : 's') + editTrack + '/' + editLen() + (fxView ? 'F' : '') + 'S' + solo + '|' +
@@ -585,6 +595,7 @@ globalThis.init = function () {
     voiceMacro = new Array(N_TRACKS).fill(0.5);
     trackLen = new Array(N_TRACKS).fill(N_STEPS);
     editSteps = new Array(N_STEPS).fill(0); editName = ''; editType = '';
+    editLiving = new Array(N_STEPS).fill(false); editPeriod = new Array(N_STEPS).fill(4); recHeld = false;
     stepNote = new Array(N_STEPS).fill(60); stepVel = new Array(N_STEPS).fill(1.0); stepPan = new Array(N_STEPS).fill(0.0);
     shiftHeld = false; masterTouched = false; seq = 0; cmdQueue = [];
     tempoLocal = 120; tempoDirty = false; controlDirty = false;
@@ -654,6 +665,7 @@ globalThis.tick = function () {
     wasRunning = running; lastPulseMs = _now;
     if (running && patView && patPending >= 0) ledDirty = true;   /* animate the queued-slot pulse */
     if (recView && recState !== 'idle') ledDirty = true;          /* animate the rec/armed pad */
+    if (editTrack >= 0 && !fxView) { for (var _lv = 0; _lv < N_STEPS; _lv++) if (editLiving[_lv]) { ledDirty = true; break; } }  /* pulse living steps */
     if (ledDirty) renderLEDs();
     if (running) renderStepButtons();   /* keep the pulse animating between full renders */
     if (overlay && phase >= overlayUntil) { overlay = null; screenDirty = true; }
@@ -692,7 +704,7 @@ globalThis.onMidiMessageInternal = function (data) {
         var which = null;
         if (fxView) which = (ki < N_FX) ? ((shiftHeld ? 'fw' : 'fx') + ki) : null;       /* FX macro / dry-wet N */
         else if (projView || patView) which = (ki === 0) ? 'tempo' : null;               /* pattern/project: knob1 = tempo */
-        else if (stepEditCell >= 0) which = (ki === 0) ? 'vel' : (ki === 1) ? 'pan' : (ki === 2) ? 'macro' : null;
+        else if (stepEditCell >= 0) which = (ki === 0) ? 'vel' : (ki === 1) ? 'pan' : (ki === 2) ? 'macro' : (ki === 3) ? 'period' : null;
         else if (editTrack >= 0) which = (ki === 0) ? 'vol' : (ki === 1) ? 'pan' : (ki === 2) ? 'macro' : null;
         else if (!patView && !recView) {                                                 /* tracks view */
             /* Shift + touch knob 8 = jump back to the chaos macro's SAFE ZONE */
@@ -831,10 +843,17 @@ globalThis.onMidiMessageInternal = function (data) {
         return;
     }
 
-    /* Pads (68..99): EDIT view only. Shift = set last step; else tap/hold. */
+    /* Pads (68..99): EDIT view only. Rec+pad = mark living; Shift = last step; else tap/hold. */
     if (status === 0x90 && d2 > 0 && d1 >= 68 && d1 <= 99) {
         if (editTrack < 0) return;
         const cell = NOTE_TO_CELL[d1];
+        if (recHeld) {                                           /* Rec + pad = toggle LIVING step */
+            editLiving[cell] = !editLiving[cell];               /* optimistic */
+            sendCmd('marklive', -1, { p: { track: editTrack, cell: cell } });
+            showAction(editLiving[cell] ? ('LIVE ' + (cell + 1)) : ('unLIVE ' + (cell + 1)));
+            ledDirty = true; screenDirty = true;
+            return;
+        }
         if (shiftHeld) {
             trackLen[editTrack] = cell + 1;                       /* optimistic polymeter length */
             sendCmd('setlen', cell, { p: { track: editTrack, len: cell + 1 } });
@@ -866,6 +885,8 @@ globalThis.onMidiMessageInternal = function (data) {
             return;
         }
         if (d1 === MoveShift) { shiftHeld = d2 > 0; return; }
+        /* Rec + pad (edit view) = mark/unmark that step as LIVING (self-transforming). */
+        if (d1 === MoveRec) { recHeld = d2 > 0; screenDirty = true; return; }
         /* X (Delete) + pattern pad = delete that pattern (bank closes the gap). */
         if (d1 === MoveDelete) { deleteHeld = d2 > 0; return; }
         /* Copy + pattern pad = copy; further pads paste while Copy is held. The
@@ -977,11 +998,16 @@ globalThis.onMidiMessageInternal = function (data) {
                 knobShow = 'fx' + ki; screenDirty = true;        /* giant readout, persists while touched */
                 return;
             }
-            if (stepEditCell >= 0 && ki <= 2) {                  /* step lock: k1 vel, k2 pan, k3 macro (pitch = jog) */
+            if (stepEditCell >= 0 && ki <= 3) {                  /* step lock: k1 vel, k2 pan, k3 macro, k4 LIVE period */
                 const c = stepEditCell;
                 if (ki === 0) { stepVel[c] = clampf(stepVel[c] + dn * (2 / 127), 0, 2); knobShow = 'vel'; sendCmd('steplock', c, { p: { track: editTrack, cell: c, param: 'vel', value: stepVel[c] } }); }
                 else if (ki === 1) { stepPan[c] = clampf(stepPan[c] + dn * 0.02, -1, 1); knobShow = 'pan'; sendCmd('steplock', c, { p: { track: editTrack, cell: c, param: 'pan', value: stepPan[c] } }); }
-                else { stepMacro[c] = clampf(stepMacro[c] + dn * 0.03, 0, 1); knobShow = 'macro'; sendCmd('stepmacro', c, { p: { track: editTrack, cell: c, pos: stepMacro[c] } }); }
+                else if (ki === 2) { stepMacro[c] = clampf(stepMacro[c] + dn * 0.03, 0, 1); knobShow = 'macro'; sendCmd('stepmacro', c, { p: { track: editTrack, cell: c, pos: stepMacro[c] } }); }
+                else {   /* knob 4 = LIVING period (cycles between transforms); marks the step live if it isn't */
+                    if (!editLiving[c]) { editLiving[c] = true; sendCmd('marklive', -1, { p: { track: editTrack, cell: c } }); }
+                    editPeriod[c] = clampi(editPeriod[c] + (dn > 0 ? 1 : -1), 1, 16); knobShow = 'period';
+                    sendCmd('liveperiod', -1, { p: { track: editTrack, cell: c, x: editPeriod[c] } });
+                }
                 screenDirty = true; return;
             }
             if (editTrack >= 0 && ki <= 1) {                     /* track settings: k1 volume, k2 pan (pitch = jog, rate = cursors) */

@@ -149,6 +149,8 @@ class EngineBridge:
         for arg, val in pairs:
             flat += [str(arg), float(val)]
         self.send("/ph/stepmacro", int(t), int(cell), *flat)
+    def stepratchet(self, t, cell, k):
+        self.send("/ph/stepratchet", int(t), int(cell), int(k))
     def clearlocks(self, t):           self.send("/ph/clearlocks", int(t))
     def recstart(self, path):          self.send("/ph/recstart", str(path))
     def recstop(self):                 self.send("/ph/recstop")

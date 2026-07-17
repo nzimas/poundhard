@@ -165,15 +165,29 @@ class Controller:
 
     def _push_step_macros(self, t: int) -> None:
         for cell in range(N_STEPS):
-            pairs = self.state.step_macro_pairs(t, cell)
+            pairs = self.state.step_engine_macro(t, cell)   # living transform takes precedence
             if pairs is not None:
                 self.bridge.stepmacro(t, cell, pairs)
+            r = self.state.tracks[t].step_ratchet[cell]
+            if r != 1:
+                self.bridge.stepratchet(t, cell, r)
+
+    def _push_living_cell(self, t: int, c: int) -> None:
+        """Push a single living step's freshly-rolled transform to the engine."""
+        tr = self.state.tracks[t]
+        self.bridge.steplock(t, c, tr.eff_note(c), tr.eff_vel(c), tr.eff_pan(c))
+        self.bridge.stepmacro(t, c, self.state.step_engine_macro(t, c) or [])
+        self.bridge.stepratchet(t, c, tr.step_ratchet[c])
 
     # -- patterns & projects ----------------------------------------------- #
     def _on_cycle(self) -> None:
-        """Bar boundary (from the engine): apply a queued pattern switch, if any."""
+        """Bar boundary (from the engine): re-transform any living steps whose period has
+        elapsed, then apply a queued pattern switch if one is pending."""
         with self._lock:
             st = self.state
+            for t in range(N_TRACKS):
+                for c in st.tick_living(t):     # re-rolled living cells this cycle
+                    self._push_living_cell(t, c)
             if 0 <= st.pattern_pending < N_PATTERNS and st.patterns[st.pattern_pending] is not None:
                 st.commit_current()             # preserve the outgoing pattern's live edits
                 # patterns are self-contained: restore the WHOLE machine — engines,
@@ -387,7 +401,7 @@ class Controller:
     _UNDOABLE = frozenset({
         "assign", "randtrack", "mute", "solo", "stepset", "steptoggle", "clearpat",
         "setlen", "savepat", "loadpat", "patdel", "patpaste", "genvar", "randpat",
-        "fxassign", "fxbypass", "loadproj", "loadauto",
+        "fxassign", "fxbypass", "loadproj", "loadauto", "marklive",
     })
     # Commands that change no persisted state — they don't mark the project dirty.
     _NO_STATE = frozenset({
@@ -432,6 +446,23 @@ class Controller:
             cell = int(p.get("cell", -1))
             if 0 <= t < N_TRACKS and 0 <= cell < N_STEPS:
                 self.bridge.stepmacro(t, cell, st.set_step_macro(t, cell, float(p.get("pos", 0.5))))
+        elif cmd == "marklive":                # Rec + pad: mark/unmark a step as living
+            t = int(p.get("track", st.edit_track))
+            cell = int(p.get("cell", -1))
+            if 0 <= t < N_TRACKS and 0 <= cell < N_STEPS:
+                on = st.toggle_living(t, cell)
+                if on:
+                    self._push_living_cell(t, cell)     # roll + push its first transform
+                else:                                    # reverted to a plain step
+                    self.bridge.steplock(t, cell, st.tracks[t].eff_note(cell),
+                                         st.tracks[t].eff_vel(cell), st.tracks[t].eff_pan(cell))
+                    self.bridge.stepmacro(t, cell, [])
+                    self.bridge.stepratchet(t, cell, 1)
+        elif cmd == "liveperiod":              # knob 4 while holding a living step: X cycles
+            t = int(p.get("track", st.edit_track))
+            cell = int(p.get("cell", -1))
+            if 0 <= t < N_TRACKS and 0 <= cell < N_STEPS:
+                st.set_step_period(t, cell, int(p.get("x", 4)))
         elif cmd == "mute":
             t = int(arg)
             if 0 <= t < N_TRACKS:
@@ -670,6 +701,10 @@ class Controller:
                 # effective per-step macro position (lock, or the track's macro position)
                 "stepMacro": [round(et.step_macro[c] if et.step_macro[c] is not None
                                     else st.voice_macro[st.edit_track], 3) for c in range(N_STEPS)],
+                # LIVING STEPS: which cells are marked, their period (cycles), current ratchet
+                "living": list(et.step_living),
+                "period": list(et.step_period),
+                "ratchet": list(et.step_ratchet),
             }
         # Change-detection: skip redundant writes to spare SD I/O. The UI freeze is a
         # synchronous host read-stall on the UI side that gets more likely the busier

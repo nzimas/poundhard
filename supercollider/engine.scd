@@ -47,6 +47,8 @@
 ~stepPan   = Array.fill(~nTracks, { Array.fill(~maxSteps, { nil }) });
 // per-step voice-macro lock: nil, or a flat [\sym, val, ...] arg array overriding timbre.
 ~stepMacro = Array.fill(~nTracks, { Array.fill(~maxSteps, { nil }) });
+// per-step ratchet count (1 = single hit) — living steps re-roll this over time
+~stepRatchet = Array.fill(~nTracks, { Array.fill(~maxSteps, { 1 }) });
 ~pstore    = Array.fill(~nTracks, { IdentityDictionary.new });   // param name -> value
 ~sampBuf   = Array.fill(~nTracks, { nil });
 ~sampFiles = [];
@@ -123,7 +125,7 @@
 // spawn one voice for track t. Voices free themselves on decay (Line doneAction);
 // a hard per-track polyphony cap steals the oldest so dense patterns can't pile
 // up unbounded (that's what XRun-froze the box). onFree keeps the list accurate.
-~spawn = { |t, step|
+~spawn = { |t, step, velScale = 1.0|
 	var typeIdx = ~trackType[t];
 	// typeIdx < 0 == an empty/unassigned track: it never spawns (no engine, no sound).
 	(typeIdx >= 0).if {
@@ -132,8 +134,7 @@
 			{ ~typeDefs[typeIdx.clip(0, ~typeDefs.size - 1)] });
 		// per-step lock overrides track defaults; \pan appended last so it wins over pstore.
 		var nn = ~stepNote[t][step] ? ~note[t];
-		var vv = ~stepVel[t][step] ? ~vel[t];
-		var pp = ~stepPan[t][step] ? (~pstore[t][\pan] ? 0);
+		var vv = (~stepVel[t][step] ? ~vel[t]) * velScale;    // ratchet sub-hits decay in velocity
 		// per-step macro lock (if any) overrides the voice's timbral params for this hit only.
 		var sm = ~stepMacro[t][step];
 		var args = [\out, ~trackBus[t].index, \note, nn, \vel, vv] ++ ~pstore[t].getPairs ++ (sm ? []) ++ [\pan, pp];
@@ -161,7 +162,22 @@
 		while ({ ~acc[t] >= 1.0 }) {
 			~acc[t] = ~acc[t] - 1.0;
 			~pos[t] = (~pos[t] + 1) % ~length[t].max(1);
-			((~pattern[t][~pos[t]] == 1) and: { ~mute[t] == 0 }).if { ~spawn.(t, ~pos[t]) };
+			((~pattern[t][~pos[t]] == 1) and: { ~mute[t] == 0 }).if {
+				var st = ~pos[t];
+				var k = (~stepRatchet[t][st] ? 1).asInteger.clip(1, 8);
+				~spawn.(t, st, 1.0);
+				// RATCHET: retrigger k-1 more times within this step's own duration. On the
+				// step clock 1 beat == 1 step at rate 1, so a track's step lasts 1/rate beats;
+				// space the sub-hits evenly across it and duck their velocity for a natural roll.
+				(k > 1).if {
+					var span = 1.0 / ~rate[t].max(0.0625);
+					(1..(k - 1)).do { |j|
+						~clock.sched(j * span / k, {
+							~spawn.(t, st, 1.0 - (0.12 * j)); nil
+						});
+					};
+				};
+			};
 		};
 	};
 	~globalTick = ~globalTick + 1;
@@ -290,9 +306,14 @@
 		((m.size - 3) div: 2).do { |i| pairs = pairs ++ [m[3 + (i * 2)].asSymbol, m[4 + (i * 2)].asFloat] };
 		~stepMacro[t][c] = (pairs.size > 0).if({ pairs }, { nil });   // applied at this step's next hit
 	}, '/ph/stepmacro'),
+	OSCdef(\phStepRatchet, { |m|                    // per-step ratchet count (living steps)
+		var t = m[1].asInteger.clip(0, ~nTracks - 1);
+		var c = m[2].asInteger.clip(0, ~maxSteps - 1);
+		~stepRatchet[t][c] = m[3].asInteger.clip(1, 8);
+	}, '/ph/stepratchet'),
 	OSCdef(\phClearLocks, { |m|                     // wipe all per-step locks for a track (pattern load)
 		var t = m[1].asInteger.clip(0, ~nTracks - 1);
-		~maxSteps.do { |c| ~stepNote[t][c] = nil; ~stepVel[t][c] = nil; ~stepPan[t][c] = nil; ~stepMacro[t][c] = nil };
+		~maxSteps.do { |c| ~stepNote[t][c] = nil; ~stepVel[t][c] = nil; ~stepPan[t][c] = nil; ~stepMacro[t][c] = nil; ~stepRatchet[t][c] = 1 };
 	}, '/ph/clearlocks'),
 	OSCdef(\phVel,  { |m| ~vel[m[1].asInteger.clip(0, ~nTracks - 1)] = m[2].asFloat; }, '/ph/vel'),
 	OSCdef(\phSamp, { |m| ~sampLoad.(m[1].asInteger.clip(0, ~nTracks - 1), m[2].asInteger); }, '/ph/samp'),

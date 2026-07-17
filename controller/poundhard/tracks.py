@@ -17,6 +17,17 @@ from .catalog import FX_SPECS, N_FX
 N_TRACKS = 16
 N_STEPS = 32
 N_PATTERNS = 32     # pattern slots per project (and project slots on disk)
+
+
+def _snap_scale(note: int, pcs: set) -> int:
+    """Nearest note whose pitch-class is in the scale set."""
+    if not pcs:
+        return note
+    for d in range(0, 12):
+        for cand in (note - d, note + d):
+            if cand % 12 in pcs:
+                return cand
+    return note
 DRUM_TRACKS = 6            # tracks 0..5 are DRUM; 6..15 are the other generators
 UNDO_LEVELS = 20           # depth of the global undo stack (discrete actions)
 
@@ -38,6 +49,14 @@ class Track:
     step_vel: list = field(default_factory=lambda: [None] * N_STEPS)
     step_pan: list = field(default_factory=lambda: [None] * N_STEPS)
     step_macro: list = field(default_factory=lambda: [None] * N_STEPS)  # per-step voice-macro position
+    # LIVING STEPS: user-marked steps that re-transform every `step_period` cycles (bars).
+    # step_ratchet / step_xmacro hold the CURRENT transform (re-rolled at runtime); step_cyc
+    # is a runtime bar counter (not persisted).
+    step_living: list = field(default_factory=lambda: [False] * N_STEPS)
+    step_period: list = field(default_factory=lambda: [4] * N_STEPS)     # cycles between transforms
+    step_ratchet: list = field(default_factory=lambda: [1] * N_STEPS)    # retriggers per hit
+    step_xmacro: list = field(default_factory=lambda: [None] * N_STEPS)  # transform's param overrides
+    step_cyc: list = field(default_factory=lambda: [0] * N_STEPS)        # runtime bar counter
 
     def load_voice(self, voice: dict) -> None:
         """Apply a generated kit voice (keeps pattern + mute + per-step locks)."""
@@ -70,7 +89,10 @@ class Track:
                 "pattern": list(self.pattern), "muted": self.muted,
                 "length": self.length, "rate": self.rate,
                 "step_note": list(self.step_note), "step_vel": list(self.step_vel),
-                "step_pan": list(self.step_pan), "step_macro": list(self.step_macro)}
+                "step_pan": list(self.step_pan), "step_macro": list(self.step_macro),
+                "step_living": list(self.step_living), "step_period": list(self.step_period),
+                "step_ratchet": list(self.step_ratchet),
+                "step_xmacro": [list(x) if x else None for x in self.step_xmacro]}
 
     @classmethod
     def from_dict(cls, d: dict) -> "Track":
@@ -80,9 +102,13 @@ class Track:
                 length=int(d.get("length", N_STEPS)), rate=float(d.get("rate", 1.0)))
         pat = list(d.get("pattern", []))[:N_STEPS]
         t.pattern = (pat + [0] * N_STEPS)[:N_STEPS]
-        for attr in ("step_note", "step_vel", "step_pan", "step_macro"):
+        for attr in ("step_note", "step_vel", "step_pan", "step_macro", "step_xmacro"):
             vals = list(d.get(attr, []))[:N_STEPS]
             setattr(t, attr, (vals + [None] * N_STEPS)[:N_STEPS])
+        t.step_living = ([bool(x) for x in d.get("step_living", [])][:N_STEPS] + [False] * N_STEPS)[:N_STEPS]
+        t.step_period = ([int(x) for x in d.get("step_period", [])][:N_STEPS] + [4] * N_STEPS)[:N_STEPS]
+        t.step_ratchet = ([int(x) for x in d.get("step_ratchet", [])][:N_STEPS] + [1] * N_STEPS)[:N_STEPS]
+        t.step_cyc = [0] * N_STEPS
         return t
 
 
@@ -416,6 +442,78 @@ class Project:
         """(engine_arg, value) pairs for a cell's stored macro lock, or None if unlocked."""
         pos = self.tracks[track].step_macro[cell]
         return None if pos is None else self._macro_pairs_at(track, pos)
+
+    # -- living steps (self-transforming) ---------------------------------- #
+    def step_engine_macro(self, track: int, cell: int):
+        """Flat [(arg, val)] to push for a cell: a living step's transform override takes
+        precedence over the user's manual macro-position lock."""
+        xm = self.tracks[track].step_xmacro[cell]
+        if xm is not None:
+            return list(xm)
+        return self.step_macro_pairs(track, cell)
+
+    def toggle_living(self, track: int, cell: int) -> bool:
+        """Mark / unmark a step as living. Marking rolls its first transform immediately;
+        unmarking reverts the cell to a plain step."""
+        tr = self.tracks[track]
+        tr.step_living[cell] = not tr.step_living[cell]
+        if tr.step_living[cell]:
+            tr.step_cyc[cell] = 0
+            self.reroll_living(track, cell)
+        else:                                   # back to a plain, untransformed step
+            tr.step_ratchet[cell] = 1
+            tr.step_xmacro[cell] = None
+            tr.step_note[cell] = None
+            tr.step_vel[cell] = None
+            tr.step_pan[cell] = None
+        return tr.step_living[cell]
+
+    def set_step_period(self, track: int, cell: int, period: int) -> int:
+        self.tracks[track].step_period[cell] = max(1, min(16, int(period)))
+        return self.tracks[track].step_period[cell]
+
+    def reroll_living(self, track: int, cell: int) -> None:
+        """Roll a fresh transformation for a living step: ratchets, a random subset of the
+        voice's timbral params (envelope / grit / 'fx' params included), and pitch / vel /
+        pan jitter. For PLAITS and RINGS the model-selecting param is an ENUM, which
+        macro_specs already excludes — so the model stays fixed and only its voice moves."""
+        rng = random
+        tr = self.tracks[track]
+        specs = catalog.macro_specs(tr.type)          # excludes enums (model) + amp/pan
+        pairs = []
+        if specs:
+            k = rng.randint(1, min(4, len(specs)))
+            for (_pid, arg, lo, hi) in rng.sample(specs, k):
+                pairs.append((arg, round(rng.uniform(lo, hi), 5)))
+        tr.step_xmacro[cell] = pairs or None
+        # ratchets — weighted toward the subtle end so it adds movement, not chaos
+        tr.step_ratchet[cell] = rng.choice([1, 1, 1, 2, 2, 3, 4])
+        # pitch jitter, snapped into the scale (or occasionally back to the track note)
+        if tr.type not in ("EMPTY", "DRUM") and rng.random() < 0.55:
+            pcs = {(kits._ROOT + s) % 12 for s in kits._SCALE}
+            cand = tr.note + rng.choice([-12, -7, -5, -3, 0, 0, 2, 3, 5, 7, 12])
+            tr.step_note[cell] = max(24, min(96, _snap_scale(cand, pcs)))
+        elif rng.random() < 0.35:
+            tr.step_note[cell] = None
+        # velocity / pan movement
+        if rng.random() < 0.6:
+            tr.step_vel[cell] = round(max(0.2, min(1.3, tr.vel * rng.uniform(0.55, 1.25))), 3)
+        if rng.random() < 0.4:
+            tr.step_pan[cell] = round(rng.uniform(-0.85, 0.85), 3)
+
+    def tick_living(self, track: int) -> list[int]:
+        """Advance one cycle for a track's living steps; return the cells that re-rolled
+        (so the controller can push just those)."""
+        tr = self.tracks[track]
+        fired = []
+        for c in range(N_STEPS):
+            if tr.step_living[c]:
+                tr.step_cyc[c] += 1
+                if tr.step_cyc[c] >= max(1, tr.step_period[c]):
+                    tr.step_cyc[c] = 0
+                    self.reroll_living(track, c)
+                    fired.append(c)
+        return fired
 
     # -- kit --------------------------------------------------------------- #
     def apply_kit(self, kit: dict) -> None:
