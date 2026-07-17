@@ -252,7 +252,7 @@ patterns and projects.
 | **Pad — tap** (empty) | **select** that slot as the destination for what you do next |
 | **X (Delete) + pad** | **delete** that pattern — the bank **closes the gap** (see below) |
 | **Copy + pad** | **copy** that pattern; **further pads paste it** while Copy is held |
-| **Shift + Track 3** | **generate variations** of the current pattern (see below) |
+| **Shift + Track 3** | **generate a variation** of the current pattern (see below) |
 | **Shift + hold volume knob + Track 3** | **fully randomise** this pattern in place (see below) |
 
 **Delete closes the gap.** Deleting a pattern shifts every pattern to its right one
@@ -277,9 +277,8 @@ pattern lands before making it. Nothing loads and nothing sounds different: the 
 state keeps playing and now belongs to that slot, and the pattern you came from keeps
 its own edits. It's immediate even while running (there's nothing to queue).
 
-Patterns are **entirely self-contained** — loading one restores the whole machine
-(see [Patterns & projects](#patterns--projects)). **Tempo is the one exception**: it
-stays global, so it never jumps under you mid-performance.
+Patterns are **entirely self-contained** — loading one restores the whole machine,
+**tempo included** (see [Patterns & projects](#patterns--projects)).
 
 ### Project view
 
@@ -289,9 +288,9 @@ which persist to disk.
 | Control | Action |
 |---|---|
 | **Shift + pad** | save the whole project to that slot |
-| **Pad — tap** | load that project (restores everything, tempo included) |
+| **Pad — tap** | load that project (restores every pattern and the live state) |
 | **Shift + Menu** | restore the **autosave** recovery file (see below) |
-| **Knob 1** | master tempo |
+| **Knob 1** | tempo of the selected pattern |
 
 | Control | Action |
 |---|---|
@@ -361,9 +360,10 @@ machine at that instant, and loading one restores all of it:
 - the **FX** state — chains per track, bypass, the macros and the dry/wet mixes
 - **mutes**, sequences, lengths, clock rates and every per-step lock
 
-**Tempo is the single exception**: it stays a global performance control (knob 1) and
-is never recalled by a pattern switch — otherwise nudging the BPM live and changing
-section would snap it back under you. A **project** load *does* restore its tempo.
+**Tempo is per pattern too.** Each pattern carries its own BPM, so switching pattern
+switches tempo with it and sections can run at different speeds. Set the selected
+pattern's tempo with **knob 1** (in the tracks, pattern or project view); the giant
+readout shows the whole time the knob is touched.
 
 A **project** is a collection of up to 32 patterns plus the current state, written to
 `/data/UserData/poundhard/projects/proj_NN.json`.
@@ -423,9 +423,8 @@ it fits a 52% budget** — leaving ~45% headroom for peaks. Measured across 10 g
 patterns on the device: **worst sustained 47%, worst peak 50%**.
 - **Tempo is the algorithm's call**, judged against what it just built: a busy,
   texture-heavy pattern lands slower so it stays legible; a sparse one can run fast.
-  It spans roughly 85–175 BPM (with the occasional outlier for character) and **sets
-  the global tempo**. This is the one thing that generates a tempo — switching between
-  existing patterns still never moves it.
+  It spans roughly 85–175 BPM (with the occasional outlier for character), and becomes
+  **that pattern's own tempo**.
 
 The generated tracks are laid out **contiguously from track 1 and grouped by engine**
 (in palette order — DRUM · FMTONE · BUCHLOID · MOLLY · RINGS · BEN · NOIZEOP · ICARUS,
@@ -464,20 +463,29 @@ a project is a chunky JSON and SD churn is what makes the Move's UI stall.
 **Shift + Menu** in the project view restores it. The project view shows whether a
 recovery file exists.
 
-### Generate variations
+### Generate a variation
 
-In the pattern view, **Shift + Track 3** generates **up to 8 new patterns** derived
-from the pattern you're on — structurally and musically related, but distinct enough
-to read as different **parts of the same piece**. They land in the next empty slots,
-ready to load or queue like any pattern.
+In the pattern view, **Shift + Track 3** generates **one** new pattern derived from the
+**reference pattern** (the one currently selected), into the next empty slot — related
+enough to read as another **part of the same piece**, distinct enough to be its own.
+
+Because it returns a *single* pattern, it can't lean on "one of eight will land".
+Instead it builds a **pool of 14 candidates** and keeps only the **best-scoring** one.
+The score is what a good variation actually is: **distinct** (a groove distance near
+0.38 — barely-changed and unrecognisable are both punished), **arranged** (its parts
+interlock with the anchor rather than doubling it), **sane** (density in range, no
+voice silenced), and **affordable** (candidates over the CPU budget are rejected
+outright, never returned). It also rewards a variation for saying something new — a
+moved melody, or an introduced instrument. Measured over 300 seeds, scoring lifts the
+result from a mean of 28.9 to 55.9 versus a single unscored draw.
 
 It **analyses before it generates**
 ([`controller/poundhard/variations.py`](controller/poundhard/variations.py)): which
 tracks play and how densely, each track's onsets and role (the kick becomes the
 **anchor** and is held nearly fixed), and the piece's **pitch material** gathered
-across every saved pattern — so new melodic material stays in key. Then it applies
-bounded, musical transforms that **ramp from subtle (variation 1) to bold
-(variation 8)**:
+across every saved pattern — so new melodic material stays in key. Each candidate then
+gets its own intensity and its own choice of additions, so the pool genuinely varies
+before the best is picked:
 
 - **Rhythm** — Euclidean re-interpretation at similar density, rotation/displacement,
   thinning, off-beat thickening (syncopation), end-of-phrase fills; the anchor barely
@@ -493,9 +501,9 @@ bounded, musical transforms that **ramp from subtle (variation 1) to bold
   sound itself** — your seed pattern is never touched, and the instrument appears only
   in the sections that use it.
 
-Each variation carries the seed's sounds **verbatim** and transforms only its groove —
-that's the family resemblance. Generating is **non-destructive**: the pattern you're on
-is left exactly as it was.
+The variation carries the seed's sounds **verbatim** and transforms only its groove —
+that's the family resemblance — and inherits the reference pattern's tempo. Generating
+is **non-destructive**: the pattern you're on is left exactly as it was.
 
 ---
 

@@ -468,7 +468,9 @@ function drawScreen() {
     if (typeof clear_screen !== 'function' || typeof print !== 'function') return;
     if (recView) { drawRec(); return; }
     /* giant TEMPO readout while knob 1 is touched (tracks view + project view) */
-    if (knobShow === 'tempo' && !fxView && !patView && !recView && editTrack < 0 && stepEditCell < 0) { drawTempoBig(); return; }
+    /* Giant TEMPO readout while knob 1 is touched — tracks, PATTERN and project views.
+     * Tempo is per-pattern, so in the pattern view this is the selected pattern's BPM. */
+    if (knobShow === 'tempo' && !fxView && !recView && editTrack < 0 && stepEditCell < 0) { drawTempoBig(); return; }
     if (knobShow === 'chaos' && !fxView && !patView && !projView && !recView && editTrack < 0) { drawChaosBig(); return; }
     if (patView || projView) { drawSlots(); return; }
     if (fxView) { drawFx(); return; }
@@ -686,7 +688,7 @@ globalThis.onMidiMessageInternal = function (data) {
         var touched = (status === 0x90 && d2 >= 64);
         var which = null;
         if (fxView) which = (ki < N_FX) ? ((shiftHeld ? 'fw' : 'fx') + ki) : null;       /* FX macro / dry-wet N */
-        else if (projView) which = (ki === 0) ? 'tempo' : null;                          /* project settings */
+        else if (projView || patView) which = (ki === 0) ? 'tempo' : null;               /* pattern/project: knob1 = tempo */
         else if (stepEditCell >= 0) which = (ki === 0) ? 'vel' : (ki === 1) ? 'pan' : (ki === 2) ? 'macro' : null;
         else if (editTrack >= 0) which = (ki === 0) ? 'vol' : (ki === 1) ? 'pan' : (ki === 2) ? 'macro' : null;
         else if (!patView && !recView) {                                                 /* tracks view */
@@ -914,7 +916,7 @@ globalThis.onMidiMessageInternal = function (data) {
                 return;
             }
             if (shiftHeld && patView) {                   /* pattern view: Shift+Track3 = generate variations */
-                sendCmd('genvar', -1); showAction('GEN VARIATIONS');
+                sendCmd('genvar', -1); showAction('GEN VARIATION');
                 ledDirty = true; screenDirty = true;
                 return;
             }
@@ -999,7 +1001,9 @@ globalThis.onMidiMessageInternal = function (data) {
                 knobShow = 'chaos'; screenDirty = true;
                 return;
             }
-            if (ki === 0 && !patView && !recView) {              /* knob 1 = master tempo (tracks + project views) */
+            /* Knob 1 = TEMPO. Tempo is per-pattern, so this sets the tempo of the
+             * currently selected pattern (tracks / pattern / project views). */
+            if (ki === 0 && !recView) {
                 tempoLocal = clampi(Math.round(tempo) + dn, 20, 300);
                 tempo = tempoLocal; tempoDirty = true; controlDirty = true;
                 knobShow = 'tempo'; screenDirty = true;          /* giant readout, persists while touched */

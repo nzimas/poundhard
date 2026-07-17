@@ -175,9 +175,9 @@ class Controller:
             st = self.state
             if 0 <= st.pattern_pending < N_PATTERNS and st.patterns[st.pattern_pending] is not None:
                 st.commit_current()             # preserve the outgoing pattern's live edits
-                # patterns are self-contained: restore the WHOLE machine (engines, params,
-                # FX, mutes, sequences). Tempo alone stays global.
-                st.apply_full(st.patterns[st.pattern_pending], with_tempo=False)
+                # patterns are self-contained: restore the WHOLE machine — engines,
+                # params, FX, mutes, sequences AND the pattern's own tempo.
+                st.apply_full(st.patterns[st.pattern_pending])
                 st.pattern_cur = st.pattern_pending
                 self._push_all()
             st.pattern_pending = -1
@@ -546,7 +546,7 @@ class Controller:
                         st.pattern_pending = slot   # applied at the next bar boundary (/ph/cycle)
                     else:
                         st.commit_current()     # preserve the outgoing pattern's live edits
-                        st.apply_full(st.patterns[slot], with_tempo=False)
+                        st.apply_full(st.patterns[slot])
                         st.pattern_cur = slot
                         self._push_all()
                 else:
@@ -579,13 +579,12 @@ class Controller:
                   f"@ {st.tempo:.0f} BPM: {names}", flush=True)
         elif cmd == "loadauto":                # Shift+Menu in project view: restore the autosave
             self._load_autosave()
-        elif cmd == "genvar":                  # Shift+Track3 in pattern view: generate variations
+        elif cmd == "genvar":                  # Shift+Track3 in pattern view: ONE variation
             from . import variations
-            added, slots = variations.generate(st, count=8)
+            added, slots = variations.generate(st, count=1)
             if slots:
-                print(f"[poundhard] generated {len(slots)} variations into slots "
-                      f"{[s + 1 for s in slots]}" + (f", added tracks {[t + 1 for t in added]}" if added else ""),
-                      flush=True)
+                print(f"[poundhard] variation of pattern {st.pattern_cur + 1} -> slot {slots[0] + 1}"
+                      + (f", added track {[t + 1 for t in added]}" if added else ""), flush=True)
         elif cmd == "saveproj":                # write the 32 pattern slots + kit to disk
             slot = int(arg)
             if 0 <= slot < N_PATTERNS:

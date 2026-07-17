@@ -665,10 +665,123 @@ def random_pattern(project, rng: random.Random | None = None) -> list[str]:
     return names
 
 
-def generate(project, count: int = 8, rng: random.Random | None = None) -> tuple[list[int], list[int]]:
-    """Generate up to `count` variation patterns into empty slots. May add 0–2
-    complementary instruments to the shared kit. Returns (added_track_indices,
-    filled_slot_indices)."""
+# --------------------------------------------------------------------------- #
+# SCORING — picking the ONE variation to keep.
+#
+# Shift+Track3 returns a single variation, so it can't lean on "one of eight will
+# land". Instead we generate a pool of candidates and keep the best-scoring one.
+# The score encodes what a good variation actually is: clearly a different part of
+# the piece, unmistakably the same piece, musically arranged, and affordable.
+# --------------------------------------------------------------------------- #
+_DISTINCT_TARGET = 0.38        # ~this fraction of the groove changed reads as "a new part"
+_CANDIDATES = 14
+
+
+def _groove_distance(base: dict, cand: dict) -> float:
+    """Fraction of in-length steps whose on/off state differs. Only tracks that carry
+    material in EITHER version count — the ~11 idle tracks of a 5-voice pattern are
+    identical by definition and would otherwise swamp the measurement."""
+    diff = tot = 0
+    for bt, ct in zip(base["tracks"], cand["tracks"]):
+        b_on = bt.get("type", "EMPTY") != "EMPTY"
+        c_on = ct.get("type", "EMPTY") != "EMPTY"
+        if not (b_on or c_on):
+            continue
+        L = max(1, int((ct if c_on else bt).get("length", N_STEPS)))
+        bp, cp = bt.get("pattern", []), ct.get("pattern", [])
+        for i in range(L):
+            tot += 1
+            if (bp[i] if i < len(bp) else 0) != (cp[i] if i < len(cp) else 0):
+                diff += 1
+    return (diff / tot) if tot else 0.0
+
+
+def _melody_moved(base: dict, cand: dict) -> bool:
+    for bt, ct in zip(base["tracks"], cand["tracks"]):
+        if bt.get("step_note") != ct.get("step_note"):
+            return True
+    return False
+
+
+def _kick_row_of(snap: dict, anchor: int) -> tuple[list[int], int]:
+    if anchor < 0:
+        return ([], 0)
+    td = snap["tracks"][anchor]
+    L = max(1, int(td.get("length", N_STEPS)))
+    return (list(td.get("pattern", [])), L)
+
+
+def _score(base: dict, cand: dict, analysis: dict) -> float:
+    """Higher is better. Rejects (-inf) are hard musical/CPU failures."""
+    anchor = analysis["anchor"]
+    active = analysis["active"]
+
+    # --- hard rejects ---
+    cost = 0.0
+    for td in cand["tracks"]:
+        t = td.get("type", "EMPTY")
+        if t == "EMPTY":
+            continue
+        L = max(1, int(td.get("length", N_STEPS)))
+        cost += _voice_cost(t, len(_onsets(td.get("pattern", []), L)), L)
+    for stack in cand.get("track_fx", []):
+        for k in stack:
+            cost += _FX_COST[k]
+    if cost > _CPU_BUDGET:
+        return float("-inf")                   # would risk XRuns — never return this
+    for i in active:                           # a voice that went silent isn't a variation
+        td = cand["tracks"][i]
+        if not any(td.get("pattern", [])[:max(1, int(td.get("length", N_STEPS)))]):
+            return float("-inf")
+
+    s = 0.0
+    # --- distinctness: recognisably a different part, not a different piece ---
+    d = _groove_distance(base, cand)
+    s += 40.0 * max(0.0, 1.0 - abs(d - _DISTINCT_TARGET) / _DISTINCT_TARGET)
+    if d < 0.10:
+        s -= 60.0                              # barely changed — pointless
+    if d > 0.70:
+        s -= 40.0                              # unrecognisable — not the same piece
+
+    # --- arrangement: do the parts interlock with the anchor rather than double it? ---
+    kick, KL = _kick_row_of(cand, anchor)
+    if kick:
+        on_kick = tot = 0
+        for i, td in enumerate(cand["tracks"]):
+            if i == anchor or td.get("type", "EMPTY") == "EMPTY":
+                continue
+            L = max(1, int(td.get("length", N_STEPS)))
+            if L != KL:
+                continue
+            for j in _onsets(td.get("pattern", []), L):
+                tot += 1
+                if j < len(kick) and kick[j]:
+                    on_kick += 1
+        if tot:
+            s += 20.0 * (1.0 - (on_kick / tot))   # fewer collisions = better groove
+
+    # --- density: musical, and it keeps the CPU honest ---
+    onsets = sum(len(_onsets(td.get("pattern", []), max(1, int(td.get("length", N_STEPS)))))
+                 for td in cand["tracks"] if td.get("type", "EMPTY") != "EMPTY")
+    if onsets > _MAX_ONSETS:
+        s -= 25.0
+    if onsets < 6:
+        s -= 25.0                              # too empty to be a part of anything
+
+    # --- reward it for actually saying something new ---
+    if _melody_moved(base, cand):
+        s += 8.0
+    new_voices = sum(1 for bt, ct in zip(base["tracks"], cand["tracks"])
+                     if bt.get("type") == "EMPTY" and ct.get("type", "EMPTY") != "EMPTY")
+    s += 10.0 * min(1, new_voices)             # introduced a complementary instrument
+    s += 6.0 * (1.0 - cost / _CPU_BUDGET)      # gentle nudge toward the cheaper option
+    return s
+
+
+def generate(project, count: int = 1, rng: random.Random | None = None) -> tuple[list[int], list[int]]:
+    """Generate ONE variation of the reference (currently selected) pattern into the next
+    empty slot — the best of an internally-scored pool of candidates. Returns
+    (added_track_indices, filled_slot_indices)."""
     rng = rng or random.Random()
     st = project
     st.commit_current()
@@ -680,7 +793,7 @@ def generate(project, count: int = 8, rng: random.Random | None = None) -> tuple
         return ([], [])                        # nothing to vary
 
     empty_slots = [s for s in range(N_PATTERNS) if st.patterns[s] is None]
-    # make sure the seed pattern lives in a slot (so the set is a coherent group)
+    # make sure the reference pattern lives in a slot (so the pair is a coherent group)
     if st.pattern_cur < 0:
         if not empty_slots:
             return ([], [])
@@ -692,10 +805,23 @@ def generate(project, count: int = 8, rng: random.Random | None = None) -> tuple
         return ([], [])
 
     analysis = analyze(base, st.patterns)
-    added = _decide_additions(analysis, rng)   # pure — the seed pattern is left alone
 
     slots = empty_slots[:count]
-    for v, slot in enumerate(slots):
-        intensity = 0.25 + 0.65 * (v / max(1, count - 1))
-        st.patterns[slot] = _make_variation(base, analysis, added, intensity, rng)
-    return ([t for t, _v in added], slots)
+    out_added: list[int] = []
+    for slot in slots:
+        best, best_s, best_added = None, float("-inf"), []
+        for _ in range(_CANDIDATES):
+            # each candidate gets its own additions + intensity, so the pool really varies
+            added = _decide_additions(analysis, rng)
+            intensity = rng.uniform(0.30, 0.85)
+            cand = _make_variation(base, analysis, added, intensity, rng)
+            sc = _score(base, cand, analysis)
+            if sc > best_s:
+                best, best_s, best_added = cand, sc, added
+        if best is None:                       # every candidate was rejected — try once, safely
+            best = _make_variation(base, analysis, [], 0.45, rng)
+            best_added = []
+        st.patterns[slot] = best
+        out_added += [t for t, _v in best_added
+                      if best["tracks"][t].get("type", "EMPTY") != "EMPTY"]
+    return (out_added, slots)

@@ -163,16 +163,12 @@ class Project:
             "voice_dir": [dict(d) for d in self.voice_dir],
         }
 
-    def apply_full(self, snap: dict, with_tempo: bool = True) -> None:
-        """Restore the ENTIRE machine state — every engine's params, the engine-to-track
-        assignment, FX (chains, bypass, macros, dry/wet), mutes, sequences and per-step
-        locks. Patterns are self-contained units, so a pattern load restores all of it.
-
-        `with_tempo=False` for a pattern switch: BPM is a global performance control
-        (knob 1) and must never jump under the player. A PROJECT load does take its
-        tempo."""
-        if with_tempo:
-            self.tempo = float(snap.get("tempo", self.tempo))
+    def apply_full(self, snap: dict) -> None:
+        """Restore the ENTIRE machine state — **tempo**, every engine's params, the
+        engine-to-track assignment, FX (chains, bypass, macros, dry/wet), mutes,
+        sequences and per-step locks. Patterns are self-contained units and **tempo is
+        per pattern**, so switching pattern switches BPM with it."""
+        self.tempo = float(snap.get("tempo", self.tempo))
         self.chaos_invalidate()               # new sounds -> the old safe zone is void
         self.kit_name = snap.get("kit_name", self.kit_name)
         self.tracks = [Track.from_dict(td) for td in snap.get("tracks", [])][:N_TRACKS]
