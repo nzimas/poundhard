@@ -266,6 +266,47 @@
 			Out.ar(out, ~killbad.(~spread.(s, pan)));   // Pan2 mono -> stereo; robust, live-settable pan
 		}).add;
 
+	// ----- PLAITS: the real MiPlaits UGen (v7b1/mi-UGens) -------------------
+	// Mutable Instruments Plaits — a 16-model macro-oscillator. Not a reconstruction:
+	// this is the actual ported DSP, the same plugin family as MiRings above.
+	//   MiPlaits.ar(pitch, engine, harm, timbre, morph, trigger, level,
+	//               fm_mod, timb_mod, morph_mod, decay, lpg_colour, mul)
+	// `pitch` is a MIDI note. `engine` selects the model (0-15) and completely changes
+	// what harm/timbre/morph mean — hence the per-model targeting table in kits.py.
+	// Triggering fires Plaits' own internal envelope + LPG (`decay`, `lpg_colour`),
+	// which is exactly the per-hit behaviour PoundHard's voice model wants.
+	SynthDef(\phPlaits, { |out = 16, note = 48, vel = 1,
+		model = 0, harm = 0.5, timbre = 0.5, morph = 0.5,
+		decay = 0.5, lpgColour = 0.5, aux = 0.0, amp = 0.5, pan = 0|
+		var v = vel.clip(0, 2).max(0.03);
+		// Plaits' internal decay is 0..1 -> roughly 0.1..4s depending on the model; give the
+		// voice a lifetime that outlasts it so nothing is cut off, then self-free.
+		var life = 0.3 + (decay.clip(0, 1) * 4.5);
+		var trig = Impulse.ar(0);                     // one strike at spawn
+		var sig = MiPlaits.ar(
+			pitch: note.clip(0, 127),
+			engine: model.round.clip(0, 15),
+			harm: harm.clip(0, 1), timbre: timbre.clip(0, 1), morph: morph.clip(0, 1),
+			trigger: trig,
+			level: v.clip(0, 1),                      // LEVEL cv: velocity/accent into the VCA
+			decay: decay.clip(0, 1), lpg_colour: lpgColour.clip(0, 1));
+		// MiPlaits returns [OUT, AUX] — two DIFFERENT signals per model, NOT a stereo pair
+		// (same trap as MiRings' odd/even taps). Blend them, then Pan2 like every other
+		// voice. AUX is a genuine second voice of each model, so it's worth a knob.
+		var mono = XFade2.ar(sig[0], sig[1], (aux.clip(0, 1) * 2) - 1);
+		// PER-MODEL OUTPUT TRIM. Measured on-device (record each model, peak-analyse the
+		// WAV): Plaits' models differ enormously in level — `string` peaked at 0.059 while
+		// `chord`/`noise` hit 0.95, a ~16x spread. Without this the generator's per-category
+		// mix decisions would be meaningless: a string voice would vanish under a chord.
+		// Normalised toward a ~0.7 peak; the string boost is capped so a hot roll can't clip.
+		var trim = Select.kr(model.round.clip(0, 15), [
+			0.76, 0.99, 0.82, 1.54, 0.97, 1.01, 0.74, 1.77,
+			0.78, 0.74, 1.25, 6.00, 1.29, 2.70, 1.44, 1.71]);
+		var s = LeakDC.ar(mono) * trim * amp;
+		Line.kr(0, 1, life, doneAction: 2);
+		Out.ar(out, ~killbad.(~spread.(s, pan)));
+	}).add;
+
 	// ================= BEN — Benjolin (Rob Hordijk) chaotic generative voice ==========
 	// Ported to follow the Benjolis SC engine's signal flow
 	// (github.com/scazan/benjolis, after Alberto de Campo), adapted to PoundHard's

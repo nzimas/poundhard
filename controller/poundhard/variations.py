@@ -373,7 +373,10 @@ _MAX_ONSETS = 56                           # musical restraint: total onsets acr
 # 120bpm), as %CPU above a 4.9% idle baseline. These are why generated patterns
 # could XRun: ten expensive tracks is >130% CPU before a single effect.
 _ENGINE_COST = {"DRUM": 5.3, "FMTONE": 5.5, "BUCHLOID": 6.0, "RINGS": 9.6,
-                "BEN": 9.7, "MOLLY": 11.7, "NOIZEOP": 12.0, "ICARUS": 13.2}
+                "BEN": 9.7, "MOLLY": 11.7, "NOIZEOP": 12.0, "ICARUS": 13.2,
+                # PLAITS measured 5.1% mean / 6.9% worst across its models (it's one
+                # well-optimised macro-oscillator) — the conservative figure is used.
+                "PLAITS": 6.9}
 # Measured per FX INSTANCE (they're per-track inserts, not sends!). Reverb costs as
 # much as a whole ICARUS voice, so a pattern gets at most one.
 _FX_COST = [2.5, 1.7, 0.8, 1.0, 1.1, 4.5, 2.0, 10.0]   # OD AMP CRSH RING FLNG GRN DLY VRB
@@ -413,6 +416,8 @@ def _role_pool() -> dict:
     pool = {r.name: r for r in kits.ROLES}
     pool["ICARUS"] = kits.PALETTE_ROLES["ICARUS"]     # pad engine that isn't in ROLES
     _CAT["ICARUS"] = "pad"
+    pool.update(kits.PLAITS_ROLES)                    # one targeted role per Plaits model
+    _CAT.update(kits.PLAITS_CAT)
     return pool
 
 
@@ -421,6 +426,8 @@ def _role_pool() -> dict:
 # The step buttons are coloured by engine, so grouping this way makes the generated rig
 # read as contiguous colour blocks instead of a scatter.
 _ROLE_ORDER = {r.name: i for i, r in enumerate(kits.ROLES)}
+# Plaits' models order themselves by model index inside the PLAITS block
+_ROLE_ORDER.update({s[1]: 100 + s[0] for s in kits._PLAITS_SPEC})
 
 
 def _layout_key(name: str, pool: dict) -> tuple[int, int]:
@@ -450,18 +457,18 @@ def _part_for(name: str, cat: str, L: int, dens: float, rng) -> list[int]:
             pat[i] = v
     if cat == "kick":
         put(_euclid(_scale_k([3, 4, 4, 5, 6], dens, L, rng), L))   # euclid lands a hit on 0
-    elif name in ("SNARE", "CLAP"):
+    elif name in ("SNARE", "CLAP", "PL SD"):
         if rng.random() < 0.6:                            # backbeat
             for i in range(L):
                 if i % 8 == 4:
                     pat[i] = 1
         else:
             put(_rotate(_euclid(_scale_k([2, 3], dens, L, rng), L), L, rng.choice([2, 4])))
-    elif name == "CL HAT":
+    elif name in ("CL HAT", "PL HH"):
         put(_euclid(_scale_k([6, 8, 10, 12], dens, L, rng), L))
     elif name == "OP HAT":
         put(_rotate(_euclid(_scale_k([2, 3, 4], dens, L, rng), L), L, rng.choice([1, 2, 3])))
-    elif name == "PERC":
+    elif cat == "perc":                                   # PERC and any other percussion
         put(_rotate(_euclid(_scale_k([3, 5, 7], dens, L, rng), L), L, rng.randrange(L)))
     elif cat == "bass":
         put(_euclid(_scale_k([3, 4, 5, 6], dens, L, rng), L))
@@ -496,17 +503,31 @@ def _interlock(pat: list[int], L: int, kick: list[int], rng, avoid: float) -> li
     return out
 
 
+# Plaits contributes 16 roles to buckets that hold ~5 each, so an unweighted pick would
+# make it ~45% of every kit and drown the other eight engines. Weight its roles down so
+# it reads as one versatile peer (~20-25% of voices), not the house sound.
+_PLAITS_ROLE_W = 0.3
+
+
+def _weighted_role(opts: list[str], rng) -> str:
+    w = [_PLAITS_ROLE_W if o.startswith("PL ") else 1.0 for o in opts]
+    return rng.choices(opts, weights=w)[0]
+
+
 def _pick_ensemble(arch: dict, rng) -> list[str]:
     """Roles that fit the archetype: always a kick, then its wanted categories."""
     n = min(_MAX_TRACKS, rng.randint(*arch["n"]))
+    # Plaits' models sit in these buckets by the job each one actually does, so the
+    # randomiser reaches for (say) its speech model when it wants a texture — not at random.
     buckets = {
-        "perc": ["SNARE", "CL HAT", "OP HAT", "CLAP", "PERC"],
-        "bass": ["BASS"],
-        "tonal": ["RING M", "RING P", "ORNMNT", "M LEAD"],
-        "texture": ["NOIZOP", "NOISE", "BEN"],
-        "pad": ["M PAD", "DRONE", "ICARUS"],
+        "perc": ["SNARE", "CL HAT", "OP HAT", "CLAP", "PERC", "PL SD", "PL HH"],
+        "bass": ["BASS", "PL VA", "PL FM"],
+        "tonal": ["RING M", "RING P", "ORNMNT", "M LEAD",
+                  "PL MODL", "PL STRG", "PL WSHP", "PL WTBL"],
+        "texture": ["NOIZOP", "NOISE", "BEN", "PL SPCH", "PL PART", "PL NOIS", "PL FORM"],
+        "pad": ["M PAD", "DRONE", "ICARUS", "PL CHRD", "PL HARM", "PL CLOUD"],
     }
-    chosen = ["KICK"]
+    chosen = ["KICK" if rng.random() < 0.8 else "PL BD"]     # either kick engine
     # take the archetype's wants in a shuffled order so the same shape isn't always filled
     wants: list[str] = []
     for cat, cnt in arch["want"].items():
@@ -517,7 +538,7 @@ def _pick_ensemble(arch: dict, rng) -> list[str]:
             break
         opts = [r for r in buckets[cat] if r not in chosen]
         if opts:
-            chosen.append(rng.choice(opts))
+            chosen.append(_weighted_role(opts, rng))
     return chosen[:n]
 
 

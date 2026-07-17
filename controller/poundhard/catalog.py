@@ -98,7 +98,7 @@ class VoiceSpec:
 # Engine `/ph/track` type indices (must match ~typeDefs in engine.scd).
 # EMPTY = -1: an unassigned track (no engine, never spawns). Assignable engines 0..7.
 TYPE_INDEX = {"EMPTY": -1, "DRUM": 0, "FMTONE": 1, "BUCHLOID": 2, "MOLLY": 3,
-              "RINGS": 4, "BEN": 5, "NOIZEOP": 6, "ICARUS": 7}
+              "RINGS": 4, "BEN": 5, "NOIZEOP": 6, "ICARUS": 7, "PLAITS": 8}
 
 _COMMON_TAIL = lambda pfx, ampd=0.8, ampmus=(0.5, 1.1): [
     P(f"{pfx}.amp", "Amp", unit="dB", rmin=0.0, rmax=2.0, default=ampd, curve=Curve.DB,
@@ -473,8 +473,38 @@ ICARUS = VoiceSpec(
     ],
 )
 
+# --------------------------------------------------------------------------- #
+# PLAITS — Mutable Instruments Plaits, the REAL MiPlaits UGen (v7b1/mi-UGens),
+# same plugin family as MiRings. A 16-model macro-oscillator: the `model` switch
+# completely redefines what harm/timbre/morph do, which is why generation goes
+# through the per-model targeting table in kits.py (PLAITS_MODELS) rather than
+# randomising the three knobs blindly.
+# --------------------------------------------------------------------------- #
+PLAITS = VoiceSpec(
+    type="PLAITS",
+    role="Mutable Instruments Plaits (MiPlaits) — 16-model macro-oscillator, from drums to speech.",
+    synthdef="phPlaits",
+    params=[
+        P("plaits.model", "Model", curve=Curve.ENUM,
+          enum=["va", "waveshp", "fm", "formant", "harmonic", "wavetbl", "chord",
+                "speech", "cloud", "noise", "particle", "string", "modal",
+                "bassdrum", "snare", "hihat"],
+          default=0, randomize=RandomizePolicy.WIDE),
+        # harm/timbre/morph are Plaits' three macro knobs — their meaning is per-model
+        P("plaits.harm", "Harmonics", default=0.5, musical=(0.05, 0.95)),
+        P("plaits.timbre", "Timbre", default=0.5, musical=(0.05, 0.95)),
+        P("plaits.morph", "Morph", default=0.5, musical=(0.05, 0.95)),
+        # Plaits' own internal envelope + low-pass gate, fired by the per-step trigger
+        P("plaits.decay", "Decay", default=0.4, musical=(0.05, 0.9)),
+        P("plaits.lpgColour", "LPG Colour", default=0.5, musical=(0.0, 1.0)),
+        # OUT vs AUX: two different signals per model, not a stereo pair
+        P("plaits.aux", "Aux Blend", default=0.0, musical=(0.0, 1.0)),
+        *_COMMON_TAIL("plaits", ampd=0.7, ampmus=(0.45, 0.9)),
+    ],
+)
+
 VOICES: dict[str, VoiceSpec] = {v.type: v for v in
-                                (DRUM, FMTONE, BUCHLOID, MOLLY, RINGS, BEN, NOIZEOP, ICARUS)}
+                                (DRUM, FMTONE, BUCHLOID, MOLLY, RINGS, BEN, NOIZEOP, ICARUS, PLAITS)}
 
 
 def macro_specs(voice_type: str) -> list[tuple[str, str, float, float]]:

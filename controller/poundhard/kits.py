@@ -209,7 +209,8 @@ def gen_kit(seed: int | None = None) -> dict:
 # its engine (wider note choices; drums roll every mode) while still pinning the
 # essentials that keep a voice idiomatic.
 # --------------------------------------------------------------------------- #
-PALETTE_ENGINES = ["DRUM", "FMTONE", "BUCHLOID", "MOLLY", "RINGS", "BEN", "NOIZEOP", "ICARUS"]
+PALETTE_ENGINES = ["DRUM", "FMTONE", "BUCHLOID", "MOLLY", "RINGS", "BEN", "NOIZEOP",
+                   "ICARUS", "PLAITS"]
 
 # a canonical note per drum mode, so an auditioned/assigned drum sits in register
 # (mode order matches catalog DRUM enum: kick snare hihat metal clap tom noise)
@@ -240,9 +241,98 @@ PALETTE_ROLES: dict[str, Role] = {
 }
 
 
+# --------------------------------------------------------------------------- #
+# PLAITS — per-model targeting.
+#
+# Plaits' `model` doesn't just change the timbre, it redefines what its three macro
+# knobs DO. `harm` is oscillator detune in the VA model, chord type in the chord
+# model, grain density in the cloud, and punch in the bass drum. Randomising the
+# three knobs blindly would waste 16 engines; so every model gets its own role: the
+# job it does in a PoundHard kit, the register it wants, and bands that suit what
+# those knobs actually control in THAT model.
+#
+# Fields: (model, name, category, note, harm, timbre, morph, decay)
+# `note` is either an int (drums: fixed register) or (choices, octave) for pitched.
+# --------------------------------------------------------------------------- #
+_TONAL = (tuple(_SCALE), 12)
+_LOW = ((0, 3, 5, 7), 0)
+
+_PLAITS_SPEC = [
+    # --- pitched / bass -----------------------------------------------------
+    # VA: harm=detune between the two waveforms, timbre=pulse width, morph=waveform.
+    (0, "PL VA", "bass", _LOW, (0.0, 0.35), (0.2, 0.8), (0.0, 1.0), (0.15, 0.45)),
+    # Waveshaping: harm=waveshaper index, timbre=fold amount, morph=asymmetry. Nasty.
+    (1, "PL WSHP", "tonal", _TONAL, (0.3, 0.9), (0.3, 0.95), (0.2, 0.9), (0.10, 0.40)),
+    # 2-op FM: harm=ratio, timbre=modulation index, morph=feedback (kept moderate —
+    # full feedback is noise, and we have NOIZEOP/BEN for that).
+    (2, "PL FM", "bass", _LOW, (0.1, 0.8), (0.2, 0.85), (0.0, 0.5), (0.10, 0.45)),
+    # Granular formant: vocal-ish buzz. harm=formant ratio, timbre=formant freq.
+    (3, "PL FORM", "texture", _TONAL, (0.2, 0.9), (0.2, 0.9), (0.1, 0.9), (0.10, 0.40)),
+    # Harmonic (additive): harm=number of spectral bumps, timbre=peak position. Organ-like.
+    (4, "PL HARM", "pad", ((0, 7), 0), (0.2, 0.9), (0.1, 0.8), (0.0, 0.8), (0.50, 0.90)),
+    # Wavetable: harm=bank, timbre=x, morph=y. Digital and evolving.
+    (5, "PL WTBL", "tonal", _TONAL, (0.0, 1.0), (0.0, 1.0), (0.0, 1.0), (0.20, 0.60)),
+    # Chord: harm=chord type, timbre=inversion, morph=waveform. The pad engine.
+    (6, "PL CHRD", "pad", ((0, 5, 7), 0), (0.0, 1.0), (0.1, 0.8), (0.0, 1.0), (0.50, 0.90)),
+    # Speech: harm=bank, timbre=formant shift, morph=phoneme. Unmistakably IDM.
+    (7, "PL SPCH", "texture", _TONAL, (0.0, 1.0), (0.1, 0.9), (0.0, 1.0), (0.15, 0.50)),
+    # Granular cloud: harm=density, timbre=grain duration, morph=pitch randomisation.
+    (8, "PL CLOUD", "pad", ((0, 7), 0), (0.2, 0.9), (0.2, 0.9), (0.1, 0.8), (0.40, 0.90)),
+    # Filtered noise: timbre=filter freq, morph=resonance. Pitched by the filter.
+    (9, "PL NOIS", "texture", ((0, 5, 7), 12), (0.1, 0.9), (0.2, 0.9), (0.3, 0.95), (0.10, 0.50)),
+    # Particle noise: dust/glitch. harm=density, timbre=freq, morph=Q. Rhythmic noise.
+    (10, "PL PART", "texture", _TONAL, (0.2, 0.9), (0.2, 0.9), (0.3, 0.95), (0.10, 0.40)),
+    # Inharmonic string: harm=inharmonicity (low keeps it a musical pluck),
+    # timbre=excitation brightness, morph=decay.
+    (11, "PL STRG", "tonal", ((0, 3, 5, 7, 10), 0), (0.05, 0.6), (0.2, 0.8), (0.3, 0.8), (0.30, 0.70)),
+    # Modal resonator: mallets and bells — Plaits' answer to RINGS.
+    (12, "PL MODL", "tonal", _TONAL, (0.05, 0.7), (0.2, 0.85), (0.3, 0.85), (0.30, 0.70)),
+    # --- drums: pitched in their own register, short LPG ---------------------
+    # Analog bass drum: harm=punch/attack, timbre=tone, morph=decay.
+    (13, "PL BD", "kick", 36, (0.2, 0.8), (0.2, 0.7), (0.2, 0.6), (0.10, 0.35)),
+    # Analog snare: harm=tone/noise balance, timbre=tone, morph=snap.
+    (14, "PL SD", "perc", 52, (0.2, 0.8), (0.2, 0.8), (0.2, 0.6), (0.10, 0.35)),
+    # Analog hi-hat: morph kept short so it stays a hat, not a cymbal wash.
+    (15, "PL HH", "perc", 76, (0.2, 0.8), (0.3, 0.9), (0.1, 0.4), (0.05, 0.25)),
+]
+
+
+def _plaits_role(spec) -> Role:
+    model, name, _cat, note, harm, timbre, morph, decay = spec
+    kw = {}
+    if isinstance(note, int):
+        kw["note"] = note
+    else:
+        kw["note_choices"], kw["octave"] = note[0], note[1]
+    return Role(name, "PLAITS",
+                fixed={"plaits.model": float(model)},
+                bands={"plaits.harm": harm, "plaits.timbre": timbre,
+                       "plaits.morph": morph, "plaits.decay": decay,
+                       "plaits.lpgColour": (0.15, 0.85), "plaits.aux": (0.0, 0.5)},
+                vel=(0.8, 1.05), **kw)
+
+
+PLAITS_ROLES: dict[str, Role] = {s[1]: _plaits_role(s) for s in _PLAITS_SPEC}
+PLAITS_CAT: dict[str, str] = {s[1]: s[2] for s in _PLAITS_SPEC}
+# so PLAITS is a generatable engine everywhere (palette pad, per-track re-roll); the
+# model is chosen per generation in gen_palette_voice, not pinned here.
+PALETTE_ROLES["PLAITS"] = PLAITS_ROLES["PL VA"]
+# The palette pad leans toward the models that most define PoundHard's territory
+# (speech, particles, waveshaping, modal, chords) without ever excluding the rest.
+_PLAITS_WEIGHTS = {"PL SPCH": 3, "PL PART": 3, "PL WSHP": 3, "PL MODL": 3, "PL CHRD": 2,
+                   "PL NOIS": 2, "PL STRG": 2, "PL WTBL": 2, "PL FORM": 2, "PL CLOUD": 2,
+                   "PL VA": 2, "PL FM": 2, "PL HARM": 2, "PL BD": 1, "PL SD": 1, "PL HH": 1}
+
+
 def gen_palette_voice(engine: str, rng: random.Random | None = None) -> dict:
     """Generate one fresh sound for an engine's palette pad (audition / assign)."""
     rng = rng or random.Random()
+    if engine == "PLAITS":
+        # pick a MODEL first, then generate through that model's own targeted role —
+        # the three macro knobs mean something different in each.
+        names = list(_PLAITS_WEIGHTS)
+        name = rng.choices(names, weights=[_PLAITS_WEIGHTS[n] for n in names])[0]
+        return gen_voice(PLAITS_ROLES[name], rng)
     voice = gen_voice(PALETTE_ROLES[engine], rng)
     if engine == "DRUM":                       # put the drum in register for its mode
         mode = int(round(voice["params"].get("drum.mode", 0)))

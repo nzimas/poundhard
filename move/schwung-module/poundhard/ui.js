@@ -81,11 +81,14 @@ const TYPE_COL = {
     BEN:      [2, 67],    /* OrangeRed / Brick — the Benjolin chaos machine */
     NOIZEOP:  [23, 109],  /* NeonPink / DeepMagenta — deeg's NoizeOp glitch-noise */
     ICARUS:   [18, 105],  /* BlueViolet / MutedViolet — schollz's Icarus drone/pad */
+    PLAITS:   [31, 84],   /* Lime / DarkOlive — Mutable Plaits, the 16-model macro-osc */
 };
-/* Engine palette: the 8 assignable engines, one per top-row pad (cells 0..7).
- * Same order & colours as TYPE_COL. Short-press = audition, Shift+pad = regenerate,
- * hold pad + tap a track (step button) = assign that engine's current sound. */
-const ENGINE_TYPES = ['DRUM', 'FMTONE', 'BUCHLOID', 'MOLLY', 'RINGS', 'BEN', 'NOIZEOP', 'ICARUS'];
+/* Engine palette: the 9 assignable engines. The first 8 fill the top row (cells 0..7);
+ * PLAITS wraps onto the first pad of the second row (cell 8) — the lone lit pad under
+ * the leftmost, easy to find by feel. Same order & colours as TYPE_COL.
+ * Short-press = audition, Shift+pad = regenerate, hold pad + tap a track = assign. */
+const ENGINE_TYPES = ['DRUM', 'FMTONE', 'BUCHLOID', 'MOLLY', 'RINGS', 'BEN', 'NOIZEOP',
+    'ICARUS', 'PLAITS'];
 const N_ENGINES = ENGINE_TYPES.length;
 
 /* ---- runtime state (mirrors status.json) ---- */

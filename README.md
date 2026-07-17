@@ -61,8 +61,8 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   build your rig by assigning engines from the **engine palette** (see below). Any
   engine can go on any track, and the assignment is **per pattern** — two patterns can
   carry completely different rigs.
-- **8 assignable engines**, one per **top-row pad** in the default view, each in
-  its own colour:
+- **9 assignable engines** on the palette pads (the top row, plus PLAITS wrapping onto
+  the first pad of the second row), each in its own colour:
 
   | Pad | Engine | Colour | Character |
   |--------|--------|--------|-----------|
@@ -74,6 +74,7 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   | 6 | **BEN** | 🟠 orange | Benjolin — chaotic generative machine |
   | 7 | **NOIZEOP** | 🩷 pink | 4-sine / 6-algorithm glitch-noise machine |
   | 8 | **ICARUS** | 🟪 violet | dreamcrusher drone / pad (VarSaw + FB delay) |
+  | 9 | **PLAITS** | 🟩 lime | Mutable Plaits — 16-model macro-oscillator |
 
 - **Engine palette** (top row of pads, default view): **short-press** a pad to
   audition its current sound; **Shift + pad** to regenerate it; **hold a pad and
@@ -146,7 +147,33 @@ All voices are **spawned per hit and self-free** (see [voice model](#voice-model
   is set by attack/decay/release (long values give sustained pads), and the voice
   self-frees. Needs **MoogLadder** (BhobUGens, from sc3-plugins).
 
-> RINGS needs the **mi-UGens** plugins; the reverb FX and **ICARUS** (`MoogLadder`),
+- **PLAITS** — **Mutable Instruments Plaits**, the real **`MiPlaits`** UGen from
+  [v7b1/mi-UGens](https://github.com/v7b1/mi-UGens) — the actual ported DSP, same plugin
+  family as RINGS, not a reconstruction. A **16-model macro-oscillator** spanning the
+  whole instrument: virtual-analog, waveshaping, 2-op FM, granular formant, additive,
+  wavetable, chords, **speech**, granular cloud, filtered noise, particle noise,
+  inharmonic string, modal resonator, and analog **bass drum / snare / hi-hat**.
+
+  The per-step trigger fires Plaits' own envelope and low-pass gate (`decay`,
+  `lpgColour`), which is exactly PoundHard's per-hit voice model. Its two outputs are
+  **OUT and AUX** — two *different* signals per model, not a stereo pair (the same trap
+  that broke RINGS' panning) — so they're blended by an `aux` knob and then panned.
+
+  **Each model is targeted, not randomised.** `model` doesn't merely change the timbre,
+  it redefines what the three macro knobs *do*: `harm` is oscillator detune in the VA
+  model, chord type in the chord model, grain density in the cloud, and punch in the
+  bass drum. So every model has its own role in
+  [`kits.py`](controller/poundhard/kits.py) — the job it does in a kit, the register it
+  wants, and bands that suit what those knobs actually control in *that* model. The
+  generator reaches for the speech model when it wants a texture and the modal model
+  when it wants a mallet; it never rolls the three knobs blind.
+
+  **Levels are normalised per model.** Measured by recording each one: Plaits' models
+  differ by ~**16×** in level (`string` peaked at 0.059, `chord`/`noise` at 0.95), so
+  the synthdef applies a per-model output trim (now all ≈0.7 peak). Without it a string
+  voice would simply vanish under a chord and the mix logic would be meaningless.
+
+> RINGS and **PLAITS** need the **mi-UGens** plugins; the reverb FX and **ICARUS** (`MoogLadder`),
 > **BEN** (`PulseDPW`/`SVF`/`DFM1`) need **sc3-plugins** present in the SuperCollider
 > bundle on the device. There are **no silent fallbacks** — a missing dependency fails
 > loudly at build.
