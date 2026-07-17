@@ -135,6 +135,7 @@
 		// per-step lock overrides track defaults; \pan appended last so it wins over pstore.
 		var nn = ~stepNote[t][step] ? ~note[t];
 		var vv = (~stepVel[t][step] ? ~vel[t]) * velScale;    // ratchet sub-hits decay in velocity
+		var pp = ~stepPan[t][step] ? (~pstore[t][\pan] ? 0);
 		// per-step macro lock (if any) overrides the voice's timbral params for this hit only.
 		var sm = ~stepMacro[t][step];
 		var args = [\out, ~trackBus[t].index, \note, nn, \vel, vv] ++ ~pstore[t].getPairs ++ (sm ? []) ++ [\pan, pp];
