@@ -582,6 +582,12 @@ class Project:
         plays NORMAL until its period elapses, then FIRES one fresh transform for that one
         cycle, then reverts the next cycle. Returns the cells that changed this cycle."""
         tr = self.tracks[track]
+        # /ph/cycle fires every 16 GLOBAL steps (one bar). The marked step plays once per
+        # track LOOP, which is `length/rate` global steps = length/(16*rate) bars. So to fire
+        # every `period` PLAYS of the step (what the user counts), the bar-period is scaled by
+        # the loop length. length 16 @ rate 1 -> 1 bar/loop (period == plays); the default
+        # length 32 -> 2 bars/loop, which is why period 4 used to fire every 2 plays.
+        bars_per_loop = max(1, round(tr.length / (16.0 * max(tr.rate, 0.0625))))
         changed = []
         for c in range(N_STEPS):
             if not tr.step_living[c]:
@@ -591,7 +597,8 @@ class Project:
                 tr.step_active[c] = False
                 changed.append(c)
             tr.step_cyc[c] += 1
-            if tr.step_cyc[c] >= max(1, tr.step_period[c]):
+            eff = max(1, int(tr.step_period[c]) * bars_per_loop)   # period counted in step PLAYS
+            if tr.step_cyc[c] >= eff:
                 tr.step_cyc[c] = 0
                 self.reroll_living(track, c)
                 tr.step_active[c] = True
