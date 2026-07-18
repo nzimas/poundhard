@@ -44,6 +44,7 @@ buttons, encoders and screen. It runs on the same on-device stack as the
 - [Sounds & the engine palette](#sounds--the-engine-palette)
 - [Patterns & projects](#patterns--projects)
 - [The chaos macro](#the-chaos-macro-knob-8)
+- [Living steps & the HEAT button](#living-steps--the-heat-button)
 - [Autosave](#autosave)
 - [Recording & the web UI](#recording--the-web-ui)
 - [Deploy to the Move](#deploy-to-the-move)
@@ -84,6 +85,10 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   (**polymeter** — tracks phase against each other).
 - **Per-step locks** on pitch, velocity, pan, and a **voice macro** — each step
   can carry its own tone.
+- **Living steps** — mark steps (or hit **HEAT** for the whole rig) and they
+  **transform themselves** as you play: ratchets, timbre lurches, pitch leaps, pan
+  throws and per-step delay/reverb. A live-performance engine (see
+  [Living steps & the HEAT button](#living-steps--the-heat-button)).
 - **Re-roll a track's sound** in place with **Shift + Track 1** while it's open —
   a fresh sound within its assigned engine. Patterns, mutes and locks survive.
 - **Patterns are self-contained** — engines, every parameter, FX, mutes and sequences.
@@ -213,6 +218,8 @@ in its engine colour.
 | **Menu button** | open the [Project view](#project-view) |
 | **Shift + Track 1** | re-roll the **open** track's sound (within its engine) |
 | **Shift + hold volume knob + Track 3** | **fully randomise** the current pattern (4–10 tracks) |
+| **Bottom-row first pad** | **HEAT** — mass-mark [living steps](#living-steps--the-heat-button) across the whole rig (toggle) |
+| **Hold HEAT pad + Knob 1** | set the HEAT amount (% of hits marked) |
 | **Play** (lit green while running) | start / stop the sequencer |
 | **Knob 1** | master tempo (BPM) |
 | **Knob 8** | **chaos macro** — sweeps every param of every assigned engine (see below) |
@@ -239,6 +246,8 @@ place.
 |---|---|
 | **Pad — tap** | toggle that step (in-length pads dim, active bright) |
 | **Pad — hold (active step)** | **per-step lock** — jog = pitch, knob 1 = velocity, knob 2 = pan, knob 3 = macro |
+| **Rec + pad** | mark / unmark that step as a **[living step](#living-steps--the-heat-button)** (self-transforming; pulses pink) |
+| **Knob 4** (on a step) | **living period** — cycles between transforms (also marks the step living) |
 | **Shift + pad** | set that pad as the **last step** (polymeter); pads past it go dark |
 | **Jog wheel** | track pitch (re-pitches ringing voices live) |
 | **Knob 1 / 2** | track volume / pan |
@@ -479,6 +488,52 @@ blowing up levels or collapsing the stereo image. Loading a pattern, assigning a
 or randomising re-takes the safe zone, since the old baseline no longer means anything.
 The readout stays on screen the whole time the knob is **touched**.
 
+### Living steps & the HEAT button
+
+A **living step** plays normally most of the time, then — every so often — **transforms
+itself**: a fresh, randomly-rolled mutation of that one hit, held for a single repeat and
+then reverted, so the groove keeps re-inventing its own accents. It's built for live
+performance: mark a few steps and the pattern stays recognisable but never quite repeats.
+
+**Mark a step** in the [edit view](#edit-view-per-track) with **Rec + pad** (living steps
+pulse **pink**). Each carries its own **period** — how many of *its own plays* pass between
+transforms — set with **knob 4** on that step (marking it live if it isn't). The period is
+counted in **step plays, not bars**: a step on a 2-bar loop still transforms every *N* times
+you actually hear it, so the count holds no matter the track's length or clock rate.
+
+When a living step fires, one or more **flavours** are stacked and driven hard for something
+you can actually hear — never a timid nudge:
+
+- **character / filter** — the engine's own defining params slammed toward their rails
+  (Plaits `morph`/`harmonics`, Rings `structure`/`position`, MOLLY's fold/crush/drive, a
+  filter sweep). Tonal engines get a genuine timbre lurch, not a whisper.
+- **pitch** — octave/fifth leaps, snapped back into the scale (skipped on drums, which spend
+  that flavour on more character instead)
+- **ratchet** — an occasional 2–4× retrigger with a velocity taper
+- **pan** — a hard stereo throw
+- **delay / reverb** — the hit is routed through a dedicated **per-step send bus**
+  (`phLivingFx`: a feedback `DelayC` + `FreeVerb2`), with randomised time / feedback / room.
+  Because it's a private bus keyed to that one step, the tail lands **only** on the marked
+  hit — no bleed onto the rest of the track.
+
+The engine fires `/ph/cycle` each bar; the controller [analyses the pattern and rolls the
+next transform](controller/poundhard/tracks.py) (`reroll_living` / `tick_living`), holding it
+armed for a **full loop** so the marked step is guaranteed to sound while the mutation is live.
+
+**HEAT** — the **first pad of the bottom row** in the tracks view — is the whole thing as a
+one-touch live macro. A **short press toggles it**: when on, **~50 % of every sequenced
+track's hits** become living steps at once, each with a period spread over **2–6** (with
+variety inside each track) and **staggered phases** so they don't all mutate on the same bar
+— the performance gradually comes to a boil rather than lurching. **Hold the HEAT pad and
+turn knob 1** to set the amount (giant `HEAT %` readout); raising it re-heats live at the new
+density. **Toggling off removes every marker and resets**, so the next press rolls a fresh
+configuration. The pad glows a **fire pulse** while engaged, and the tracks-view screen shows
+`HEAT %`.
+
+> HEAT owns all living state while engaged: toggling it clears the marks entirely (including
+> any placed by hand) — that's what makes turning it **off** reliable, and matches its role as
+> a global "raise the temperature" switch.
+
 ### Autosave
 
 The controller **autosaves the whole project** (all 32 patterns plus the live state) to
@@ -648,7 +703,8 @@ A `cmds` queue de-duped by `seq` (a single-slot mailbox lost commands when the U
 wrote twice between polls). Commands include: `audition` / `palettegen` / `assign`
 (engine palette), `randtrack`, `mute`, `solo`, `editenter` / `editexit`, `stepset`,
 `steplock`, `stepmacro`, `setlen`, `trackset`, `voicemacro`,
-`fxassign` / `fxbypass` / `fxmacro` / `fxwet`, `run`, `note`, `savepat` / `loadpat`,
+`fxassign` / `fxbypass` / `fxmacro` / `fxwet`, `marklive` / `liveperiod` (living steps),
+`heat` / `heatpct` (the HEAT macro), `run`, `note`, `savepat` / `loadpat`,
 `patdel` / `patcopy` / `patpaste` / `patclipclear`, `undo`, `chaos` / `chaosreset`
 (knob-8 macro), `genvar` (generate
 variations), `randpat` (randomise this pattern), `saveproj` / `loadproj`, `loadauto`
@@ -660,18 +716,22 @@ change.
 Carries `ready / engine / cpu / nodes / running / tempo / step / editTrack / kit`,
 per-track `muted / active / note / vel / pan / amp / rate / length`, the engine
 `types` / role `names`, the FX view state (`fxTop / fxBypass / fxOn / fxMacro /
-fxNames`), the open track's `edit` block (`steps`, per-step `stepNote / stepVel /
-stepPan / stepMacro`, defaults), and the pattern/project state (`patFilled /
-patCur / patPending / projFilled`).
+fxWet / fxNames`), the open track's `edit` block (`steps`, per-step `stepNote / stepVel /
+stepPan / stepMacro`, plus `living / period` for living steps, and defaults), the
+pattern/project state (`patFilled / patCur / patPending / projFilled`), the `autoSave`
+flag, and the HEAT macro state (`heat / heatPct`).
 
 ### OSC (controller → engine, sclang langPort 57120)
 
 `/ph/tempo` · `/ph/run` · `/ph/steps` · `/ph/track t typeIdx` (**-1=empty** 0=DRUM
-1=FMTONE 2=BUCHLOID 3=MOLLY 4=RINGS 5=BEN 6=NOIZEOP 7=ICARUS) · `/ph/param t "name" val` ·
+1=FMTONE 2=BUCHLOID 3=MOLLY 4=RINGS 5=BEN 6=NOIZEOP 7=ICARUS 8=PLAITS) ·
+`/ph/param t "name" val` ·
 `/ph/preview typeIdx note vel mode [name val …]` (audition one voice → master) ·
 `/ph/pattern` · `/ph/stepset` · `/ph/steplock` · `/ph/stepmacro` · `/ph/clearlocks` ·
+`/ph/stepratchet t cell k` · `/ph/stepsend t cell on` · `/ph/livingfx dTime dFb dMix vMix vRoom vDamp`
+(living-step ratchet / per-step FX-send routing / send-bus params) ·
 `/ph/mute` · `/ph/note` · `/ph/vel` · `/ph/length` · `/ph/rate` · `/ph/edittrack` ·
-`/ph/fxassign` · `/ph/fxbypass` · `/ph/fxset` · `/ph/recstart "path"` ·
+`/ph/fxassign` · `/ph/fxbypass` · `/ph/fxset` · `/ph/fxclear` · `/ph/recstart "path"` ·
 `/ph/recstop` · `/ph/mastergain` · `/ph/masterfilter` · `/ph/panic` · `/ph/ping`.
 
 ### Telemetry (engine → controller, port 57140)
