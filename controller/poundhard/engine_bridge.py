@@ -151,6 +151,11 @@ class EngineBridge:
         self.send("/ph/stepmacro", int(t), int(cell), *flat)
     def stepratchet(self, t, cell, k):
         self.send("/ph/stepratchet", int(t), int(cell), int(k))
+    def stepsend(self, t, cell, on):
+        self.send("/ph/stepsend", int(t), int(cell), 1 if on else 0)
+    def livingfx(self, dtime, dfb, dmix, vmix, vroom, vdamp):
+        self.send("/ph/livingfx", float(dtime), float(dfb), float(dmix),
+                  float(vmix), float(vroom), float(vdamp))
     def clearlocks(self, t):           self.send("/ph/clearlocks", int(t))
     def recstart(self, path):          self.send("/ph/recstart", str(path))
     def recstop(self):                 self.send("/ph/recstop")

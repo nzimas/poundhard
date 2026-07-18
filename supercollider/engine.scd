@@ -49,6 +49,8 @@
 ~stepMacro = Array.fill(~nTracks, { Array.fill(~maxSteps, { nil }) });
 // per-step ratchet count (1 = single hit) — living steps re-roll this over time
 ~stepRatchet = Array.fill(~nTracks, { Array.fill(~maxSteps, { 1 }) });
+// per-step send flag (1 = route this hit through the living-FX delay/reverb bus)
+~stepSend = Array.fill(~nTracks, { Array.fill(~maxSteps, { 0 }) });
 ~pstore    = Array.fill(~nTracks, { IdentityDictionary.new });   // param name -> value
 ~sampBuf   = Array.fill(~nTracks, { nil });
 ~sampFiles = [];
@@ -66,6 +68,7 @@
 ~scaffold = {
 	~masterBus = Bus.audio(s, 2);
 	~trackBus  = Array.fill(~nTracks, { Bus.audio(s, 2) });   // one private stereo bus per track
+	~livingBus = Bus.audio(s, 2);   // LIVING-STEP send: a fired living hit routes here (delay+reverb)
 	~silentBuf = Buffer.alloc(s, 1024, 1);   // default (silent) buffer for empty samplers
 	// order: clear -> voices -> fx -> send -> master
 	~gClear  = Group.head(s);
@@ -75,10 +78,13 @@
 	~gMaster = Group.after(~gSend);
 	// clears (private buses aren't auto-zeroed; voices Out.ar ADD onto them)
 	Synth(\phClear, [\bus, ~masterBus.index], ~gClear);
+	Synth(\phClear, [\bus, ~livingBus.index], ~gClear);
 	~nTracks.do { |t| Synth(\phClear, [\bus, ~trackBus[t].index], ~gClear) };
 	// per-track FX subgroup (keeps each track's chain in canonical order) + send to master
 	~fxGroup = Array.fill(~nTracks, { Group.tail(~gFx) });
 	~nTracks.do { |t| Synth.tail(~gSend, \phSend, [\in, ~trackBus[t].index, \out, ~masterBus.index]) };
+	// living-step FX send: reads ~livingBus (fired hits), delay -> reverb, sums into master.
+	~livingFxSynth = Synth.tail(~gSend, \phLivingFx, [\in, ~livingBus.index, \out, ~masterBus.index]);
 	~masterSynth = Synth(\phMaster, [\in, ~masterBus.index, \out, 0, \gain, 1.0], ~gMaster);
 	~recGroup = Group.after(~gMaster);   // performance recorder taps bus 0 AFTER the master
 };
@@ -146,7 +152,10 @@
 		merged = ~pstore[t].copy;
 		sm.notNil.if { sm.pairsDo { |k, val| merged[k] = val } };
 		merged[\pan] = pp;                                // step pan lock, deduped
-		args = [\out, ~trackBus[t].index, \note, nn, \vel, vv] ++ merged.getPairs;
+		// a LIVING step whose transform requested a send routes THIS hit to the living-FX
+		// bus (delay/reverb) instead of the track bus — so only the fired hit is affected.
+		merged[\out] = ((~stepSend[t][step] ? 0) > 0).if({ ~livingBus.index }, { ~trackBus[t].index });
+		args = [\note, nn, \vel, vv] ++ merged.getPairs;
 		(def == \phSampler).if {
 			args = args ++ [\buf, ~sampBuf[t].notNil.if({ ~sampBuf[t].bufnum }, { ~silentBuf.bufnum })];
 		};
@@ -319,9 +328,20 @@
 		var c = m[2].asInteger.clip(0, ~maxSteps - 1);
 		~stepRatchet[t][c] = m[3].asInteger.clip(1, 8);
 	}, '/ph/stepratchet'),
+	OSCdef(\phStepSend, { |m|                       // per-step living-FX send flag (0/1)
+		var t = m[1].asInteger.clip(0, ~nTracks - 1);
+		var c = m[2].asInteger.clip(0, ~maxSteps - 1);
+		~stepSend[t][c] = m[3].asInteger.clip(0, 1);
+	}, '/ph/stepsend'),
+	OSCdef(\phLivingFx, { |m|                       // set the living-FX bus params (per fire)
+		~livingFxSynth.notNil.if {
+			~livingFxSynth.set(\dTime, m[1].asFloat, \dFb, m[2].asFloat, \dMix, m[3].asFloat,
+				\vMix, m[4].asFloat, \vRoom, m[5].asFloat, \vDamp, m[6].asFloat);
+		};
+	}, '/ph/livingfx'),
 	OSCdef(\phClearLocks, { |m|                     // wipe all per-step locks for a track (pattern load)
 		var t = m[1].asInteger.clip(0, ~nTracks - 1);
-		~maxSteps.do { |c| ~stepNote[t][c] = nil; ~stepVel[t][c] = nil; ~stepPan[t][c] = nil; ~stepMacro[t][c] = nil; ~stepRatchet[t][c] = 1 };
+		~maxSteps.do { |c| ~stepNote[t][c] = nil; ~stepVel[t][c] = nil; ~stepPan[t][c] = nil; ~stepMacro[t][c] = nil; ~stepRatchet[t][c] = 1; ~stepSend[t][c] = 0 };
 	}, '/ph/clearlocks'),
 	OSCdef(\phVel,  { |m| ~vel[m[1].asInteger.clip(0, ~nTracks - 1)] = m[2].asFloat; }, '/ph/vel'),
 	OSCdef(\phSamp, { |m| ~sampLoad.(m[1].asInteger.clip(0, ~nTracks - 1), m[2].asInteger); }, '/ph/samp'),

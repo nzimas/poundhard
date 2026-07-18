@@ -171,6 +171,8 @@ class Controller:
             r = self.state.tracks[t].step_ratchet[cell]
             if r != 1:
                 self.bridge.stepratchet(t, cell, r)
+            if self.state.tracks[t].step_send[cell]:
+                self.bridge.stepsend(t, cell, True)
 
     def _push_living_cell(self, t: int, c: int) -> None:
         """Push a single living step's freshly-rolled transform to the engine."""
@@ -178,6 +180,7 @@ class Controller:
         self.bridge.steplock(t, c, tr.eff_note(c), tr.eff_vel(c), tr.eff_pan(c))
         self.bridge.stepmacro(t, c, self.state.step_engine_macro(t, c) or [])
         self.bridge.stepratchet(t, c, tr.step_ratchet[c])
+        self.bridge.stepsend(t, c, tr.step_send[c])
 
     # -- patterns & projects ----------------------------------------------- #
     def _on_cycle(self) -> None:
@@ -186,8 +189,11 @@ class Controller:
         with self._lock:
             st = self.state
             for t in range(N_TRACKS):
-                for c in st.tick_living(t):     # fired or reverted living cells this cycle
+                changed, living_fx = st.tick_living(t)   # fired/reverted cells + send params
+                for c in changed:
                     self._push_living_cell(t, c)
+                if living_fx is not None:
+                    self.bridge.livingfx(*living_fx)     # set delay/reverb params for this fire
             if 0 <= st.pattern_pending < N_PATTERNS and st.patterns[st.pattern_pending] is not None:
                 st.commit_current()             # preserve the outgoing pattern's live edits
                 # patterns are self-contained: restore the WHOLE machine — engines,

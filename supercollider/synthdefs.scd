@@ -488,6 +488,24 @@
 	// per-track send: track bus -> master bus (summed)
 	SynthDef(\phSend, { |in = 16, out = 16| Out.ar(out, In.ar(in, 2)) }).add;
 
+	// LIVING-STEP FX send: a fired living step routes its hit here. Stereo feedback delay
+	// into FreeVerb2 (both core UGens — no plugin dependency), summed into master. Only the
+	// fired hit is routed here, so it never bleeds onto other steps. Params are set live per
+	// fire (dMix/vMix pick delay-heavy vs reverb-heavy). Dry passes through so the hit stays
+	// present; the delay echoes + reverb tail ring out on the shared bus.
+	SynthDef(\phLivingFx, { |in = 16, out = 16,
+		dTime = 0.25, dFb = 0.35, dMix = 0.4, vMix = 0.35, vRoom = 0.72, vDamp = 0.4|
+		var dry = In.ar(in, 2);
+		var fb = LocalIn.ar(2);
+		var d = DelayC.ar(dry + (fb * dFb.clip(0, 0.85)), 1.0, dTime.clip(0.02, 0.9));
+		var delayed = LeakDC.ar(d);
+		var wet, verb, sig;
+		LocalOut.ar(delayed);
+		wet = dry + (delayed * dMix.clip(0, 1));                 // dry + delay echoes
+		verb = FreeVerb2.ar(wet[0], wet[1], vMix.clip(0, 1), vRoom.clip(0, 1), vDamp.clip(0, 1));
+		Out.ar(out, ~killbad.(verb));
+	}).add;
+
 	// RECORDER: stream the FINAL master output (hardware bus 0, post-limiter) to a
 	// stereo WAV via DiskOut. Runs after the master node so it captures what's heard.
 	SynthDef(\phRec, { |buf = 0| DiskOut.ar(buf, In.ar(0, 2)) }).add;

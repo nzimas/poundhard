@@ -85,6 +85,7 @@ class Track:
     step_living: list = field(default_factory=lambda: [False] * N_STEPS)
     step_period: list = field(default_factory=lambda: [4] * N_STEPS)     # cycles between transforms
     step_ratchet: list = field(default_factory=lambda: [1] * N_STEPS)    # retriggers per hit
+    step_send: list = field(default_factory=lambda: [0] * N_STEPS)       # route hit -> living delay/reverb
     step_xmacro: list = field(default_factory=lambda: [None] * N_STEPS)  # transform's param overrides
     step_cyc: list = field(default_factory=lambda: [0] * N_STEPS)        # runtime bar counter
     step_active: list = field(default_factory=lambda: [False] * N_STEPS)  # runtime: transformed last cycle
@@ -122,7 +123,7 @@ class Track:
                 "step_note": list(self.step_note), "step_vel": list(self.step_vel),
                 "step_pan": list(self.step_pan), "step_macro": list(self.step_macro),
                 "step_living": list(self.step_living), "step_period": list(self.step_period),
-                "step_ratchet": list(self.step_ratchet),
+                "step_ratchet": list(self.step_ratchet), "step_send": list(self.step_send),
                 "step_xmacro": [list(x) if x else None for x in self.step_xmacro]}
 
     @classmethod
@@ -139,6 +140,7 @@ class Track:
         t.step_living = ([bool(x) for x in d.get("step_living", [])][:N_STEPS] + [False] * N_STEPS)[:N_STEPS]
         t.step_period = ([int(x) for x in d.get("step_period", [])][:N_STEPS] + [4] * N_STEPS)[:N_STEPS]
         t.step_ratchet = ([int(x) for x in d.get("step_ratchet", [])][:N_STEPS] + [1] * N_STEPS)[:N_STEPS]
+        t.step_send = ([int(x) for x in d.get("step_send", [])][:N_STEPS] + [0] * N_STEPS)[:N_STEPS]
         t.step_cyc = [0] * N_STEPS
         return t
 
@@ -507,18 +509,19 @@ class Project:
         tr = self.tracks[track]
         tr.step_xmacro[cell] = None
         tr.step_ratchet[cell] = 1
+        tr.step_send[cell] = 0
         tr.step_note[cell] = None
         tr.step_vel[cell] = None
         tr.step_pan[cell] = None
 
-    def reroll_living(self, track: int, cell: int) -> None:
+    def reroll_living(self, track: int, cell: int):
         """Roll ONE fresh transformation for a living step (fired periodically — see
-        tick_living). Picks a distinct FLAVOUR and drives the relevant params HARD, so the
-        movement is obvious and varied. Reaches each engine's own character/fx params
-        (bitcrush, wavefold, ringmod, drive; Plaits morph/harmonics; Rings structure/pos),
-        its filter, envelope, pitch (octave leaps), ratchets, and panning — all TRUE
-        per-step. For PLAITS/RINGS the model is an ENUM macro_specs excludes, so the model
-        stays fixed while everything else moves."""
+        tick_living). Picks distinct FLAVOURS and drives them HARD for obvious, varied
+        movement: each engine's own character/fx params (bitcrush, wavefold, ringmod, drive;
+        Plaits morph/harmonics; Rings structure/pos), a filter sweep, pitch (octave leaps),
+        panning, ratchets, and a DELAY/REVERB send (routes just this hit through the living-FX
+        bus — no bleed). Returns the living-FX params (dTime,dFb,dMix,vMix,vRoom,vDamp) if a
+        send was chosen, else None. Envelope moves were dropped (mostly inaudible)."""
         rng = random
         tr = self.tracks[track]
         specs = catalog.macro_specs_full(tr.type)
@@ -532,33 +535,30 @@ class Project:
                 return
             rng.shuffle(items)
             for arg, (rmin, rmax, mlo, mhi) in items[:n]:
-                if extreme and rng.random() < 0.7:
+                if extreme and rng.random() < 0.85:
+                    # slam to a rail of the FULL range for unmistakable character
                     v = rmin if rng.random() < 0.5 else rmax
-                    v = v * 0.85 + (rmax if v == rmin else rmin) * 0.15
+                    v = v * 0.92 + (rmax if v == rmin else rmin) * 0.08
                 else:
                     v = rng.uniform(mlo, mhi)
                 pairs[arg] = round(v, 5)
 
-        # A transform STACKS several flavours for audibility. Every flavour here is TRUE
-        # per-step (it only touches the marked step's own hit via the step-macro override /
-        # per-step locks). Delay/reverb are deliberately NOT here: they'd have to ride the
-        # track's shared insert chain, which processes every step on the track (it bled onto
-        # non-marked steps) — a correct per-step send needs an engine change, done separately.
-        flavours = ["fx", "fx", "filter", "pitch", "envelope", "pan"]
+        # STACK several flavours for audibility (envelope removed — it was inaudible).
+        # "delay"/"reverb" = route this hit through the living-FX send bus (per-step, no bleed).
+        flavours = ["fx", "fx", "filter", "pitch", "pan", "delay", "reverb"]
         chosen = {rng.choice(flavours)}
-        while rng.random() < 0.55 and len(chosen) < 4:      # usually 2-3 stacked flavours
+        while rng.random() < 0.6 and len(chosen) < 4:       # usually 2-3 stacked flavours
             chosen.add(rng.choice(flavours))
+        if "fx" not in chosen and rng.random() < 0.6:       # bias toward audible character
+            chosen.add("fx")
 
         if "fx" in chosen:
-            drive("fx", rng.randint(2, 3), extreme=True)
+            drive("fx", rng.randint(2, 4), extreme=True)    # more params, harder
         if "filter" in chosen:
-            drive("filter", rng.randint(1, 2), extreme=rng.random() < 0.6)
-        if "envelope" in chosen:
-            drive("env", rng.randint(1, 2), extreme=rng.random() < 0.7)
-        drive("tone", rng.randint(1, 2), extreme=False)     # always some tonal nudge
+            drive("filter", rng.randint(1, 2), extreme=rng.random() < 0.75)
+        drive("tone", 1, extreme=rng.random() < 0.4)        # a little extra movement
 
-        # RATCHET is now occasional (was on almost every transform), and gentler.
-        if rng.random() < 0.3:
+        if rng.random() < 0.3:                              # ratchet: occasional
             tr.step_ratchet[cell] = rng.choice([2, 2, 3, 4])
 
         if "pitch" in chosen and tr.type not in ("EMPTY", "DRUM"):
@@ -566,21 +566,36 @@ class Project:
             cand = tr.note + rng.choice([-24, -12, -12, -7, -5, 5, 7, 12, 12, 19, 24])
             tr.step_note[cell] = max(24, min(96, _snap_scale(cand, pcs)))
 
-        # PAN is now a first-class transformer: a hard spatial jump when chosen.
         if "pan" in chosen:
-            tr.step_pan[cell] = round(rng.choice([-1, 1]) * rng.uniform(0.5, 1.0), 3)
+            tr.step_pan[cell] = round(rng.choice([-1, 1]) * rng.uniform(0.6, 1.0), 3)
         elif rng.random() < 0.35:
             tr.step_pan[cell] = round(rng.uniform(-0.7, 0.7), 3)
 
         if rng.random() < 0.6:
-            tr.step_vel[cell] = round(max(0.2, min(1.35, tr.vel * rng.uniform(0.55, 1.3))), 3)
+            tr.step_vel[cell] = round(max(0.25, min(1.35, tr.vel * rng.uniform(0.6, 1.3))), 3)
 
         tr.step_xmacro[cell] = [(a, v) for a, v in pairs.items()] or None
 
-    def tick_living(self, track: int) -> list[int]:
+        # --- DELAY / REVERB send (per-step, via the living-FX bus) ---
+        want_delay = "delay" in chosen
+        want_verb = "reverb" in chosen
+        if want_delay or want_verb:
+            tr.step_send[cell] = 1
+            dtime = round(rng.uniform(0.09, 0.5), 3)
+            dfb = round(rng.uniform(0.3, 0.7), 3)
+            dmix = round(rng.uniform(0.4, 0.7) if want_delay else rng.uniform(0.05, 0.2), 3)
+            vmix = round(rng.uniform(0.4, 0.65) if want_verb else rng.uniform(0.05, 0.2), 3)
+            vroom = round(rng.uniform(0.55, 0.9), 3)
+            vdamp = round(rng.uniform(0.2, 0.5), 3)
+            return (dtime, dfb, dmix, vmix, vroom, vdamp)
+        return None
+
+    def tick_living(self, track: int):
         """Advance one cycle for a track's living steps (TRANSIENT model): a marked step
         plays NORMAL until its period elapses, then FIRES one fresh transform for that one
-        cycle, then reverts the next cycle. Returns the cells that changed this cycle."""
+        cycle, then reverts the next cycle. Returns (changed_cells, living_fx_params) — the
+        latter is the (dTime,dFb,dMix,vMix,vRoom,vDamp) tuple to push if a fire this cycle
+        requested a delay/reverb send, else None."""
         tr = self.tracks[track]
         # /ph/cycle fires every 16 GLOBAL steps (one bar). The marked step plays once per
         # track LOOP, which is `length/rate` global steps = length/(16*rate) bars. So to fire
@@ -589,6 +604,7 @@ class Project:
         # length 32 -> 2 bars/loop, which is why period 4 used to fire every 2 plays.
         bars_per_loop = max(1, round(tr.length / (16.0 * max(tr.rate, 0.0625))))
         changed = []
+        living_fx = None
         for c in range(N_STEPS):
             if not tr.step_living[c]:
                 continue
@@ -600,10 +616,12 @@ class Project:
             eff = max(1, int(tr.step_period[c]) * bars_per_loop)   # period counted in step PLAYS
             if tr.step_cyc[c] >= eff:
                 tr.step_cyc[c] = 0
-                self.reroll_living(track, c)
+                fx = self.reroll_living(track, c)
                 tr.step_active[c] = True
                 changed.append(c)
-        return changed
+                if fx is not None:
+                    living_fx = fx
+        return changed, living_fx
 
     # -- kit --------------------------------------------------------------- #
     def apply_kit(self, kit: dict) -> None:
