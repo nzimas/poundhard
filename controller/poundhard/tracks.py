@@ -87,6 +87,7 @@ class Track:
     step_ratchet: list = field(default_factory=lambda: [1] * N_STEPS)    # retriggers per hit
     step_xmacro: list = field(default_factory=lambda: [None] * N_STEPS)  # transform's param overrides
     step_cyc: list = field(default_factory=lambda: [0] * N_STEPS)        # runtime bar counter
+    step_active: list = field(default_factory=lambda: [False] * N_STEPS)  # runtime: transformed last cycle
 
     def load_voice(self, voice: dict) -> None:
         """Apply a generated kit voice (keeps pattern + mute + per-step locks)."""
@@ -193,6 +194,10 @@ class Project:
         self.clipboard: dict | None = None
         # UNDO: a stack of whole-machine states, pushed before each discrete action.
         self.undo_stack: list[dict] = []
+        # LIVING-STEP FX (runtime): the delay/reverb a living step engages on its track,
+        # and a countdown of cycles before it's removed (so the tail rings, then clears).
+        self.living_fx: list = [None] * N_TRACKS       # fx index currently engaged, per track
+        self.living_fx_cd: list[int] = [0] * N_TRACKS  # cycles left before removal
 
     # -- solo -------------------------------------------------------------- #
     def toggle_solo(self, track: int) -> int:
@@ -483,113 +488,159 @@ class Project:
         return self.step_macro_pairs(track, cell)
 
     def toggle_living(self, track: int, cell: int) -> bool:
-        """Mark / unmark a step as living. Marking rolls its first transform immediately;
-        unmarking reverts the cell to a plain step."""
+        """Mark / unmark a step as living. Marking fires one transform immediately (audible
+        feedback) and marks it active, so it reverts next cycle and then fires periodically.
+        Unmarking reverts the cell to a plain step."""
         tr = self.tracks[track]
         tr.step_living[cell] = not tr.step_living[cell]
         if tr.step_living[cell]:
             tr.step_cyc[cell] = 0
-            self.reroll_living(track, cell)
+            self.reroll_living(track, cell)     # one-shot feedback; fx sends wait for tick
+            tr.step_active[cell] = True
         else:                                   # back to a plain, untransformed step
-            tr.step_ratchet[cell] = 1
-            tr.step_xmacro[cell] = None
-            tr.step_note[cell] = None
-            tr.step_vel[cell] = None
-            tr.step_pan[cell] = None
+            self._revert_living_cell(track, cell)
+            tr.step_active[cell] = False
         return tr.step_living[cell]
 
     def set_step_period(self, track: int, cell: int, period: int) -> int:
         self.tracks[track].step_period[cell] = max(1, min(16, int(period)))
         return self.tracks[track].step_period[cell]
 
-    def reroll_living(self, track: int, cell: int) -> None:
-        """Roll a fresh transformation for a living step. Each cycle picks a distinct
-        FLAVOUR and drives the relevant params HARD, so the movement is obvious and
-        varied — not a wash of timid random tweaks. The flavours reach into each engine's
-        own character/fx params (bitcrush, wavefold, ringmod, drive on the analog voices;
-        morph/harmonics on Plaits; structure/position on Rings), its filter, its envelope,
-        pitch (octave leaps, scale jumps), and ratchets. For PLAITS/RINGS the model is an
-        ENUM that macro_specs excludes, so the model stays fixed while everything else moves."""
-        rng = random
+    def _revert_living_cell(self, track: int, cell: int) -> None:
+        """Return a living cell to its plain, untransformed state (keeps the living mark)."""
         tr = self.tracks[track]
-        specs = catalog.macro_specs_full(tr.type)     # (pid, arg, rmin, rmax, mlo, mhi)
-        by_kw = _classify_params(specs)               # arg -> (rmin, rmax, mlo, mhi), grouped
-
-        # reset the whole transform, then rebuild it for the chosen flavour(s)
         tr.step_xmacro[cell] = None
         tr.step_ratchet[cell] = 1
         tr.step_note[cell] = None
         tr.step_vel[cell] = None
         tr.step_pan[cell] = None
+
+    def reroll_living(self, track: int, cell: int) -> str | None:
+        """Roll ONE fresh transformation for a living step (fired periodically — see
+        tick_living). Picks a distinct FLAVOUR and drives the relevant params HARD, so the
+        movement is obvious and varied. Reaches each engine's own character/fx params
+        (bitcrush, wavefold, ringmod, drive; Plaits morph/harmonics; Rings structure/pos),
+        its filter, envelope, pitch (octave leaps), ratchets, and panning. Returns the
+        requested send-fx flavour ("delay"/"reverb") or None. For PLAITS/RINGS the model is
+        an ENUM macro_specs excludes, so the model stays fixed."""
+        rng = random
+        tr = self.tracks[track]
+        specs = catalog.macro_specs_full(tr.type)
+        by_kw = _classify_params(specs)
+        self._revert_living_cell(track, cell)
         pairs: dict[str, float] = {}
 
         def drive(group, n, extreme):
-            """Set up to n params from a keyword group; `extreme` pushes toward the rails."""
             items = list(by_kw.get(group, {}).items())
             if not items:
                 return
             rng.shuffle(items)
             for arg, (rmin, rmax, mlo, mhi) in items[:n]:
                 if extreme and rng.random() < 0.7:
-                    # jump to one end of the FULL range (real fx/character), not the polite band
                     v = rmin if rng.random() < 0.5 else rmax
-                    v = v * 0.85 + (rmax if v == rmin else rmin) * 0.15   # back off the hard rail a touch
+                    v = v * 0.85 + (rmax if v == rmin else rmin) * 0.15
                 else:
                     v = rng.uniform(mlo, mhi)
                 pairs[arg] = round(v, 5)
 
-        # one or two flavours per transform (two = a combo, for extra variety)
-        flavours = ["fx", "fx", "filter", "pitch", "envelope", "ratchet", "wild"]
+        # A transform STACKS several flavours for audibility. Ratchet is now just one of
+        # many and no longer dominates. `send` = route the hit through a delay/reverb.
+        flavours = ["fx", "fx", "filter", "pitch", "envelope", "pan", "send", "send"]
         chosen = {rng.choice(flavours)}
-        if rng.random() < 0.45:
+        while rng.random() < 0.55 and len(chosen) < 4:      # usually 2-3 stacked flavours
             chosen.add(rng.choice(flavours))
-        if "wild" in chosen:
-            chosen |= {"fx", "filter", "pitch", "envelope", "ratchet"}
 
         if "fx" in chosen:
-            drive("fx", rng.randint(1, 3), extreme=True)
+            drive("fx", rng.randint(2, 3), extreme=True)
         if "filter" in chosen:
             drive("filter", rng.randint(1, 2), extreme=rng.random() < 0.6)
         if "envelope" in chosen:
             drive("env", rng.randint(1, 2), extreme=rng.random() < 0.7)
-        # always nudge a couple of general tone params so no transform is inert
-        drive("tone", rng.randint(1, 2), extreme=False)
+        drive("tone", rng.randint(1, 2), extreme=False)     # always some tonal nudge
 
-        if "ratchet" in chosen:
-            tr.step_ratchet[cell] = rng.choice([2, 2, 3, 3, 4, 6])
-        else:
-            tr.step_ratchet[cell] = rng.choice([1, 1, 1, 2, 3])
+        # RATCHET is now occasional (was on almost every transform), and gentler.
+        if rng.random() < 0.3:
+            tr.step_ratchet[cell] = rng.choice([2, 2, 3, 4])
 
         if "pitch" in chosen and tr.type not in ("EMPTY", "DRUM"):
             pcs = {(kits._ROOT + s) % 12 for s in kits._SCALE}
             cand = tr.note + rng.choice([-24, -12, -12, -7, -5, 5, 7, 12, 12, 19, 24])
             tr.step_note[cell] = max(24, min(96, _snap_scale(cand, pcs)))
-        elif tr.type not in ("EMPTY", "DRUM") and rng.random() < 0.5:
-            pcs = {(kits._ROOT + s) % 12 for s in kits._SCALE}
-            cand = tr.note + rng.choice([-12, -5, -3, 0, 0, 2, 3, 5, 7, 12])
-            tr.step_note[cell] = max(24, min(96, _snap_scale(cand, pcs)))
 
-        # velocity / pan movement (accents + spatial jumps) — always some
-        if rng.random() < 0.7:
-            tr.step_vel[cell] = round(max(0.2, min(1.35, tr.vel * rng.uniform(0.5, 1.3))), 3)
-        if rng.random() < 0.5:
-            tr.step_pan[cell] = round(rng.uniform(-0.9, 0.9), 3)
+        # PAN is now a first-class transformer: a hard spatial jump when chosen.
+        if "pan" in chosen:
+            tr.step_pan[cell] = round(rng.choice([-1, 1]) * rng.uniform(0.5, 1.0), 3)
+        elif rng.random() < 0.35:
+            tr.step_pan[cell] = round(rng.uniform(-0.7, 0.7), 3)
+
+        if rng.random() < 0.6:
+            tr.step_vel[cell] = round(max(0.2, min(1.35, tr.vel * rng.uniform(0.55, 1.3))), 3)
 
         tr.step_xmacro[cell] = [(a, v) for a, v in pairs.items()] or None
+        # send-fx request: route this fired hit through a delay or reverb (headless engages
+        # it on the track for a couple of cycles so the tail rings, then clears it).
+        return ("delay" if rng.random() < 0.5 else "reverb") if "send" in chosen else None
 
-    def tick_living(self, track: int) -> list[int]:
-        """Advance one cycle for a track's living steps; return the cells that re-rolled
-        (so the controller can push just those)."""
+    # DLY / VRB fx indices (must match ~fxDefs in engine.scd) and random param banks
+    _LIVING_FX = {"delay": 6, "reverb": 7}
+
+    def _living_fx_params(self, kind: str):
+        """(fx_idx, [(arg, val)...], wet) for a fresh delay/reverb send."""
+        rng = random
+        if kind == "delay":
+            t = round(rng.uniform(90, 480), 1)
+            return (6, [("timeL", t), ("timeR", round(t * rng.uniform(0.5, 1.5), 1)),
+                        ("feedback", round(rng.uniform(0.25, 0.6), 3)),
+                        ("crossFeed", round(rng.uniform(0.2, 0.8), 3))],
+                    round(rng.uniform(0.35, 0.6), 3))
+        return (7, [("size", round(rng.uniform(1.5, 3.5), 2)),
+                    ("decay", round(rng.uniform(2.0, 8.0), 2)),
+                    ("damp", round(rng.uniform(0.2, 0.5), 3))],
+                round(rng.uniform(0.3, 0.55), 3))
+
+    def tick_living(self, track: int):
+        """Advance one cycle for a track's living steps (TRANSIENT model): a marked step
+        plays NORMAL until its period elapses, then FIRES one fresh transform for that one
+        cycle, then reverts. Returns (changed_cells, fx_directive) where fx_directive is
+        None | ("engage", fx, [(arg,val)...], wet) | ("remove", fx)."""
         tr = self.tracks[track]
-        fired = []
+        changed, fx_req = [], None
         for c in range(N_STEPS):
-            if tr.step_living[c]:
-                tr.step_cyc[c] += 1
-                if tr.step_cyc[c] >= max(1, tr.step_period[c]):
-                    tr.step_cyc[c] = 0
-                    self.reroll_living(track, c)
-                    fired.append(c)
-        return fired
+            if not tr.step_living[c]:
+                continue
+            if tr.step_active[c]:                 # was transformed last cycle -> revert now
+                self._revert_living_cell(track, c)
+                tr.step_active[c] = False
+                changed.append(c)
+            tr.step_cyc[c] += 1
+            if tr.step_cyc[c] >= max(1, tr.step_period[c]):
+                tr.step_cyc[c] = 0
+                req = self.reroll_living(track, c)
+                tr.step_active[c] = True
+                changed.append(c)
+                if req:
+                    fx_req = req
+        # --- living send-fx lifecycle (delay/reverb rings for a couple of cycles) ---
+        fx_directive = None
+        if fx_req is not None:
+            fx, params, wet = self._living_fx_params(fx_req)
+            # don't clobber a user-assigned FX of the same type
+            if not (fx in self.track_fx[track] and self.living_fx[track] != fx):
+                if self.living_fx[track] not in (None, fx):
+                    self.track_fx[track] = [x for x in self.track_fx[track] if x != self.living_fx[track]]
+                if fx not in self.track_fx[track]:
+                    self.track_fx[track].append(fx)
+                self.living_fx[track] = fx
+                self.living_fx_cd[track] = 2
+                fx_directive = ("engage", fx, params, wet)
+        elif self.living_fx[track] is not None:
+            self.living_fx_cd[track] -= 1
+            if self.living_fx_cd[track] <= 0:
+                fx = self.living_fx[track]
+                self.track_fx[track] = [x for x in self.track_fx[track] if x != fx]
+                self.living_fx[track] = None
+                fx_directive = ("remove", fx)
+        return changed, fx_directive
 
     # -- kit --------------------------------------------------------------- #
     def apply_kit(self, kit: dict) -> None:
