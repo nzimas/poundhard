@@ -725,7 +725,8 @@ globalThis.onMidiMessageInternal = function (data) {
                 showAction('SAFE ZONE'); screenDirty = true;
                 return;
             }
-            which = (ki === 0) ? 'tempo' : (ki === 7) ? 'chaos' : null;                  /* knob1 = tempo, knob8 = chaos */
+            if (heatHeld) which = (ki === 0) ? 'heat' : null;                            /* holding Heat: knob1 = heat % */
+            else which = (ki === 0) ? 'tempo' : (ki === 7) ? 'chaos' : null;             /* knob1 = tempo, knob8 = chaos */
         }
         /* Uniform rule: the giant readout shows the whole time the knob is TOUCHED
          * (not just while turning), and clears on release. */
@@ -858,7 +859,9 @@ globalThis.onMidiMessageInternal = function (data) {
                 sendCmd('heat', heatOn ? 1 : 0);
                 showAction(heatOn ? ('HEAT ' + Math.round(heatPct * 100) + '%') : 'HEAT OFF');
             }
-            heatHeld = false; ledDirty = true; screenDirty = true;
+            heatHeld = false;
+            if (knobShow === 'heat') knobShow = null;      /* drop the heat % readout on pad release */
+            ledDirty = true; screenDirty = true;
             return;
         }
         if (paletteHeld === cell) {
