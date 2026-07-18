@@ -180,31 +180,14 @@ class Controller:
         self.bridge.stepratchet(t, c, tr.step_ratchet[c])
 
     # -- patterns & projects ----------------------------------------------- #
-    def _apply_living_fx(self, t: int, directive) -> None:
-        """Execute a living send-fx directive (engage a delay/reverb on the track for a
-        couple of cycles so the tail rings, then remove it)."""
-        if directive is None:
-            return
-        kind = directive[0]
-        if kind == "engage":
-            _, fx, params, wet = directive
-            self.bridge.fxassign(t, fx, True)
-            for arg, val in params:
-                self.bridge.fxset(fx, arg, val)
-            self.bridge.fxwet(fx, wet)
-        elif kind == "remove":
-            self.bridge.fxassign(t, directive[1], False)
-
     def _on_cycle(self) -> None:
         """Bar boundary (from the engine): fire any living steps whose period has elapsed
         (transient model — they revert next cycle), then apply a queued pattern switch."""
         with self._lock:
             st = self.state
             for t in range(N_TRACKS):
-                changed, fx_directive = st.tick_living(t)
-                for c in changed:               # fired or reverted living cells this cycle
+                for c in st.tick_living(t):     # fired or reverted living cells this cycle
                     self._push_living_cell(t, c)
-                self._apply_living_fx(t, fx_directive)
             if 0 <= st.pattern_pending < N_PATTERNS and st.patterns[st.pattern_pending] is not None:
                 st.commit_current()             # preserve the outgoing pattern's live edits
                 # patterns are self-contained: restore the WHOLE machine — engines,
@@ -718,10 +701,12 @@ class Controller:
                 # effective per-step macro position (lock, or the track's macro position)
                 "stepMacro": [round(et.step_macro[c] if et.step_macro[c] is not None
                                     else st.voice_macro[st.edit_track], 3) for c in range(N_STEPS)],
-                # LIVING STEPS: which cells are marked, their period (cycles), current ratchet
+                # LIVING STEPS: which cells are marked, their period (cycles), current ratchet,
+                # and which are firing (transformed) this cycle (transient model)
                 "living": list(et.step_living),
                 "period": list(et.step_period),
                 "ratchet": list(et.step_ratchet),
+                "active": list(et.step_active),
             }
         # Change-detection: skip redundant writes to spare SD I/O. The UI freeze is a
         # synchronous host read-stall on the UI side that gets more likely the busier

@@ -11,7 +11,7 @@ if [ -L "$PH/ipc" ]; then rm -f "$PH/ipc"; fi
 mkdir -p "$PH/ipc"
 
 # Engine: jackd -d shadow + sclang(boot). Guard against double-start.
-if ! pgrep -x sclang >/dev/null 2>&1; then
+if ! pgrep -f "bin/sclang" >/dev/null 2>&1; then
     nohup sh "$PH/run-engine.sh" > "$LOGS/stack_engine.log" 2>&1 &
 fi
 

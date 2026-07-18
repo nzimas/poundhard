@@ -35,7 +35,7 @@ echo "[engine] starting jackd -R -d shadow (realtime)"
 # scsynth's audio callback thread to RT too (scsynth has cap_sys_nice). Needs
 # cap_sys_nice+cap_ipc_lock on the jackd binary. Priority 70 stays BELOW the
 # SPI/IRQ kernel threads (chrt 90/91) so the DAC/display path is never starved.
-pgrep -x jackd >/dev/null 2>&1 || { $RNBO/bin/jackd -R -P 70 -d shadow > "$JACKLOG" 2>&1 & sleep 2; }
+pgrep -f "jackd -R" >/dev/null 2>&1 || { $RNBO/bin/jackd -R -P 70 -d shadow > "$JACKLOG" 2>&1 & sleep 2; }
 grep -q "attached to shared memory" "$JACKLOG" 2>/dev/null && echo "[engine] shadow attached"
 
 echo "[engine] starting sclang (ph-boot.scd) — pinned to cores 0-2"
@@ -53,9 +53,9 @@ echo "[engine] --- log tail ---"; tail -n 12 "$ENGLOG"
 
 # Core pinning: keep the audio thread (scsynth + jackd) on cores 1-2, sclang +
 # the Python controller on core 0, and leave core 3 for the SPI/display driver.
-for p in $(pgrep -x scsynth) $(pgrep -x jackd); do taskset -pc 1-2 "$p" >/dev/null 2>&1; done
-for p in $(pgrep -x sclang); do taskset -pc 0 "$p" >/dev/null 2>&1; done
+for p in $(pgrep -f "bin/scsynth") $(pgrep -f "jackd -R"); do taskset -pc 1-2 "$p" >/dev/null 2>&1; done
+for p in $(pgrep -f "bin/sclang"); do taskset -pc 0 "$p" >/dev/null 2>&1; done
 
-for p in $(pgrep -x jackd) $(pgrep -x scsynth); do
+for p in $(pgrep -f "jackd -R") $(pgrep -f "bin/scsynth"); do
     echo "[engine] $(cat /proc/$p/comm 2>/dev/null) sched: $(chrt -p $p 2>/dev/null | tr '\n' ' ')"
 done
