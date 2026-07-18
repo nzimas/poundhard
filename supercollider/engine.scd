@@ -129,17 +129,24 @@
 	var typeIdx = ~trackType[t];
 	// typeIdx < 0 == an empty/unassigned track: it never spawns (no engine, no sound).
 	(typeIdx >= 0).if {
-		var def = (typeIdx == 0).if(
+		var def, nn, vv, pp, sm, merged, args, syn, lst;
+		def = (typeIdx == 0).if(
 			{ ~drumDefs[(~pstore[t][\mode] ? 0).round.clip(0, 6).asInteger] },   // per-mode drum
 			{ ~typeDefs[typeIdx.clip(0, ~typeDefs.size - 1)] });
-		// per-step lock overrides track defaults; \pan appended last so it wins over pstore.
-		var nn = ~stepNote[t][step] ? ~note[t];
-		var vv = (~stepVel[t][step] ? ~vel[t]) * velScale;    // ratchet sub-hits decay in velocity
-		var pp = ~stepPan[t][step] ? (~pstore[t][\pan] ? 0);
-		// per-step macro lock (if any) overrides the voice's timbral params for this hit only.
-		var sm = ~stepMacro[t][step];
-		var args = [\out, ~trackBus[t].index, \note, nn, \vel, vv] ++ ~pstore[t].getPairs ++ (sm ? []) ++ [\pan, pp];
-		var syn, lst;
+		nn = ~stepNote[t][step] ? ~note[t];
+		vv = (~stepVel[t][step] ? ~vel[t]) * velScale;    // ratchet sub-hits decay in velocity
+		pp = ~stepPan[t][step] ? (~pstore[t][\pan] ? 0);
+		sm = ~stepMacro[t][step];
+		// Merge the per-step macro override INTO a copy of the track params, so the override
+		// wins UNAMBIGUOUSLY. Passing pstore ++ sm as a flat Synth arg list left duplicate
+		// control names (e.g. \crush from both), and the override only won if scsynth honoured
+		// last-write — which it did NOT reliably, so per-step fx/tonal transforms were silently
+		// swallowed by the voice defaults (ratchets, a separate path, still worked). Merging
+		// dedups: this is what makes living-step fx/tonal changes actually sound.
+		merged = ~pstore[t].copy;
+		sm.notNil.if { sm.pairsDo { |k, val| merged[k] = val } };
+		merged[\pan] = pp;                                // step pan lock, deduped
+		args = [\out, ~trackBus[t].index, \note, nn, \vel, vv] ++ merged.getPairs;
 		(def == \phSampler).if {
 			args = args ++ [\buf, ~sampBuf[t].notNil.if({ ~sampBuf[t].bufnum }, { ~silentBuf.bufnum })];
 		};
