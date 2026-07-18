@@ -79,7 +79,6 @@ class Controller:
         # HEAT macro: mass-mark a fraction of sequenced steps as living (live performance)
         self._heat_on = False                    # macro engaged
         self._heat_pct = 0.5                     # fraction of hits to heat (knob-1 adjustable)
-        self._heat_cells: list = []              # exactly the (track,cell) heat marked
         # performance recording
         self._rec_state = "idle"                 # idle | armed | recording
         self._rec_slot = -1                      # armed / recording slot
@@ -143,10 +142,10 @@ class Controller:
 
     # -- push authoritative state to the engine ---------------------------- #
     def _push_all(self) -> None:
-        # a full-machine replacement (pattern/project load) invalidates the HEAT marks —
-        # the living flags now come from the freshly-loaded pattern, not the macro.
+        # a full-machine replacement (pattern/project load) drops the HEAT toggle — the
+        # living flags now come from the freshly-loaded pattern, not the macro. (heat_clear_all
+        # is idempotent, so a later toggle-off still fully resets even after this.)
         self._heat_on = False
-        self._heat_cells = []
         self.bridge.steps(self.state.steps)
         self.bridge.tempo(self.state.tempo)
         for t in range(N_TRACKS):
@@ -487,20 +486,17 @@ class Controller:
                 st.set_step_period(t, cell, int(p.get("x", 4)))
         elif cmd == "heat":                    # Heat pad (default view): toggle the mass-living macro
             on = int(arg) != 0
-            if on and not self._heat_on:
-                self._heat_cells = st.heat_apply(self._heat_pct)
-                self._heat_on = True
-            elif not on and self._heat_on:
-                for (t, c) in st.heat_clear(self._heat_cells):
-                    self._reset_engine_cell(t, c)   # reset any mid-transform cells in the engine
-                self._heat_cells = []
-                self._heat_on = False
+            for (t, c) in st.heat_clear_all():  # idempotent: always wipe first (fresh slate / full off)
+                self._reset_engine_cell(t, c)
+            if on:
+                st.heat_apply(self._heat_pct)
+            self._heat_on = on
         elif cmd == "heatpct":                 # hold Heat + knob1: set the heat fraction (re-heats live)
             self._heat_pct = max(0.05, min(1.0, float(p.get("x", 0.5))))
             if self._heat_on:                  # already engaged -> reshuffle at the new density
-                for (t, c) in st.heat_clear(self._heat_cells):
+                for (t, c) in st.heat_clear_all():
                     self._reset_engine_cell(t, c)
-                self._heat_cells = st.heat_apply(self._heat_pct)
+                st.heat_apply(self._heat_pct)
         elif cmd == "mute":
             t = int(arg)
             if 0 <= t < N_TRACKS:
