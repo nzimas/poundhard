@@ -630,6 +630,65 @@ class Project:
             tr.step_cyc[c] = (phase + 1) % eff
         return changed, living_fx
 
+    # -- HEAT macro -------------------------------------------------------- #
+    def _heat_periods(self, n: int) -> list:
+        """n transform periods spread over 2..6 with guaranteed in-track VARIETY
+        (at least two distinct values whenever n >= 2)."""
+        if n <= 0:
+            return []
+        vals = [random.randint(2, 6) for _ in range(n)]
+        if n >= 2 and len(set(vals)) == 1:
+            i = random.randrange(n)
+            vals[i] = random.choice([p for p in range(2, 7) if p != vals[i]])
+        return vals
+
+    def heat_apply(self, pct: float) -> list:
+        """HEAT: mark ~pct of the SEQUENCED steps (pattern hits) of every non-empty track
+        as living, with per-step periods spread over 2..6 (varied within each track) and
+        STAGGERED cycle phases so they don't all transform on the same bar. Only marks steps
+        that aren't already living (manual Rec+pad marks are left alone) and records exactly
+        which cells it touched so heat_clear can undo precisely these. Returns [(track,cell)]."""
+        pct = max(0.0, min(1.0, float(pct)))
+        marked = []
+        for t, tr in enumerate(self.tracks):
+            if tr.type == "EMPTY":
+                continue
+            cands = [c for c in range(min(tr.length, N_STEPS))
+                     if tr.pattern[c] and not tr.step_living[c]]
+            if not cands:
+                continue
+            random.shuffle(cands)
+            k = int(round(len(cands) * pct))
+            if pct > 0:
+                k = max(1, k)                       # heat every playing track at least a little
+            chosen = cands[:k]
+            loop_bars = max(1, math.ceil(tr.length / (16.0 * max(tr.rate, 0.0625))))
+            for cell, per in zip(chosen, self._heat_periods(len(chosen))):
+                tr.step_living[cell] = True
+                tr.step_period[cell] = per
+                tr.step_active[cell] = False
+                self._revert_living_cell(t, cell)   # start plain; fires when its period elapses
+                tr.step_cyc[cell] = random.randrange(per * loop_bars)   # stagger the first fire
+                marked.append((t, cell))
+        return marked
+
+    def heat_clear(self, cells) -> list:
+        """Undo a HEAT macro: unmark the given living cells and revert any mid-transform.
+        Returns the (track,cell) that were ACTIVE (so the caller resets them in the engine)."""
+        active = []
+        for (t, c) in cells:
+            tr = self.tracks[t]
+            if not (0 <= t < len(self.tracks) and 0 <= c < N_STEPS):
+                continue
+            if tr.step_active[c]:
+                active.append((t, c))
+            tr.step_living[c] = False
+            tr.step_period[c] = 4
+            tr.step_cyc[c] = 0
+            tr.step_active[c] = False
+            self._revert_living_cell(t, c)
+        return active
+
     # -- kit --------------------------------------------------------------- #
     def apply_kit(self, kit: dict) -> None:
         self.kit_name = kit.get("name", "")

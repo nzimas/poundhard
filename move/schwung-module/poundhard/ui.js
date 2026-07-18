@@ -67,6 +67,8 @@ const FX_COLORS = [3, 27, 14, 21, 12, 31, 16, 20];
 const BYPASS_COLOR = 118;           /* light grey: a track whose FX are bypassed (visible) */
 const N_FX = 8;
 const FX_CELL0 = 24;                /* FX pads occupy the bottom row (cells 24..31) */
+const HEAT_CELL = 24;               /* default-view bottom-row first pad = the HEAT toggle */
+const HEAT_HOT = 5, HEAT_WARM = 1, HEAT_IDLE = 84;  /* fire pulse (on) / dim ember (off) */
 
 /* Per-generator-type step-button colours [bright, dim] — same hue, two brightnesses.
  * The step buttons are grouped by generator (see kits.py) so each block is one hue:
@@ -134,6 +136,9 @@ let stepMacro = new Array(N_STEPS).fill(0.5);   /* per-step voice-macro lock pos
 let editLiving = new Array(N_STEPS).fill(false); /* which steps are LIVING (self-transforming) */
 let editPeriod = new Array(N_STEPS).fill(4);     /* per-step transform period (cycles) */
 let recHeld = false;                             /* Rec button held -> pad marks a living step */
+/* HEAT macro (default view, bottom-row first pad): short press toggles; when on, ~heatPct
+ * of every sequenced track's hits become living. Hold the pad + knob1 sets heatPct. */
+let heatOn = false, heatPct = 0.5, heatHeld = false, heatAdjusted = false;
 /* step-button pulse: a local beat clock (tempo-driven) drives the per-track pulse so
  * event-tracks blink at their sequence pace. lastStepCol dedups setLED (only send on change). */
 let seqBeats = 0, lastPulseMs = 0, wasRunning = false;
@@ -328,6 +333,8 @@ function renderLEDs() {
             if (c < N_ENGINES) {
                 let pair = TYPE_COL[ENGINE_TYPES[c]];
                 color = (paletteHeld === c) ? White : (pair ? pair[0] : DIM_COLOR);
+            } else if (c === HEAT_CELL) {                          /* HEAT toggle */
+                color = heatOn ? ((phase % 16 < 8) ? HEAT_HOT : HEAT_WARM) : HEAT_IDLE;
             }
             setLED(PAD_NOTES[c], color);
         }
@@ -371,6 +378,7 @@ function drawParamBig(head, valStr, kind, frac) {
     else { drawBig(valStr, 4, 7); if (kind === 'uni') bar(frac); else bbar(frac); }
 }
 function drawTempoBig() { drawParamBig('TEMPO', '' + Math.round(tempo), 'uni', clampf((tempo - 20) / 280, 0, 1)); }
+function drawHeatBig() { drawParamBig(heatOn ? 'HEAT ON' : 'HEAT', Math.round(heatPct * 100) + '%', 'uni', clampf(heatPct, 0, 1)); }
 /* CHAOS: bipolar around the safe zone — 0 = exactly the stored state. */
 function drawChaosBig() {
     var dev = Math.round((chaosPos - 0.5) * 200);
@@ -483,6 +491,7 @@ function drawScreen() {
      * Tempo is per-pattern, so in the pattern view this is the selected pattern's BPM. */
     if (knobShow === 'tempo' && !fxView && !recView && editTrack < 0 && stepEditCell < 0) { drawTempoBig(); return; }
     if (knobShow === 'chaos' && !fxView && !patView && !projView && !recView && editTrack < 0) { drawChaosBig(); return; }
+    if (knobShow === 'heat' && !fxView && !patView && !projView && !recView && editTrack < 0) { drawHeatBig(); return; }
     if (patView || projView) { drawSlots(); return; }
     if (fxView) { drawFx(); return; }
     if (stepEditCell >= 0) { drawStepParam(); return; }
@@ -494,9 +503,9 @@ function drawScreen() {
     if (!ready) { print(0, 12, 'POUNDHARD', 2); print(0, 40, engine ? 'booting engine...' : 'starting...', 1); return; }
     if (editTrack < 0) {
         print(0, 6, 'POUNDHARD', 2);
-        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP'), 1);
+        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : ''), 1);
         print(0, 44, 'pad=hear  shift+pad=gen', 1);
-        print(0, 56, 'k8=chaos  hold pad+trk=assign', 1);
+        print(0, 56, 'k8=chaos  heat=btm-left pad', 1);
     } else {
         var n = 0, len = editLen();
         for (var i = 0; i < len; i++) n += editSteps[i] ? 1 : 0;
@@ -522,6 +531,8 @@ function readStatus() {
     if (Array.isArray(s.patFilled)) patFilled = s.patFilled;
     if (Array.isArray(s.projFilled)) projFilled = s.projFilled;
     if (s.autoSave != null) autoSave = !!s.autoSave;
+    if (s.heat != null && !heatHeld) heatOn = !!s.heat;             /* don't fight a live toggle */
+    if (s.heatPct != null && knobShow !== 'heat') heatPct = s.heatPct;
     /* don't fight a live turn: only adopt the controller's chaos position when the
      * knob isn't the thing on screen (it re-syncs after a reset / pattern change) */
     if (s.chaos != null && knobShow !== 'chaos') chaosPos = s.chaos;
@@ -666,6 +677,7 @@ globalThis.tick = function () {
     if (running && patView && patPending >= 0) ledDirty = true;   /* animate the queued-slot pulse */
     if (recView && recState !== 'idle') ledDirty = true;          /* animate the rec/armed pad */
     if (editTrack >= 0 && !fxView) { for (var _lv = 0; _lv < N_STEPS; _lv++) if (editLiving[_lv]) { ledDirty = true; break; } }  /* pulse living steps */
+    if (heatOn && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse the HEAT pad */
     if (ledDirty) renderLEDs();
     if (running) renderStepButtons();   /* keep the pulse animating between full renders */
     if (overlay && phase >= overlayUntil) { overlay = null; screenDirty = true; }
@@ -827,6 +839,10 @@ globalThis.onMidiMessageInternal = function (data) {
     const _defView = !fxView && !patView && !projView && !recView && editTrack < 0;
     if (_defView && status === 0x90 && d2 > 0 && d1 >= 68 && d1 <= 99) {
         const cell = NOTE_TO_CELL[d1];
+        if (cell === HEAT_CELL) {                          /* Heat pad down: arm hold (knob1=pct) */
+            heatHeld = true; heatAdjusted = false; ledDirty = true; screenDirty = true;
+            return;
+        }
         if (cell < N_ENGINES) {
             if (shiftHeld) { sendCmd('palettegen', cell); showAction('GEN ' + ENGINE_TYPES[cell]); }
             else { paletteHeld = cell; paletteHeldStart = Date.now(); paletteConsumed = false; }
@@ -836,6 +852,15 @@ globalThis.onMidiMessageInternal = function (data) {
     }
     if (_defView && (status === 0x80 || (status === 0x90 && d2 === 0)) && d1 >= 68 && d1 <= 99) {
         const cell = NOTE_TO_CELL[d1];
+        if (cell === HEAT_CELL) {                          /* Heat pad up: short press = toggle */
+            if (heatHeld && !heatAdjusted) {
+                heatOn = !heatOn;                          /* optimistic; server confirms via status */
+                sendCmd('heat', heatOn ? 1 : 0);
+                showAction(heatOn ? ('HEAT ' + Math.round(heatPct * 100) + '%') : 'HEAT OFF');
+            }
+            heatHeld = false; ledDirty = true; screenDirty = true;
+            return;
+        }
         if (paletteHeld === cell) {
             if (!paletteConsumed) { sendCmd('audition', cell); showAction('HEAR ' + ENGINE_TYPES[cell]); }
             paletteHeld = -1; paletteConsumed = false; ledDirty = true; screenDirty = true;
@@ -986,6 +1011,13 @@ globalThis.onMidiMessageInternal = function (data) {
             const ki = d1 - MoveKnob1;
             const dn = decodeDelta(d2);
             if (dn === 0) return;
+            if (ki === 0 && heatHeld) {                          /* hold Heat + knob1 = heat fraction */
+                heatPct = clampf(heatPct + dn * 0.02, 0.05, 1.0);
+                heatAdjusted = true;                             /* suppress the release toggle */
+                sendCmd('heatpct', -1, { p: { x: heatPct } });
+                knobShow = 'heat'; screenDirty = true;
+                return;
+            }
             if (fxView) {                                        /* knob N = FX N macro; Shift = its dry/wet */
                 if (shiftHeld) {
                     fxWet[ki] = clampf(fxWet[ki] + dn * 0.03, 0, 1);
