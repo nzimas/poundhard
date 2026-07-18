@@ -7,6 +7,7 @@ survive kit regeneration.
 from __future__ import annotations
 
 import copy
+import math
 import random
 from dataclasses import dataclass, field
 
@@ -492,9 +493,9 @@ class Project:
         tr = self.tracks[track]
         tr.step_living[cell] = not tr.step_living[cell]
         if tr.step_living[cell]:
-            tr.step_cyc[cell] = 0
             self.reroll_living(track, cell)     # one-shot feedback; fx sends wait for tick
             tr.step_active[cell] = True
+            tr.step_cyc[cell] = 1               # already armed at phase 0 -> next tick is phase 1
         else:                                   # back to a plain, untransformed step
             self._revert_living_cell(track, cell)
             tr.step_active[cell] = False
@@ -543,19 +544,24 @@ class Project:
                     v = rng.uniform(mlo, mhi)
                 pairs[arg] = round(v, 5)
 
-        # STACK several flavours for audibility (envelope removed — it was inaudible).
-        # "delay"/"reverb" = route this hit through the living-FX send bus (per-step, no bleed).
-        flavours = ["fx", "fx", "filter", "pitch", "pan", "delay", "reverb"]
-        chosen = {rng.choice(flavours)}
+        # ALWAYS start from a strongly-audible PRIMARY flavour (never pan alone — pan is barely
+        # perceptible on a sustained tone), then STACK spice on top. "delay"/"reverb" route the
+        # hit through the living-FX send bus (per-step, no bleed). envelope moves were dropped.
+        primary = ["fx", "fx", "filter", "filter", "pitch", "delay", "reverb"]
+        extras = ["fx", "filter", "pitch", "pan", "delay", "reverb"]
+        chosen = {rng.choice(primary)}
         while rng.random() < 0.6 and len(chosen) < 4:       # usually 2-3 stacked flavours
-            chosen.add(rng.choice(flavours))
-        if "fx" not in chosen and rng.random() < 0.6:       # bias toward audible character
+            chosen.add(rng.choice(extras))
+
+        # pitch leaps are meaningless on DRUM/EMPTY — spend that flavour on hard character instead
+        if "pitch" in chosen and tr.type in ("EMPTY", "DRUM"):
+            chosen.discard("pitch")
             chosen.add("fx")
 
         if "fx" in chosen:
             drive("fx", rng.randint(2, 4), extreme=True)    # more params, harder
         if "filter" in chosen:
-            drive("filter", rng.randint(1, 2), extreme=rng.random() < 0.75)
+            drive("filter", rng.randint(1, 2), extreme=rng.random() < 0.8)
         drive("tone", 1, extreme=rng.random() < 0.4)        # a little extra movement
 
         if rng.random() < 0.3:                              # ratchet: occasional
@@ -591,36 +597,37 @@ class Project:
         return None
 
     def tick_living(self, track: int):
-        """Advance one cycle for a track's living steps (TRANSIENT model): a marked step
-        plays NORMAL until its period elapses, then FIRES one fresh transform for that one
-        cycle, then reverts the next cycle. Returns (changed_cells, living_fx_params) — the
-        latter is the (dTime,dFb,dMix,vMix,vRoom,vDamp) tuple to push if a fire this cycle
-        requested a delay/reverb send, else None."""
+        """Advance one bar for a track's living steps. Returns (changed_cells, living_fx).
+
+        /ph/cycle fires every 16 GLOBAL steps (one bar), but a marked step only SOUNDS once
+        per track LOOP (= length/rate global steps = length/(16*rate) bars). The old model
+        armed a transform for a single bar, so on any track whose loop spans >1 bar the step
+        usually never played while armed — you'd hear nothing for many repeats, then a hit.
+
+        Fix: hold the transform armed for a FULL loop (`loop_bars`, rounded UP so the window
+        always covers at least one play). Any window that long is guaranteed to contain
+        exactly one play of the step, regardless of phase — so a fire is ALWAYS audible. The
+        period is counted in step PLAYS: fire once, then stay plain for `period-1` loops."""
         tr = self.tracks[track]
-        # /ph/cycle fires every 16 GLOBAL steps (one bar). The marked step plays once per
-        # track LOOP, which is `length/rate` global steps = length/(16*rate) bars. So to fire
-        # every `period` PLAYS of the step (what the user counts), the bar-period is scaled by
-        # the loop length. length 16 @ rate 1 -> 1 bar/loop (period == plays); the default
-        # length 32 -> 2 bars/loop, which is why period 4 used to fire every 2 plays.
-        bars_per_loop = max(1, round(tr.length / (16.0 * max(tr.rate, 0.0625))))
+        loop_bars = max(1, math.ceil(tr.length / (16.0 * max(tr.rate, 0.0625))))
         changed = []
         living_fx = None
         for c in range(N_STEPS):
             if not tr.step_living[c]:
                 continue
-            if tr.step_active[c]:                 # was transformed last cycle -> revert now
-                self._revert_living_cell(track, c)
-                tr.step_active[c] = False
-                changed.append(c)
-            tr.step_cyc[c] += 1
-            eff = max(1, int(tr.step_period[c]) * bars_per_loop)   # period counted in step PLAYS
-            if tr.step_cyc[c] >= eff:
-                tr.step_cyc[c] = 0
+            eff = max(1, int(tr.step_period[c])) * loop_bars   # total bars in one period
+            phase = tr.step_cyc[c] % eff
+            if phase == 0:                        # start of a period -> arm a fresh transform
                 fx = self.reroll_living(track, c)
                 tr.step_active[c] = True
                 changed.append(c)
                 if fx is not None:
                     living_fx = fx
+            elif phase == loop_bars and tr.step_active[c]:   # one loop later -> back to plain
+                self._revert_living_cell(track, c)
+                tr.step_active[c] = False
+                changed.append(c)
+            tr.step_cyc[c] = (phase + 1) % eff
         return changed, living_fx
 
     # -- kit --------------------------------------------------------------- #
