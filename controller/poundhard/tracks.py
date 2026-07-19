@@ -90,6 +90,7 @@ class Track:
     step_xmacro: list = field(default_factory=lambda: [None] * N_STEPS)  # transform's param overrides
     step_cyc: list = field(default_factory=lambda: [0] * N_STEPS)        # runtime bar counter
     step_active: list = field(default_factory=lambda: [False] * N_STEPS)  # runtime: transformed last cycle
+    step_heat: list = field(default_factory=lambda: [False] * N_STEPS)   # runtime: marked live by the HEAT macro (never saved)
 
     def load_voice(self, voice: dict) -> None:
         """Apply a generated kit voice (keeps pattern + mute + per-step locks)."""
@@ -123,7 +124,10 @@ class Track:
                 "length": self.length, "rate": self.rate,
                 "step_note": list(self.step_note), "step_vel": list(self.step_vel),
                 "step_pan": list(self.step_pan), "step_macro": list(self.step_macro),
-                "step_living": list(self.step_living), "step_period": list(self.step_period),
+                # HEAT is a temporary performance overlay — its marks (step_heat) are never
+                # persisted, so a snapshot stores only the hand-placed (Rec+pad) living steps.
+                "step_living": [lv and not ht for lv, ht in zip(self.step_living, self.step_heat)],
+                "step_period": list(self.step_period),
                 "step_ratchet": list(self.step_ratchet), "step_send": list(self.step_send),
                 "step_xmacro": [list(x) if x else None for x in self.step_xmacro]}
 
@@ -143,6 +147,7 @@ class Track:
         t.step_ratchet = ([int(x) for x in d.get("step_ratchet", [])][:N_STEPS] + [1] * N_STEPS)[:N_STEPS]
         t.step_send = ([int(x) for x in d.get("step_send", [])][:N_STEPS] + [0] * N_STEPS)[:N_STEPS]
         t.step_cyc = [0] * N_STEPS
+        t.step_heat = [False] * N_STEPS       # HEAT is never restored from disk (performance-only)
         return t
 
 
@@ -315,21 +320,15 @@ class Project:
 
     # -- pattern delete / copy / paste -------------------------------------- #
     def delete_pattern(self, slot: int) -> bool:
-        """Delete a pattern and CLOSE THE GAP: everything to its right shifts one slot
-        left, so the bank never has blanks between patterns."""
+        """Delete a pattern IN PLACE: only that slot is cleared; every other pattern keeps
+        its position in the bank (no gap-closing shift)."""
         if not (0 <= slot < N_PATTERNS) or self.patterns[slot] is None:
             return False
-        del self.patterns[slot]
-        self.patterns.append(None)
-        # slots moved — keep the current/queued pointers on the right patterns
+        self.patterns[slot] = None
         if self.pattern_cur == slot:
-            self.pattern_cur = -1              # the live pattern's slot is gone
-        elif self.pattern_cur > slot:
-            self.pattern_cur -= 1
+            self.pattern_cur = -1              # the live pattern's slot is gone (state keeps playing)
         if self.pattern_pending == slot:
             self.pattern_pending = -1
-        elif self.pattern_pending > slot:
-            self.pattern_pending -= 1
         return True
 
     def copy_pattern(self, slot: int) -> bool:
@@ -642,17 +641,19 @@ class Project:
             vals[i] = random.choice([p for p in range(2, 7) if p != vals[i]])
         return vals
 
-    def heat_clear_all(self) -> list:
-        """Remove EVERY living mark on every track (the HEAT macro owns all living state) and
-        revert any mid-transform cell. Idempotent — safe to call whether or not heat is on, so
-        toggling OFF always fully resets. Returns the (track,cell) that were ACTIVE at clear
-        time, so the caller resets exactly those in the engine."""
+    def heat_clear(self) -> list:
+        """Remove only the HEAT-owned living marks (step_heat) and revert any mid-transform;
+        hand-placed (Rec+pad) living steps are left untouched. Idempotent — safe to call whether
+        or not heat is on, so toggling OFF always fully resets the overlay. Returns the
+        (track,cell) that were ACTIVE at clear time, so the caller resets exactly those in the
+        engine."""
         active = []
         for t, tr in enumerate(self.tracks):
             for c in range(N_STEPS):
-                if tr.step_living[c]:
+                if tr.step_heat[c]:
                     if tr.step_active[c]:
                         active.append((t, c))
+                    tr.step_heat[c] = False
                     tr.step_living[c] = False
                     tr.step_period[c] = 4
                     tr.step_cyc[c] = 0
@@ -663,15 +664,18 @@ class Project:
     def heat_apply(self, pct: float) -> None:
         """HEAT: mark ~pct of the SEQUENCED steps (pattern hits) of every non-empty track as
         living, with per-step periods spread over 2..6 (varied within each track) and STAGGERED
-        cycle phases so they don't all transform on the same bar. Assumes the caller cleared
-        living state first (heat_clear_all), so marks never stack across re-applies."""
+        cycle phases so they don't all transform on the same bar. It's a TEMPORARY OVERLAY:
+        marks are flagged step_heat (never saved), it skips steps that are already living (so
+        hand-placed marks are preserved), and the caller clears the overlay first (heat_clear)
+        so re-applies never stack."""
         pct = max(0.0, min(1.0, float(pct)))
         if pct <= 0.0:
             return
         for t, tr in enumerate(self.tracks):
             if tr.type == "EMPTY":
                 continue
-            cands = [c for c in range(min(tr.length, N_STEPS)) if tr.pattern[c]]
+            cands = [c for c in range(min(tr.length, N_STEPS))
+                     if tr.pattern[c] and not tr.step_living[c]]   # skip hand-placed living steps
             if not cands:
                 continue
             random.shuffle(cands)
@@ -680,6 +684,7 @@ class Project:
             loop_bars = max(1, math.ceil(tr.length / (16.0 * max(tr.rate, 0.0625))))
             for cell, per in zip(chosen, self._heat_periods(len(chosen))):
                 tr.step_living[cell] = True
+                tr.step_heat[cell] = True               # HEAT-owned: cleared on toggle-off, never saved
                 tr.step_period[cell] = per
                 tr.step_active[cell] = False
                 self._revert_living_cell(t, cell)       # start plain; fires when its period elapses

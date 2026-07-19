@@ -143,8 +143,8 @@ class Controller:
     # -- push authoritative state to the engine ---------------------------- #
     def _push_all(self) -> None:
         # a full-machine replacement (pattern/project load) drops the HEAT toggle — the
-        # living flags now come from the freshly-loaded pattern, not the macro. (heat_clear_all
-        # is idempotent, so a later toggle-off still fully resets even after this.)
+        # living flags now come from the freshly-loaded pattern, not the macro (step_heat is
+        # runtime-only and resets on load, so heat_clear stays idempotent afterwards).
         self._heat_on = False
         self.bridge.steps(self.state.steps)
         self.bridge.tempo(self.state.tempo)
@@ -486,7 +486,7 @@ class Controller:
                 st.set_step_period(t, cell, int(p.get("x", 4)))
         elif cmd == "heat":                    # Heat pad (default view): toggle the mass-living macro
             on = int(arg) != 0
-            for (t, c) in st.heat_clear_all():  # idempotent: always wipe first (fresh slate / full off)
+            for (t, c) in st.heat_clear():  # idempotent: clear the overlay first (fresh slate / full off)
                 self._reset_engine_cell(t, c)
             if on:
                 st.heat_apply(self._heat_pct)
@@ -494,7 +494,7 @@ class Controller:
         elif cmd == "heatpct":                 # hold Heat + knob1: set the heat fraction (re-heats live)
             self._heat_pct = max(0.05, min(1.0, float(p.get("x", 0.5))))
             if self._heat_on:                  # already engaged -> reshuffle at the new density
-                for (t, c) in st.heat_clear_all():
+                for (t, c) in st.heat_clear():
                     self._reset_engine_cell(t, c)
                 st.heat_apply(self._heat_pct)
         elif cmd == "mute":

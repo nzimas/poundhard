@@ -286,15 +286,15 @@ patterns and projects.
 | **Shift + pad** | save the current machine state to that slot |
 | **Pad — tap** (holds a pattern) | load that pattern |
 | **Pad — tap** (empty) | **select** that slot as the destination for what you do next |
-| **X (Delete) + pad** | **delete** that pattern — the bank **closes the gap** (see below) |
+| **X (Delete) + pad** | **delete** that pattern — the slot clears, other patterns **stay put** (see below) |
 | **Copy + pad** | **copy** that pattern; **further pads paste it** while Copy is held |
 | **Shift + Track 3** | **generate a variation** of the current pattern (see below) |
 | **Shift + hold volume knob + Track 3** | **fully randomise** this pattern in place (see below) |
 
-**Delete closes the gap.** Deleting a pattern shifts every pattern to its right one
-slot left, so the bank never has blanks between patterns. The current/queued pointers
-follow their patterns; if you delete the pattern you're *on*, it simply detaches (the
-live state keeps playing, it's just no longer tied to a slot).
+**Delete is in place.** Deleting a pattern clears **only that slot** — every other
+pattern keeps its position in the bank, so nothing shuffles under you. If you delete the
+pattern you're *on*, it simply detaches (the live state keeps playing, it's just no longer
+tied to a slot).
 
 **Copy/paste is a held gesture.** Hold **Copy** and tap a pattern to take it; keep
 holding and tap any other pads to paste it there. **Releasing Copy forgets the
@@ -526,13 +526,14 @@ track's hits** become living steps at once, each with a period spread over **2�
 variety inside each track) and **staggered phases** so they don't all mutate on the same bar
 — the performance gradually comes to a boil rather than lurching. **Hold the HEAT pad and
 turn knob 1** to set the amount (giant `HEAT %` readout); raising it re-heats live at the new
-density. **Toggling off removes every marker and resets**, so the next press rolls a fresh
+density. **Toggling off removes HEAT's markers and resets**, so the next press rolls a fresh
 configuration. The pad glows a **fire pulse** while engaged, and the tracks-view screen shows
 `HEAT %`.
 
-> HEAT owns all living state while engaged: toggling it clears the marks entirely (including
-> any placed by hand) — that's what makes turning it **off** reliable, and matches its role as
-> a global "raise the temperature" switch.
+> HEAT is a **temporary performance overlay**: its marks are never saved with a pattern, and
+> it leaves any **hand-placed** (Rec+pad) living steps alone — toggling HEAT off clears only
+> what HEAT added. Save a pattern with HEAT blazing and you get back the clean pattern, heat
+> not baked in.
 
 ### Autosave
 
