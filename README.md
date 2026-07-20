@@ -62,8 +62,8 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   build your rig by assigning engines from the **engine palette** (see below). Any
   engine can go on any track, and the assignment is **per pattern** — two patterns can
   carry completely different rigs.
-- **9 assignable engines** on the palette pads (the top row, plus PLAITS wrapping onto
-  the first pad of the second row), each in its own colour:
+- **11 assignable engines** on the palette pads (the top row, plus PLAITS / SHAKER /
+  MEMBRANE wrapping onto the second row), each in its own colour:
 
   | Pad | Engine | Colour | Character |
   |--------|--------|--------|-----------|
@@ -76,6 +76,8 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   | 7 | **NOIZEOP** | 🩷 pink | 4-sine / 6-algorithm glitch-noise machine |
   | 8 | **ICARUS** | 🟪 violet | dreamcrusher drone / pad (VarSaw + FB delay) |
   | 9 | **PLAITS** | 🟩 lime | Mutable Plaits — 16-model macro-oscillator |
+  | 10 | **SHAKER** | 🟨 amber | STK Shakers — 23 shaker/scraper models (maraca, cabasa, tambourine…) |
+  | 11 | **MEMBRANE** | 🟥 warm red | struck 2D-waveguide membrane — tunable drums / frame drums / gongs |
 
 - **Engine palette** (top row of pads, default view): **short-press** a pad to
   audition its current sound; **Shift + pad** to regenerate it; **hold a pad and
@@ -185,10 +187,25 @@ All voices are **spawned per hit and self-free** (see [voice model](#voice-model
   the synthdef applies a per-model output trim (now all ≈0.7 peak). Without it a string
   voice would simply vanish under a chord and the mix logic would be meaningless.
 
-> RINGS and **PLAITS** need the **mi-UGens** plugins; the reverb FX and **ICARUS** (`MoogLadder`),
-> **BEN** (`PulseDPW`/`SVF`/`DFM1`) need **sc3-plugins** present in the SuperCollider
-> bundle on the device. There are **no silent fallbacks** — a missing dependency fails
-> loudly at build.
+- **SHAKER** — **STK Shakers** (`StkShakers`, from sc3-plugins): 23 stochastic
+  shaker/scraper physical models — maraca, cabasa, sekere, guiro, water drops, bamboo
+  chimes, tambourine, sleigh bells, sand paper, rocks, tuned bamboo. `instr` picks the
+  model; energy / system-decay / object-count / resonance shape the gesture. Each hit
+  injects a burst of shake energy (enveloped) that decays to one shake, and the note
+  tilts the resonance. The generator picks a model first, then targets its parameters to
+  that instrument (see `kits._SHAKER_SPEC`). STK's output is quiet, so the voice applies
+  a fixed output boost to sit at engine level.
+- **MEMBRANE** — a struck **2D-waveguide membrane** (`MembraneCircle`, from sc3-plugins):
+  tunable drums, frame drums, warped skins, gongs. A short filtered-noise **strike**
+  excites the mesh; `tension` sets the pitch/character and `loss` the ring time — so the
+  note tunes the drum along a tom→gong continuum. It frees on silence (the membrane's own
+  decay) with a hard time cap, so long gong rings land but nothing leaks. Three targeted
+  roles (tom / frame / gong) drive the generator.
+
+> RINGS and **PLAITS** need the **mi-UGens** plugins (as does the **CLOUDS** FX);
+> **SHAKER**, **MEMBRANE**, the reverb FX, **ICARUS** (`MoogLadder`) and **BEN**
+> (`PulseDPW`/`SVF`/`DFM1`) need **sc3-plugins** present in the SuperCollider bundle on
+> the device. There are **no silent fallbacks** — a missing dependency fails loudly at build.
 
 ---
 
@@ -265,8 +282,13 @@ place.
 ### FX view
 
 **Track 2** opens the FX view. The top two pad rows are the 16 tracks; the bottom
-row is an 8-effect chain — `OD · AMP · CRSH · RING · FLNG · GRN · GREY · VRB`
+row is an 8-effect chain — `OD · AMP · CRSH · RING · FLNG · CLDS · GREY · VRB`
 (reverb always last/rightmost), each a distinct colour.
+
+**CLDS** is **MiClouds** — Mutable Instruments **Clouds** (mi-UGens) as a live granular
+texture processor: grain size / density / texture / position, stereo spread, an internal
+reverb and feedback, a pitch shift and a freeze. Its macro morphs the cloud in one gesture
+— freezing, smearing and pitch-shifting the track into evolving pads and textures.
 
 **GREY** is **Greyhole** (sc3-plugins) — a diffuse, pitch-modulated feedback delay that
 blurs toward reverb as its diffusion and size rise (after ValhallaDSP's Greyhole). Its
@@ -460,7 +482,7 @@ overrun the audio thread. Every engine and effect was **measured on the device**
 | RINGS | 9.6 | | AMP | 1.7 |
 | BEN | 9.7 | | GREY | ~4.5* |
 | MOLLY | 11.7 | | OD | 2.5 |
-| NOIZEOP | 12.0 | | GRN | 4.5 |
+| NOIZEOP | 12.0 | | CLDS | ~6.0* |
 | ICARUS | 13.2 | | **VRB** | **10.0** |
 
 Reverb costs as much as an entire ICARUS voice, and ten expensive tracks with three
@@ -475,7 +497,7 @@ patterns on the device: **worst sustained 47%, worst peak 50%**.
   **that pattern's own tempo**.
 
 The generated tracks are laid out **contiguously from track 1 and grouped by engine**
-(in palette order — DRUM · FM7 · BUCHLOID · MOLLY · RINGS · BEN · NOIZEOP · ICARUS,
+(in palette order — DRUM · FM7 · BUCHLOID · MOLLY · RINGS · BEN · NOIZEOP · ICARUS · PLAITS · SHAKER · MEMBRANE,
 with roles in musical order inside each block). Since the step buttons are coloured by
 engine, a generated rig reads as **contiguous colour blocks** rather than a scatter.
 
@@ -737,7 +759,7 @@ flag, and the HEAT macro state (`heat / heatPct`).
 ### OSC (controller → engine, sclang langPort 57120)
 
 `/ph/tempo` · `/ph/run` · `/ph/steps` · `/ph/track t typeIdx` (**-1=empty** 0=DRUM
-1=FM7 2=BUCHLOID 3=MOLLY 4=RINGS 5=BEN 6=NOIZEOP 7=ICARUS 8=PLAITS) ·
+1=FM7 2=BUCHLOID 3=MOLLY 4=RINGS 5=BEN 6=NOIZEOP 7=ICARUS 8=PLAITS 9=SHAKER 10=MEMBRANE) ·
 `/ph/param t "name" val` ·
 `/ph/preview typeIdx note vel mode [name val …]` (audition one voice → master) ·
 `/ph/pattern` · `/ph/stepset` · `/ph/steplock` · `/ph/stepmacro` · `/ph/clearlocks` ·

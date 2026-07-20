@@ -513,6 +513,43 @@
 		Out.ar(out, ~killbad.(snd));
 	}).add;
 
+	// ================= SHAKER — STK Shakers (sc3-plugins), self-freeing ==============
+	// STK's stochastic shaker/scraper models (maraca, cabasa, sekere, guiro, tambourine,
+	// sleigh bells, bamboo chimes, sand...): `instr` picks the model; energy/decay/objects/
+	// resfreq shape the gesture. Energy is enveloped so each hit is ONE shake that decays;
+	// the note shifts the resonance so the sequencer tilts the shaker brighter/darker.
+	SynthDef(\phShaker, { |out = 16, note = 60, vel = 1,
+		instr = 0, energy = 90, decay = 70, objects = 40, resfreq = 64,
+		atk = 0.001, dec = 0.35, amp = 0.9, pan = 0|
+		var v = vel.clip(0, 2).max(0.03);
+		var eEnv = EnvGen.kr(Env.perc(0.001, dec.clip(0.02, 3), 1, -4));
+		var aEnv = EnvGen.ar(Env.perc(atk.clip(0.0002, 0.2), (dec * 1.5).clip(0.02, 4), 1, -3));
+		var rf = (resfreq + (note - 60)).clip(0, 128);
+		var sig = StkShakers.ar(instr.round.clip(0, 22), (energy * eEnv).clip(0, 128),
+			decay.clip(0, 128), objects.clip(0, 128), rf);
+		sig = sig * aEnv * v * amp * 4.5;    // STK Shakers output is low — bring it up to engine level
+		Line.kr(0, 1, atk + (dec * 1.5) + 0.3, doneAction: 2);
+		Out.ar(out, ~killbad.(~spread.(LeakDC.ar(sig), pan)));
+	}).add;
+
+	// ================= MEMBRANE — 2D waveguide struck membrane (sc3-plugins) =========
+	// MembraneCircle: a struck circular membrane (toms, frame drums, gongs, warped skins).
+	// A short filtered-noise STRIKE excites the mesh; `tension` sets pitch/character, `loss`
+	// the ring time. The note shifts tension so the sequencer tunes the drum. Frees on
+	// silence (the membrane's own decay), with a hard time cap for safety.
+	SynthDef(\phMembrane, { |out = 16, note = 48, vel = 1,
+		tension = 0.05, loss = 0.9995, tone = 0.5, strike = 0.5, amp = 0.9, pan = 0|
+		var v = vel.clip(0, 2).max(0.03);
+		var sEnv = EnvGen.ar(Env.perc(0.0002, (0.002 + (strike * 0.03)).clip(0.001, 0.08), 1, -6));
+		var exc = LPF.ar(WhiteNoise.ar, tone.clip(0, 1).linexp(0, 1, 600, 9000)) * sEnv * (0.4 + (v * 0.6));
+		var tns = (tension * (2 ** ((note.clip(24, 96) - 48) / 24))).clip(0.004, 0.22);
+		var sig = MembraneCircle.ar(exc, tns, loss.clip(0.9, 0.99998));
+		sig = LeakDC.ar(sig) * v * amp * 2.0;
+		DetectSilence.ar(sig, 0.0003, 0.15, doneAction: 2);
+		Line.kr(0, 1, 8.0, doneAction: 2);
+		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+	}).add;
+
 	// ================= FX (per-track insert chain) =================
 	// Each FX reads its track bus (`in`), processes, and REPLACES the bus (`out`
 	// == `in`) — so a track's FX run in place, in canonical chain order. Stereo.
@@ -639,30 +676,18 @@
 		ReplaceOut.ar(out, ~killbad.(~panOut.((outSig * (1 - bypass)) + (dry * bypass), pan)));
 	}).add;
 
-	// ---- GRAINS: live granulator (records track bus into a 4s buffer) ----
-	// Uses GrainBuf's default hann window (envbufnum -1); `shape` is reserved.
-	SynthDef(\phGrains, { |out = 0, in = 0, size = 0.12, density = 40, pos = 0.0, spray = 0.08, jitter = 0.2, spread = 0.7, reverse = 0, shimmer = 0, texture = 0.4, chaos = 0, feedback = 0, freeze = 0, inGain = 1, amp = 0.9, pan = 0, bypass = 0, wet = 0.5, enable = 1|
-		var buf = LocalBuf(SampleRate.ir * 4, 1).clear;
-		var nstream = 4;
-		var dry = In.ar(in, 2), mono = Mix(dry) * 0.5;
-		var fb = LocalIn.ar(1);
-		var rec = LeakDC.ar((mono * inGain) + (fb * feedback.clip(0, 0.9)).tanh);
-		var streams, wetSig, wetL, wetR, gmono, outSig;
-		RecordBuf.ar(rec, buf, loop: 1, run: 1 - freeze);
-		streams = Array.fill(nstream, {
-			var trig = Dust.ar((density / nstream).max(0.1));
-			var gdur = (size * (1 + (jitter * WhiteNoise.ar))).clip(0.003, 0.6);
-			var rpos = (pos + TRand.ar(spray.neg, spray, trig)).clip(0, 1);
-			var dir = 1 - (2 * (TRand.ar(0, 1, trig) < reverse));   // false->+1, true->-1
-			var oct = 1 + (TRand.ar(0, 1, trig) < shimmer);         // false->1, true->2 (octave up)
-			var gpan = TRand.ar(spread.neg, spread, trig);
-			GrainBuf.ar(2, trig, gdur, buf, dir * oct, rpos, 2, gpan, -1, 512);
-		});
-		wetSig = Mix(streams);
-		wetL = wetSig[0] * amp; wetR = wetSig[1] * amp;
-		gmono = (wetL + wetR) * 0.5;
-		LocalOut.ar(~killbad.(gmono));
-		outSig = [XFade2.ar(dry[0], wetL, wet * 2 - 1), XFade2.ar(dry[1], wetR, wet * 2 - 1)];
+	// ---- CLOUDS: Mutable Instruments Clouds granular texture processor (mi-UGens) ----
+	// A live granular cloud over the track bus: grain size/density/texture/position, stereo
+	// spread, an internal reverb and feedback, plus a pitch shift and a freeze. `mode`
+	// selects Clouds' engines (0 granular, 1 pitch-shifter, 2 looping delay, 3 spectral).
+	SynthDef(\phClouds, { |out = 0, in = 0, pit = 0, pos = 0.5, size = 0.35, dens = 0.4, tex = 0.5, spread = 0.6, rvb = 0.2, fb = 0.0, freeze = 0, mode = 0, lofi = 0, amp = 1, pan = 0, bypass = 0, wet = 0.5, enable = 1|
+		var dry = In.ar(in, 2);
+		// drywet=1: Clouds returns full wet; we manage dry/wet ourselves with `wet`.
+		var g = MiClouds.ar(dry, pit.clip(-36, 36), pos.clip(0, 1), size.clip(0, 1), dens.clip(0, 1),
+			tex.clip(0, 1), 1.0, 1.0, spread.clip(0, 1), rvb.clip(0, 1), fb.clip(0, 1),
+			freeze, mode.round.clip(0, 3), lofi.round.clip(0, 1)) * enable;
+		var wL = g[0] * amp, wR = g[1] * amp, outSig;
+		outSig = [XFade2.ar(dry[0], wL, wet * 2 - 1), XFade2.ar(dry[1], wR, wet * 2 - 1)];
 		ReplaceOut.ar(out, ~killbad.(~panOut.((outSig * (1 - bypass)) + (dry * bypass), pan)));
 	}).add;
 };

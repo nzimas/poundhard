@@ -213,7 +213,7 @@ def gen_kit(seed: int | None = None) -> dict:
 # essentials that keep a voice idiomatic.
 # --------------------------------------------------------------------------- #
 PALETTE_ENGINES = ["DRUM", "FM7", "BUCHLOID", "MOLLY", "RINGS", "BEN", "NOIZEOP",
-                   "ICARUS", "PLAITS"]
+                   "ICARUS", "PLAITS", "SHAKER", "MEMBRANE"]
 
 # a canonical note per drum mode, so an auditioned/assigned drum sits in register
 # (mode order matches catalog DRUM enum: kick snare hihat metal clap tom noise)
@@ -390,6 +390,63 @@ PALETTE_ROLES["FM7"] = FM7_ROLES["FM EP"]
 _FM7_WEIGHTS = {"FM CLANG": 3, "FM BASS": 3, "FM BELL": 3, "FM STAB": 2, "FM EP": 2, "FM ORGAN": 1}
 
 
+# --------------------------------------------------------------------------- #
+# SHAKER (STK Shakers) — per-instrument targeting. `instr` picks one of 23 stochastic
+# shaker/scraper models; each wants its own energy / decay / object-count / resonance
+# to sound like that instrument. Fields: (instr, name, note, energy, decay, objects,
+# resfreq, dec).
+# --------------------------------------------------------------------------- #
+_SHAKER_SPEC = [
+    (0,  "SHK MARACA",  60, (75, 120), (35, 80),  (12, 40),  (55, 110), (0.05, 0.22)),
+    (1,  "SHK CABASA",  62, (70, 115), (40, 90),  (18, 55),  (60, 115), (0.05, 0.20)),
+    (2,  "SHK SEKERE",  58, (70, 118), (40, 95),  (25, 70),  (40, 95),  (0.06, 0.28)),
+    (3,  "SHK GUIRO",   57, (60, 110), (55, 110), (8, 30),   (35, 90),  (0.10, 0.45)),
+    (5,  "SHK BAMBOO",  67, (55, 100), (60, 118), (30, 80),  (55, 110), (0.20, 0.9)),
+    (6,  "SHK TAMB",    64, (70, 120), (45, 95),  (20, 60),  (50, 105), (0.08, 0.35)),
+    (7,  "SHK SLEIGH",  69, (65, 115), (55, 110), (25, 75),  (60, 115), (0.15, 0.6)),
+    (11, "SHK SAND",    55, (55, 100), (40, 90),  (4, 20),   (30, 85),  (0.08, 0.4)),
+    (20, "SHK ROCKS",   48, (70, 120), (30, 75),  (4, 16),   (20, 70),  (0.05, 0.25)),
+    (22, "SHK ANKLUNG", 65, (60, 110), (55, 115), (12, 40),  (55, 110), (0.15, 0.7)),
+]
+
+
+def _shaker_role(spec) -> Role:
+    instr, name, note, en, dc, ob, rf, dec = spec
+    return Role(name, "SHAKER", fixed={"shaker.instr": float(instr)}, note=note,
+                bands={"shaker.energy": en, "shaker.decay": dc, "shaker.objects": ob,
+                       "shaker.resfreq": rf, "shaker.dec": dec}, vel=(0.8, 1.05))
+
+
+SHAKER_ROLES: dict[str, Role] = {s[1]: _shaker_role(s) for s in _SHAKER_SPEC}
+PALETTE_ROLES["SHAKER"] = SHAKER_ROLES["SHK MARACA"]
+_SHAKER_WEIGHTS = {"SHK MARACA": 3, "SHK CABASA": 2, "SHK SEKERE": 2, "SHK GUIRO": 2,
+                   "SHK TAMB": 2, "SHK SAND": 2, "SHK ROCKS": 2, "SHK BAMBOO": 1,
+                   "SHK SLEIGH": 1, "SHK ANKLUNG": 1}
+
+
+# --------------------------------------------------------------------------- #
+# MEMBRANE (MembraneCircle) — struck-membrane roles: tom / frame drum / gong. Note
+# shifts tension (pitch); `loss` sets the ring time. (tension, loss, tone, note).
+# --------------------------------------------------------------------------- #
+_MEMBRANE_SPEC = [
+    ("MEM TOM",   (0.04, 0.1),    (0.997, 0.9995),   (0.3, 0.7),  ((0, 3, 5, 7), 0)),
+    ("MEM FRAME", (0.02, 0.06),   (0.994, 0.999),    (0.4, 0.85), ((0, 5, 7), 12)),
+    ("MEM GONG",  (0.008, 0.03),  (0.9996, 0.99996), (0.2, 0.6),  ((0, 7), -12)),
+]
+
+
+def _membrane_role(spec) -> Role:
+    name, tns, loss, tone, note = spec
+    return Role(name, "MEMBRANE", note_choices=note[0], octave=note[1],
+                bands={"membrane.tension": tns, "membrane.loss": loss,
+                       "membrane.tone": tone, "membrane.strike": (0.1, 0.8)}, vel=(0.8, 1.05))
+
+
+MEMBRANE_ROLES: dict[str, Role] = {s[0]: _membrane_role(s) for s in _MEMBRANE_SPEC}
+PALETTE_ROLES["MEMBRANE"] = MEMBRANE_ROLES["MEM TOM"]
+_MEMBRANE_WEIGHTS = {"MEM TOM": 3, "MEM FRAME": 2, "MEM GONG": 1}
+
+
 def gen_palette_voice(engine: str, rng: random.Random | None = None) -> dict:
     """Generate one fresh sound for an engine's palette pad (audition / assign)."""
     rng = rng or random.Random()
@@ -405,6 +462,15 @@ def gen_palette_voice(engine: str, rng: random.Random | None = None) -> dict:
         names = list(_FM7_WEIGHTS)
         name = rng.choices(names, weights=[_FM7_WEIGHTS[n] for n in names])[0]
         return gen_voice(FM7_ROLES[name], rng)
+    if engine == "SHAKER":
+        # pick an INSTRUMENT model first, then its targeted role.
+        names = list(_SHAKER_WEIGHTS)
+        name = rng.choices(names, weights=[_SHAKER_WEIGHTS[n] for n in names])[0]
+        return gen_voice(SHAKER_ROLES[name], rng)
+    if engine == "MEMBRANE":
+        names = list(_MEMBRANE_WEIGHTS)
+        name = rng.choices(names, weights=[_MEMBRANE_WEIGHTS[n] for n in names])[0]
+        return gen_voice(MEMBRANE_ROLES[name], rng)
     voice = gen_voice(PALETTE_ROLES[engine], rng)
     if engine == "DRUM":                       # put the drum in register for its mode
         mode = int(round(voice["params"].get("drum.mode", 0)))

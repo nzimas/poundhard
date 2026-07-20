@@ -62,7 +62,7 @@ const DIM_COLOR = 74;               /* very-dark-yellow: in-length inactive step
 const SEL_COLOR = White;            /* playhead / selected edit track */
 const OFF_COLOR = Black;            /* muted track / out-of-length step */
 const LIVE_ON = 23, LIVE_DIM = 109; /* NeonPink / DeepMagenta — a LIVING (self-transforming) step */
-/* 8 distinct FX pad colours (canonical chain order: OD AMP CRSH RING FLNG GRN GREY VRB) */
+/* 8 distinct FX pad colours (canonical chain order: OD AMP CRSH RING FLNG CLDS GREY VRB) */
 const FX_COLORS = [3, 27, 14, 21, 12, 31, 16, 20];
 const BYPASS_COLOR = 118;           /* light grey: a track whose FX are bypassed (visible) */
 const N_FX = 8;
@@ -85,13 +85,15 @@ const TYPE_COL = {
     NOIZEOP:  [23, 109],  /* NeonPink / DeepMagenta — deeg's NoizeOp glitch-noise */
     ICARUS:   [18, 105],  /* BlueViolet / MutedViolet — schollz's Icarus drone/pad */
     PLAITS:   [31, 84],   /* Lime / DarkOlive — Mutable Plaits, the 16-model macro-osc */
+    SHAKER:   [25, 106],  /* Amber / DarkAmber — STK Shakers (maraca/cabasa/tambourine…) */
+    MEMBRANE: [6, 70],    /* WarmRed / Brick — struck 2D-waveguide membrane (drums/gongs) */
 };
-/* Engine palette: the 9 assignable engines. The first 8 fill the top row (cells 0..7);
- * PLAITS wraps onto the first pad of the second row (cell 8) — the lone lit pad under
- * the leftmost, easy to find by feel. Same order & colours as TYPE_COL.
+/* Engine palette: the 11 assignable engines. The first 8 fill the top row (cells 0..7);
+ * PLAITS, SHAKER and MEMBRANE wrap onto the second row (cells 8, 9, 10). Same order &
+ * colours as TYPE_COL.
  * Short-press = audition, Shift+pad = regenerate, hold pad + tap a track = assign. */
 const ENGINE_TYPES = ['DRUM', 'FM7', 'BUCHLOID', 'MOLLY', 'RINGS', 'BEN', 'NOIZEOP',
-    'ICARUS', 'PLAITS'];
+    'ICARUS', 'PLAITS', 'SHAKER', 'MEMBRANE'];
 const N_ENGINES = ENGINE_TYPES.length;
 
 /* ---- runtime state (mirrors status.json) ---- */
@@ -168,7 +170,7 @@ for (let i = 0; i < N_TRACKS; i++) fxOn.push([]);
 let fxBypass = new Array(N_TRACKS).fill(false);
 let fxMacro = new Array(N_FX).fill(0.5);
 let fxWet = new Array(N_FX).fill(0.5);   /* per-fx dry/wet (Shift + FX macro knob) */
-let fxNames = ['OD', 'AMP', 'CRSH', 'RING', 'FLNG', 'GRN', 'GREY', 'VRB'];
+let fxNames = ['OD', 'AMP', 'CRSH', 'RING', 'FLNG', 'CLDS', 'GREY', 'VRB'];
 let overlay = null, overlayUntil = -1;
 let ledDirty = true, screenDirty = true, lastLedSig = '', lastScreenSig = '', lastDrawAt = -100;
 

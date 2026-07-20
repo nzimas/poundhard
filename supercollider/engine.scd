@@ -17,7 +17,7 @@
 
 ~nTracks = 16;
 ~maxSteps = 32;
-~typeDefs = [\phDrum, \phFm7, \phBuchloid, \phMolly, \phRings, \phBen, \phNoizeop, \phIcarus, \phPlaits];  // /ph/track type index (-1 = empty/unassigned)
+~typeDefs = [\phDrum, \phFm7, \phBuchloid, \phMolly, \phRings, \phBen, \phNoizeop, \phIcarus, \phPlaits, \phShaker, \phMembrane];  // /ph/track type index (-1 = empty/unassigned)
 // DRUM is split into per-mode defs (chosen from the track's `mode` param at spawn).
 ~drumDefs = [\phDrumKick, \phDrumSnare, \phDrumHat, \phDrumMetal, \phDrumClap, \phDrumTom, \phDrumNoise];
 
@@ -57,7 +57,7 @@
 ~maxPoly   = 3;                                      // per-track voice cap (steal oldest)
 ~trackVoices = Array.fill(~nTracks, { List.new });   // live voices per track
 // FX: per-track insert chains. Canonical chain order (verb last); pad index == fx index.
-~fxDefs   = [\phOverdrive, \phAmpsim, \phBitcrusher, \phRingmod, \phFlanger, \phGrains, \phGreyhole, \phVerb];
+~fxDefs   = [\phOverdrive, \phAmpsim, \phBitcrusher, \phRingmod, \phFlanger, \phClouds, \phGreyhole, \phVerb];
 ~nFx      = 8;
 ~assigned = Array.fill(~nTracks, { Array.fill(8, { 0 }) });   // [track][fx] on/off
 ~fxBypass = Array.fill(~nTracks, { 0 });                      // per-track FX bypass

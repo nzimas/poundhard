@@ -98,7 +98,8 @@ class VoiceSpec:
 # Engine `/ph/track` type indices (must match ~typeDefs in engine.scd).
 # EMPTY = -1: an unassigned track (no engine, never spawns). Assignable engines 0..7.
 TYPE_INDEX = {"EMPTY": -1, "DRUM": 0, "FM7": 1, "BUCHLOID": 2, "MOLLY": 3,
-              "RINGS": 4, "BEN": 5, "NOIZEOP": 6, "ICARUS": 7, "PLAITS": 8}
+              "RINGS": 4, "BEN": 5, "NOIZEOP": 6, "ICARUS": 7, "PLAITS": 8,
+              "SHAKER": 9, "MEMBRANE": 10}
 
 _COMMON_TAIL = lambda pfx, ampd=0.8, ampmus=(0.5, 1.1): [
     P(f"{pfx}.amp", "Amp", unit="dB", rmin=0.0, rmax=2.0, default=ampd, curve=Curve.DB,
@@ -519,8 +520,59 @@ PLAITS = VoiceSpec(
     ],
 )
 
+# --------------------------------------------------------------------------- #
+# SHAKER — STK Shakers (sc3-plugins): 23 stochastic shaker/scraper models.
+# `instr` picks the model; the generator targets each to a role (see kits._SHAKER_SPEC).
+# --------------------------------------------------------------------------- #
+_SHAKER_INSTR = ["maraca", "cabasa", "sekere", "guiro", "waterdrop", "bambooChm",
+                 "tambourin", "sleighBell", "sticks", "crunch", "wrench", "sandpaper",
+                 "cokeCan", "nextMug", "pennyMug", "nickelMug", "dimeMug", "quartMug",
+                 "francMug", "pesoMug", "bigRocks", "littleRock", "tunedBamboo"]
+SHAKER = VoiceSpec(
+    type="SHAKER",
+    role="STK shaker/scraper models — maraca / cabasa / guiro / tambourine / chimes / sand.",
+    synthdef="phShaker",
+    params=[
+        P("shaker.instr", "Instrument", curve=Curve.ENUM, enum=_SHAKER_INSTR,
+          default=0, randomize=RandomizePolicy.WIDE),
+        P("shaker.energy", "Energy", rmin=0.0, rmax=128.0, default=90.0,
+          formatter="float1", musical=(50.0, 120.0)),
+        P("shaker.decay", "System Decay", rmin=0.0, rmax=128.0, default=70.0,
+          formatter="float1", musical=(30.0, 110.0)),
+        P("shaker.objects", "Objects", rmin=0.0, rmax=128.0, default=40.0,
+          formatter="float1", musical=(4.0, 90.0)),
+        P("shaker.resfreq", "Resonance", rmin=0.0, rmax=128.0, default=64.0,
+          formatter="float1", musical=(20.0, 110.0)),
+        P("shaker.atk", "Attack", unit="s", rmin=0.0002, rmax=0.2, default=0.001,
+          curve=Curve.EXP, formatter="float3", musical=(0.0005, 0.02)),
+        P("shaker.dec", "Decay", unit="s", rmin=0.02, rmax=4.0, default=0.35,
+          curve=Curve.EXP, formatter="float2", musical=(0.05, 1.2)),
+        *_COMMON_TAIL("shaker", ampd=0.9, ampmus=(0.5, 1.1)),
+    ],
+)
+
+# --------------------------------------------------------------------------- #
+# MEMBRANE — 2D waveguide struck membrane (MembraneCircle, sc3-plugins).
+# Struck drums / frame drums / gongs. Note shifts `tension` (pitch); `loss` = ring time.
+# --------------------------------------------------------------------------- #
+MEMBRANE = VoiceSpec(
+    type="MEMBRANE",
+    role="Struck 2D-waveguide membrane — tunable drums / frame drums / gongs.",
+    synthdef="phMembrane",
+    params=[
+        P("membrane.tension", "Tension", rmin=0.004, rmax=0.22, default=0.05,
+          curve=Curve.EXP, formatter="float3", musical=(0.01, 0.12)),
+        P("membrane.loss", "Ring", rmin=0.9, rmax=0.99998, default=0.9995,
+          formatter="float3", musical=(0.995, 0.99995)),
+        P("membrane.tone", "Strike Tone", default=0.5, musical=(0.2, 0.9)),
+        P("membrane.strike", "Strike Length", default=0.5, musical=(0.1, 0.8)),
+        *_COMMON_TAIL("membrane", ampd=0.9, ampmus=(0.5, 1.1)),
+    ],
+)
+
 VOICES: dict[str, VoiceSpec] = {v.type: v for v in
-                                (DRUM, FM7, BUCHLOID, MOLLY, RINGS, BEN, NOIZEOP, ICARUS, PLAITS)}
+                                (DRUM, FM7, BUCHLOID, MOLLY, RINGS, BEN, NOIZEOP, ICARUS,
+                                 PLAITS, SHAKER, MEMBRANE)}
 
 
 def macro_specs(voice_type: str) -> list[tuple[str, str, float, float]]:
@@ -582,10 +634,9 @@ FX_SPECS: list[FxSpec] = [
     FxSpec("BITCRUSHER", "CRSH", [("bits", 3.0, 12.0), ("downsample", 1.0, 24.0)]),
     FxSpec("RINGMOD", "RING", [("freq", 30.0, 1200.0)]),
     FxSpec("FLANGER", "FLNG", [("rate", 0.05, 2.0), ("depth", 0.3, 1.0), ("feedback", 0.0, 0.8)]),
-    FxSpec("GRAINS", "GRN", [("size", 0.02, 0.35), ("density", 8.0, 120.0), ("pos", 0.0, 0.6),
-                             ("spray", 0.0, 0.3), ("jitter", 0.0, 0.6), ("spread", 0.3, 1.0),
-                             ("reverse", 0.0, 0.5), ("shimmer", 0.0, 0.6), ("texture", 0.2, 0.8),
-                             ("feedback", 0.0, 0.5)]),
+    FxSpec("CLOUDS", "CLDS", [("pos", 0.0, 1.0), ("size", 0.12, 0.9), ("dens", 0.2, 0.9),
+                              ("tex", 0.15, 0.9), ("spread", 0.3, 1.0), ("rvb", 0.0, 0.6),
+                              ("fb", 0.0, 0.45), ("pit", -12.0, 12.0)]),
     FxSpec("GREYHOLE", "GREY", [("dTime", 0.05, 1.2), ("feedback", 0.2, 0.85), ("size", 0.8, 4.0),
                                 ("diff", 0.3, 1.0), ("damp", 0.1, 0.7), ("modDepth", 0.0, 0.5),
                                 ("modFreq", 0.1, 6.0)]),
