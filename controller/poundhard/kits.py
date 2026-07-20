@@ -213,7 +213,8 @@ def gen_kit(seed: int | None = None) -> dict:
 # essentials that keep a voice idiomatic.
 # --------------------------------------------------------------------------- #
 PALETTE_ENGINES = ["DRUM", "FM7", "BUCHLOID", "MOLLY", "RINGS", "BEN", "NOIZEOP",
-                   "ICARUS", "PLAITS", "SHAKER", "MEMBRANE", "MALLET", "BOWED"]
+                   "ICARUS", "PLAITS", "SHAKER", "MEMBRANE", "MALLET", "BOWED",
+                   "PLUCK", "TUBE"]
 
 # a canonical note per drum mode, so an auditioned/assigned drum sits in register
 # (mode order matches catalog DRUM enum: kick snare hihat metal clap tom noise)
@@ -503,6 +504,50 @@ PALETTE_ROLES["BOWED"] = BOWED_ROLES["BW TBAR"]
 _BOWED_WEIGHTS = {"BW TBAR": 3, "BW GLASS": 2, "BW BOWL": 2, "BW UBAR": 2}
 
 
+# --------------------------------------------------------------------------- #
+# PLUCK (DWG plucked stiff string) — flavour roles. (name, note, pos, decay, damp, bright)
+# --------------------------------------------------------------------------- #
+_PLUCK_SPEC = [
+    ("PK KOTO",  (tuple(_SCALE), 12), (0.1, 0.3),  (0.5, 2.0), (5, 25),  (0.5, 0.9)),
+    ("PK CLAV",  (tuple(_SCALE), 0),  (0.05, 0.2), (0.15, 0.6),(20, 60), (0.4, 0.8)),
+    ("PK HARP",  (tuple(_SCALE), 12), (0.2, 0.42), (1.5, 4.0), (3, 15),  (0.3, 0.7)),
+    ("PK MUTED", (tuple(_SCALE), 0),  (0.08, 0.25),(0.2, 0.7), (25, 70), (0.2, 0.6)),
+]
+
+
+def _pluck_role(spec) -> Role:
+    name, note, pos, dec, damp, brt = spec
+    return Role(name, "PLUCK", note_choices=note[0], octave=note[1],
+                bands={"pluck.pos": pos, "pluck.decay": dec, "pluck.damp": damp,
+                       "pluck.bright": brt}, vel=(0.8, 1.05))
+
+
+PLUCK_ROLES: dict[str, Role] = {s[0]: _pluck_role(s) for s in _PLUCK_SPEC}
+PALETTE_ROLES["PLUCK"] = PLUCK_ROLES["PK KOTO"]
+_PLUCK_WEIGHTS = {"PK KOTO": 3, "PK CLAV": 2, "PK HARP": 2, "PK MUTED": 2}
+
+
+# --------------------------------------------------------------------------- #
+# TUBE (TwoTube waveguide) — flavour roles. (name, note, k, loss, balance, decay)
+# --------------------------------------------------------------------------- #
+_TUBE_SPEC = [
+    ("TB HOLLOW", (tuple(_SCALE), 12), (0.005, 0.05), (0.98, 0.999), (0.3, 0.7), (0.4, 2.0)),
+    ("TB REEDY",  (tuple(_SCALE), 0),  (0.02, 0.12),  (0.96, 0.99),  (0.2, 0.5), (0.2, 1.2)),
+]
+
+
+def _tube_role(spec) -> Role:
+    name, note, k, loss, bal, dec = spec
+    return Role(name, "TUBE", note_choices=note[0], octave=note[1],
+                bands={"tube.k": k, "tube.loss": loss, "tube.balance": bal,
+                       "tube.decay": dec}, vel=(0.8, 1.05))
+
+
+TUBE_ROLES: dict[str, Role] = {s[0]: _tube_role(s) for s in _TUBE_SPEC}
+PALETTE_ROLES["TUBE"] = TUBE_ROLES["TB HOLLOW"]
+_TUBE_WEIGHTS = {"TB HOLLOW": 3, "TB REEDY": 2}
+
+
 def gen_palette_voice(engine: str, rng: random.Random | None = None) -> dict:
     """Generate one fresh sound for an engine's palette pad (audition / assign)."""
     rng = rng or random.Random()
@@ -535,6 +580,14 @@ def gen_palette_voice(engine: str, rng: random.Random | None = None) -> dict:
         names = list(_BOWED_WEIGHTS)
         name = rng.choices(names, weights=[_BOWED_WEIGHTS[n] for n in names])[0]
         return gen_voice(BOWED_ROLES[name], rng)
+    if engine == "PLUCK":
+        names = list(_PLUCK_WEIGHTS)
+        name = rng.choices(names, weights=[_PLUCK_WEIGHTS[n] for n in names])[0]
+        return gen_voice(PLUCK_ROLES[name], rng)
+    if engine == "TUBE":
+        names = list(_TUBE_WEIGHTS)
+        name = rng.choices(names, weights=[_TUBE_WEIGHTS[n] for n in names])[0]
+        return gen_voice(TUBE_ROLES[name], rng)
     voice = gen_voice(PALETTE_ROLES[engine], rng)
     if engine == "DRUM":                       # put the drum in register for its mode
         mode = int(round(voice["params"].get("drum.mode", 0)))

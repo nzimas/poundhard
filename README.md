@@ -62,8 +62,8 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   build your rig by assigning engines from the **engine palette** (see below). Any
   engine can go on any track, and the assignment is **per pattern** — two patterns can
   carry completely different rigs.
-- **13 assignable engines** on the palette pads (the top row, plus PLAITS / SHAKER /
-  MEMBRANE / MALLET / BOWED wrapping onto the second row), each in its own colour:
+- **15 assignable engines** on the palette pads (the top row, plus PLAITS / SHAKER /
+  MEMBRANE / MALLET / BOWED / PLUCK / TUBE wrapping onto the second row), each in its own colour:
 
   | Pad | Engine | Colour | Character |
   |--------|--------|--------|-----------|
@@ -80,6 +80,8 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   | 11 | **MEMBRANE** | 🟥 warm red | struck 2D-waveguide membrane — tunable drums / frame drums / gongs |
   | 12 | **MALLET** | 🟡 gold | STK ModalBar — marimba / vibraphone / agogo / wood / bells |
   | 13 | **BOWED** | 🟦 teal | STK BandedWG — bowed/struck metal bars, glass harmonica, Tibetan bowl |
+  | 14 | **PLUCK** | 🟩 spring | DWG plucked stiff string — koto / clav / harp / muted plucks |
+  | 15 | **TUBE** | 🟦 sky | TwoTube waveguide — hollow formant plucks / reedy tones |
 
 - **Engine palette** (top row of pads, default view): **short-press** a pad to
   audition its current sound; **Shift + pad** to regenerate it; **hold a pad and
@@ -210,6 +212,13 @@ All voices are **spawned per hit and self-free** (see [voice model](#voice-model
 - **BOWED** — **STK BandedWG** (`StkBandedWG`, from sc3-plugins): a banded waveguide —
   uniform/tuned bar, glass harmonica, Tibetan bowl. `striking` toggles struck vs bowed, so
   it does both percussive metal and evolving bowed-glass/metal drones. Pitched by the note.
+- **PLUCK** — a **digital-waveguide plucked string with stiffness** (`DWGPluckedStiff`,
+  from sc3-plugins): inharmonic plucks — koto, clavinet, harp, muted string. A short noise
+  burst excites the string; pluck position / decay / damping / brightness shape it. Pitched
+  by the note; frees on silence. (Pure waveguide — no rawwaves needed.)
+- **TUBE** — a **two-tube waveguide** (`TwoTube`, from sc3-plugins): hollow, vocal-tract-ish
+  formant plucks and reedy tones. The tube lengths (set from the note) fix the resonance;
+  `balance` splits them and `k` sets the junction. A short burst excites it.
 
 > Both **MALLET** and **BOWED** are STK physical models that load excitation wavetables
 > (e.g. `marmstk1.raw`) — the **STK rawwaves** are bundled under `supercollider/rawwaves/`
@@ -297,7 +306,7 @@ place.
 ### FX view
 
 **Track 2** opens the FX view. The top two pad rows are the 16 tracks; the bottom
-row is an 8-effect chain — `OD · AMP · CRSH · RING · FLNG · CLDS · GREY · VRB`
+row is an 8-effect chain — `OD · AMP · DGRD · RING · FLNG · CLDS · GREY · VRB`
 (reverb always last/rightmost), each a distinct colour.
 
 **CLDS** is **MiClouds** — Mutable Instruments **Clouds** (mi-UGens) as a live granular
@@ -313,6 +322,12 @@ the dark, smeary IDM space-maker, in place of a plain stereo delay.
 **RING** is **DiodeRingMod** (sc3-plugins) — an analog-style diode ring modulator, gnarlier
 and more metallic than a clean multiply (asymmetric diode shaping adds extra sidebands). Its
 macro sweeps the carrier frequency and a `drive` that pushes the signal harder into the diodes.
+
+**DGRD** is a **DEGRADE** unit (sc3-plugins) — three glitch/lo-fi stages in series:
+`SmoothDecimator` (anti-aliased sample-rate crush), `WaveLoss` (deletes `drop`-of-`outof`
+waveform segments — stutter/aliasing artifacts), and `Disintegrator` (probabilistic sample
+mangling). Its macro sweeps rate/smoothing/dropout/probability together — a lo-fi eroder in
+place of a plain bit-crusher.
 
 **OD** is not a polite tube sim: tilt EQ → asymmetric (biased) drive → a
 **wavefolder** that reflects peaks back for metallic bite → a hard-clip **grit**
@@ -504,6 +519,7 @@ overrun the audio thread. Every engine and effect was **measured on the device**
 | NOIZEOP | 12.0 | | CLDS | ~6.0* |
 | ICARUS | 13.2 | | **VRB** | **10.0** |
 | MEMBRANE / MALLET / BOWED | ~9 / ~7 / ~8* | | | |
+| PLUCK / TUBE | ~7 / ~7* | | | |
 
 Reverb costs as much as an entire ICARUS voice, and ten expensive tracks with three
 reverbs came to **~160% CPU** — which is exactly what XRuns sound like. The generator
@@ -517,7 +533,7 @@ patterns on the device: **worst sustained 47%, worst peak 50%**.
   **that pattern's own tempo**.
 
 The generated tracks are laid out **contiguously from track 1 and grouped by engine**
-(in palette order — DRUM · FM7 · BUCHLOID · MOLLY · RINGS · BEN · NOIZEOP · ICARUS · PLAITS · SHAKER · MEMBRANE · MALLET · BOWED,
+(in palette order — DRUM · FM7 · BUCHLOID · MOLLY · RINGS · BEN · NOIZEOP · ICARUS · PLAITS · SHAKER · MEMBRANE · MALLET · BOWED · PLUCK · TUBE,
 with roles in musical order inside each block). Since the step buttons are coloured by
 engine, a generated rig reads as **contiguous colour blocks** rather than a scatter.
 
@@ -779,7 +795,7 @@ flag, and the HEAT macro state (`heat / heatPct`).
 ### OSC (controller → engine, sclang langPort 57120)
 
 `/ph/tempo` · `/ph/run` · `/ph/steps` · `/ph/track t typeIdx` (**-1=empty** 0=DRUM
-1=FM7 2=BUCHLOID 3=MOLLY 4=RINGS 5=BEN 6=NOIZEOP 7=ICARUS 8=PLAITS 9=SHAKER 10=MEMBRANE 11=MALLET 12=BOWED) ·
+1=FM7 2=BUCHLOID 3=MOLLY 4=RINGS 5=BEN 6=NOIZEOP 7=ICARUS 8=PLAITS 9=SHAKER 10=MEMBRANE 11=MALLET 12=BOWED 13=PLUCK 14=TUBE) ·
 `/ph/param t "name" val` ·
 `/ph/preview typeIdx note vel mode [name val …]` (audition one voice → master) ·
 `/ph/pattern` · `/ph/stepset` · `/ph/steplock` · `/ph/stepmacro` · `/ph/clearlocks` ·

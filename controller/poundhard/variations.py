@@ -26,7 +26,7 @@ from .tracks import Track, N_TRACKS, N_STEPS, N_PATTERNS
 
 # engines whose pitch is genuinely melodic (worth per-step pitch locks). BEN /
 # NOIZEOP / BUCHLOID track `note` but as texture, so they get rhythm-only variation.
-_MELODIC = {"FM7", "MOLLY", "RINGS", "ICARUS", "MALLET", "BOWED"}
+_MELODIC = {"FM7", "MOLLY", "RINGS", "ICARUS", "MALLET", "BOWED", "PLUCK", "TUBE"}
 _DRUM_MODE = ["kick", "snare", "hihat", "metal", "clap", "tom", "noise"]
 
 
@@ -379,7 +379,8 @@ _ENGINE_COST = {"DRUM": 5.3, "FM7": 8.5, "BUCHLOID": 6.0, "RINGS": 9.6,
                 # FM7 is a real 6-operator matrix — provisional 8.5 pending device measure.
                 # SHAKER (STK) / MEMBRANE (2D waveguide) provisional pending device measure.
                 # MALLET (STK ModalBar) / BOWED (STK BandedWG) provisional too.
-                "PLAITS": 6.9, "SHAKER": 7.0, "MEMBRANE": 9.0, "MALLET": 7.0, "BOWED": 8.0}
+                "PLAITS": 6.9, "SHAKER": 7.0, "MEMBRANE": 9.0, "MALLET": 7.0, "BOWED": 8.0,
+                "PLUCK": 7.0, "TUBE": 7.0}
 # Measured per FX INSTANCE (they're per-track inserts, not sends!). Reverb costs as
 # much as a whole ICARUS voice, so a pattern gets at most one. CLDS = MiClouds
 # (granular), GREY = Greyhole, RING = DiodeRingMod are provisional pending device measure.
@@ -430,13 +431,13 @@ def _role_pool() -> dict:
     pool.update(kits.MEMBRANE_ROLES)                  # struck membranes — percussion
     pool.update(kits.MALLET_ROLES)                    # STK modal bars — tonal mallets
     pool.update(kits.BOWED_ROLES)                     # STK banded waveguide — tonal metal/glass
+    pool.update(kits.PLUCK_ROLES)                     # DWG plucked strings — tonal plucks
+    pool.update(kits.TUBE_ROLES)                      # two-tube waveguide — tonal/formant
     for n in kits.SHAKER_ROLES:
         _CAT[n] = "perc"
     for n in kits.MEMBRANE_ROLES:
         _CAT[n] = "perc"
-    for n in kits.MALLET_ROLES:
-        _CAT[n] = "tonal"
-    for n in kits.BOWED_ROLES:
+    for n in list(kits.MALLET_ROLES) + list(kits.BOWED_ROLES) + list(kits.PLUCK_ROLES) + list(kits.TUBE_ROLES):
         _CAT[n] = "tonal"
     return pool
 
@@ -453,6 +454,8 @@ _ROLE_ORDER.update({s[1]: 200 + i for i, s in enumerate(kits._SHAKER_SPEC)})
 _ROLE_ORDER.update({s[0]: 300 + i for i, s in enumerate(kits._MEMBRANE_SPEC)})
 _ROLE_ORDER.update({s[1]: 400 + i for i, s in enumerate(kits._MALLET_SPEC)})
 _ROLE_ORDER.update({s[1]: 500 + i for i, s in enumerate(kits._BOWED_SPEC)})
+_ROLE_ORDER.update({s[0]: 600 + i for i, s in enumerate(kits._PLUCK_SPEC)})
+_ROLE_ORDER.update({s[0]: 700 + i for i, s in enumerate(kits._TUBE_SPEC)})
 
 
 def _layout_key(name: str, pool: dict) -> tuple[int, int]:

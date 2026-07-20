@@ -99,7 +99,8 @@ class VoiceSpec:
 # EMPTY = -1: an unassigned track (no engine, never spawns). Assignable engines 0..7.
 TYPE_INDEX = {"EMPTY": -1, "DRUM": 0, "FM7": 1, "BUCHLOID": 2, "MOLLY": 3,
               "RINGS": 4, "BEN": 5, "NOIZEOP": 6, "ICARUS": 7, "PLAITS": 8,
-              "SHAKER": 9, "MEMBRANE": 10, "MALLET": 11, "BOWED": 12}
+              "SHAKER": 9, "MEMBRANE": 10, "MALLET": 11, "BOWED": 12,
+              "PLUCK": 13, "TUBE": 14}
 
 _COMMON_TAIL = lambda pfx, ampd=0.8, ampmus=(0.5, 1.1): [
     P(f"{pfx}.amp", "Amp", unit="dB", rmin=0.0, rmax=2.0, default=ampd, curve=Curve.DB,
@@ -629,9 +630,52 @@ BOWED = VoiceSpec(
     ],
 )
 
+# --------------------------------------------------------------------------- #
+# PLUCK — DWG plucked stiff string (sc3-plugins): inharmonic plucks (koto / clav /
+# harp / muted string). Pitched by the note; a noise burst excites the string.
+# --------------------------------------------------------------------------- #
+PLUCK = VoiceSpec(
+    type="PLUCK",
+    role="Digital-waveguide plucked stiff string — koto / clav / harp / muted plucks.",
+    synthdef="phPluck",
+    params=[
+        P("pluck.pos", "Pluck Position", rmin=0.02, rmax=0.5, default=0.14, musical=(0.05, 0.42)),
+        P("pluck.decay", "Decay", unit="s", rmin=0.05, rmax=8.0, default=1.0,
+          curve=Curve.EXP, formatter="float2", musical=(0.2, 4.0)),
+        P("pluck.damp", "Damping", rmin=1.0, rmax=80.0, default=30.0, curve=Curve.EXP,
+          formatter="float1", musical=(4.0, 60.0)),
+        P("pluck.bright", "Brightness", default=0.5, musical=(0.1, 0.9)),
+        P("pluck.excite", "Excite Length", unit="s", rmin=0.001, rmax=0.05, default=0.008,
+          curve=Curve.EXP, formatter="float3", musical=(0.002, 0.03)),
+        *_COMMON_TAIL("pluck", ampd=0.9, ampmus=(0.5, 1.1)),
+    ],
+)
+
+# --------------------------------------------------------------------------- #
+# TUBE — TwoTube waveguide (sc3-plugins): hollow vocal-tract-ish plucks / reedy tones.
+# Tube lengths (from the note) set the resonance; `balance` splits them.
+# --------------------------------------------------------------------------- #
+TUBE = VoiceSpec(
+    type="TUBE",
+    role="Two-tube waveguide — hollow formant plucks and reedy tones.",
+    synthdef="phTube",
+    params=[
+        P("tube.k", "Junction", rmin=0.001, rmax=0.2, default=0.01, curve=Curve.EXP,
+          formatter="float3", musical=(0.003, 0.12)),
+        P("tube.loss", "Loss", rmin=0.9, rmax=1.0, default=0.99, formatter="float3",
+          musical=(0.96, 0.999)),
+        P("tube.balance", "Tube Balance", rmin=0.1, rmax=0.9, default=0.5, musical=(0.2, 0.8)),
+        P("tube.excite", "Excite Length", unit="s", rmin=0.001, rmax=0.08, default=0.01,
+          curve=Curve.EXP, formatter="float3", musical=(0.003, 0.05)),
+        P("tube.decay", "Decay", unit="s", rmin=0.05, rmax=6.0, default=1.0,
+          curve=Curve.EXP, formatter="float2", musical=(0.15, 3.0)),
+        *_COMMON_TAIL("tube", ampd=0.9, ampmus=(0.5, 1.1)),
+    ],
+)
+
 VOICES: dict[str, VoiceSpec] = {v.type: v for v in
                                 (DRUM, FM7, BUCHLOID, MOLLY, RINGS, BEN, NOIZEOP, ICARUS,
-                                 PLAITS, SHAKER, MEMBRANE, MALLET, BOWED)}
+                                 PLAITS, SHAKER, MEMBRANE, MALLET, BOWED, PLUCK, TUBE)}
 
 
 def macro_specs(voice_type: str) -> list[tuple[str, str, float, float]]:
@@ -690,7 +734,9 @@ FX_SPECS: list[FxSpec] = [
     FxSpec("OVERDRIVE", "OD", [("drive", 2.0, 32.0), ("tone", -0.6, 0.7), ("fold", 0.0, 0.9),
                                ("bias", 0.0, 0.55), ("grit", 0.0, 0.85)]),
     FxSpec("AMPSIM", "AMP", [("gain", 2.0, 20.0), ("bass", -8.0, 8.0), ("mid", -8.0, 8.0), ("treble", -8.0, 8.0)]),
-    FxSpec("BITCRUSHER", "CRSH", [("bits", 3.0, 12.0), ("downsample", 1.0, 24.0)]),
+    FxSpec("DEGRADE", "DGRD", [("rate", 1500.0, 22000.0), ("smooth", 0.0, 1.0),
+                               ("drop", 0.0, 28.0), ("outof", 12.0, 40.0), ("prob", 0.0, 0.6),
+                               ("mult", 0.0, 0.8)]),
     FxSpec("RINGMOD", "RING", [("freq", 20.0, 2000.0), ("drive", 0.5, 3.5)]),
     FxSpec("FLANGER", "FLNG", [("rate", 0.05, 2.0), ("depth", 0.3, 1.0), ("feedback", 0.0, 0.8)]),
     FxSpec("CLOUDS", "CLDS", [("pos", 0.0, 1.0), ("size", 0.12, 0.9), ("dens", 0.2, 0.9),

@@ -593,6 +593,45 @@
 		Out.ar(out, ~killbad.(~spread.(sig, pan)));
 	}).add;
 
+	// ================= PLUCK — DWG plucked stiff string (sc3-plugins), self-freeing =====
+	// A digital-waveguide plucked string with stiffness (inharmonic) — koto / clav / harp /
+	// muted-string plucks. A short noise burst excites the string; pos/decay/damp/bright
+	// shape it. Note tunes it (freq in Hz). Frees on silence.
+	SynthDef(\phPluck, { |out = 16, note = 60, vel = 1,
+		pos = 0.14, decay = 1.0, damp = 30, bright = 0.5, excite = 0.008, amp = 0.9, pan = 0|
+		var v = vel.clip(0, 2).max(0.03);
+		var f0 = note.clip(0, 127).midicps.clip(20, 6000);
+		var exc = WhiteNoise.ar * EnvGen.ar(Env.perc(0.0005, excite.clip(0.001, 0.05), 1, -4)) * (0.5 + (v * 0.5));
+		var c1 = (1.0 / decay.clip(0.05, 8)).clip(0.1, 30);   // loop decay: lower = longer sustain
+		var sig = DWGPluckedStiff.ar(f0, 1.0, 1, pos.clip(0.02, 0.5), c1, damp.clip(1, 80),
+			exc, 0.1, bright.clip(0, 1) * 6);
+		sig = LeakDC.ar(sig) * v * amp * 1.5;
+		DetectSilence.ar(sig, 0.0003, 0.1, doneAction: 2);
+		Line.kr(0, 1, decay.clip(0.05, 8) + 2.0, doneAction: 2);
+		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+	}).add;
+
+	// ================= TUBE — TwoTube waveguide (sc3-plugins), self-freeing =============
+	// A two-tube (vocal-tract-ish) waveguide: hollow, formant plucks and reedy tones. Tube
+	// lengths (set from the note) fix the resonance; `k` is the junction, `balance` splits the
+	// two tube lengths. A short burst excites it.
+	SynthDef(\phTube, { |out = 16, note = 60, vel = 1,
+		k = 0.01, loss = 0.99, balance = 0.5, excite = 0.01, decay = 1.0, amp = 0.9, pan = 0|
+		var v = vel.clip(0, 2).max(0.03);
+		var f0 = note.clip(0, 127).midicps.clip(30, 4000);
+		var totLen = (SampleRate.ir / (2 * f0)).clip(4, 2000);
+		var bal = balance.clip(0.1, 0.9);
+		var d1 = (totLen * bal).clip(2, 1500);
+		var d2 = (totLen * (1 - bal)).clip(2, 1500);
+		var exc = (WhiteNoise.ar + Impulse.ar(0)) * EnvGen.ar(Env.perc(0.0005, excite.clip(0.001, 0.08), 1, -4)) * (0.5 + (v * 0.5));
+		var aEnv = EnvGen.ar(Env.perc(0.002, decay.clip(0.05, 6), 1, -3));
+		var sig = TwoTube.ar(exc, k.clip(0.001, 0.2), loss.clip(0.9, 1.0), d1, d2);
+		sig = LeakDC.ar(sig) * aEnv * v * amp * 1.5;
+		DetectSilence.ar(sig, 0.0003, 0.12, doneAction: 2);
+		Line.kr(0, 1, decay.clip(0.05, 6) + 1.5, doneAction: 2);
+		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+	}).add;
+
 	// ================= FX (per-track insert chain) =================
 	// Each FX reads its track bus (`in`), processes, and REPLACES the bus (`out`
 	// == `in`) — so a track's FX run in place, in canonical chain order. Stereo.
@@ -665,12 +704,15 @@
 		ReplaceOut.ar(out, ~fxOut.(dry, y, amp, enable, wet, bypass));
 	}).add;
 
-	// ---- BITCRUSHER: bit + rate reduction (stereo) ----
-	SynthDef(\phBitcrusher, { |out = 0, in = 0, bits = 8, downsample = 4, amp = 0.9, pan = 0, bypass = 0, wet = 0.5, enable = 1|
-		var dry = In.ar(in, 2), levels, y;
-		levels = (2 ** bits.clip(1, 24)).max(2);
-		y = (dry * levels).round / levels;
-		y = Latch.ar(y, Impulse.ar((SampleRate.ir / downsample.max(1)).clip(200, SampleRate.ir)));
+	// ---- DEGRADE: sample-rate crush + waveform-dropout + probabilistic mangle (sc3-plugins) ----
+	// Three glitch/lo-fi stages in series: SmoothDecimator (anti-aliased rate crush),
+	// WaveLoss (deletes `drop`-of-`outof` waveform segments — stutter/aliasing artifacts),
+	// and Disintegrator (probabilistically mangles samples). The IDM degrade unit.
+	SynthDef(\phBitcrusher, { |out = 0, in = 0, rate = 12000, smooth = 0.5, drop = 6, outof = 40, prob = 0.0, mult = 0.0, amp = 0.9, pan = 0, bypass = 0, wet = 0.5, enable = 1|
+		var dry = In.ar(in, 2), y;
+		y = SmoothDecimator.ar(dry, rate.clip(400, 44100), smooth.clip(0, 1));
+		y = WaveLoss.ar(y, drop.clip(0, 60).round, outof.clip(1, 60).round.max(1), 1);
+		y = Select.ar(prob > 0.001, [y, Disintegrator.ar(y, prob.clip(0, 1), mult.clip(0, 1))]);
 		ReplaceOut.ar(out, ~fxOut.(dry, y, amp, enable, wet, bypass));
 	}).add;
 
