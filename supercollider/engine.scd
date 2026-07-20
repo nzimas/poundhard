@@ -17,7 +17,7 @@
 
 ~nTracks = 16;
 ~maxSteps = 32;
-~typeDefs = [\phDrum, \phFm7, \phBuchloid, \phMolly, \phRings, \phBen, \phNoizeop, \phIcarus, \phPlaits, \phShaker, \phMembrane];  // /ph/track type index (-1 = empty/unassigned)
+~typeDefs = [\phDrum, \phFm7, \phBuchloid, \phMolly, \phRings, \phBen, \phNoizeop, \phIcarus, \phPlaits, \phShaker, \phMembrane, \phMallet, \phBowed];  // /ph/track type index (-1 = empty/unassigned)
 // DRUM is split into per-mode defs (chosen from the track's `mode` param at spawn).
 ~drumDefs = [\phDrumKick, \phDrumSnare, \phDrumHat, \phDrumMetal, \phDrumClap, \phDrumTom, \phDrumNoise];
 
@@ -66,6 +66,7 @@
 
 // ---- one-time graph scaffold (buses + groups + master) ----
 ~scaffold = {
+	Synth(\phStkInit);   // set the STK rawwave path before any physical-model voice spawns
 	~masterBus = Bus.audio(s, 2);
 	~trackBus  = Array.fill(~nTracks, { Bus.audio(s, 2) });   // one private stereo bus per track
 	~livingBus = Bus.audio(s, 2);   // LIVING-STEP send: a fired living hit routes here (delay+reverb)

@@ -22,6 +22,10 @@ echo "-> SC engine (.scd)"
 tar -C "$ROOT/supercollider" -czf - boot.scd engine.scd synthdefs.scd | ssh "root@$HOST" "tar -C $DEST/sc -xzf -"
 tar -C "$HERE/sc" -czf - ph-boot.scd | ssh "root@$HOST" "tar -C $DEST/sc -xzf -"
 
+echo "-> STK rawwaves (excitation wavetables for ModalBar/BandedWG etc.)"
+ssh "root@$HOST" "mkdir -p $DEST/rawwaves"
+tar -C "$ROOT/supercollider/rawwaves" -czf - . | ssh "root@$HOST" "tar -C $DEST/rawwaves -xzf -"
+
 echo "-> launch scripts"
 scp "$HERE/run-engine.sh" "$HERE/run-controller.sh" "$HERE/run-stack.sh" "$HERE/stop-stack.sh" "root@$HOST:$DEST/"
 ssh "root@$HOST" "chmod +x $DEST/run-*.sh $DEST/stop-stack.sh; chown -R ableton:users $DEST"

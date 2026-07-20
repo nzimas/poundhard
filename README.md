@@ -62,8 +62,8 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   build your rig by assigning engines from the **engine palette** (see below). Any
   engine can go on any track, and the assignment is **per pattern** — two patterns can
   carry completely different rigs.
-- **11 assignable engines** on the palette pads (the top row, plus PLAITS / SHAKER /
-  MEMBRANE wrapping onto the second row), each in its own colour:
+- **13 assignable engines** on the palette pads (the top row, plus PLAITS / SHAKER /
+  MEMBRANE / MALLET / BOWED wrapping onto the second row), each in its own colour:
 
   | Pad | Engine | Colour | Character |
   |--------|--------|--------|-----------|
@@ -78,6 +78,8 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   | 9 | **PLAITS** | 🟩 lime | Mutable Plaits — 16-model macro-oscillator |
   | 10 | **SHAKER** | 🟨 amber | STK Shakers — 23 shaker/scraper models (maraca, cabasa, tambourine…) |
   | 11 | **MEMBRANE** | 🟥 warm red | struck 2D-waveguide membrane — tunable drums / frame drums / gongs |
+  | 12 | **MALLET** | 🟡 gold | STK ModalBar — marimba / vibraphone / agogo / wood / bells |
+  | 13 | **BOWED** | 🟦 teal | STK BandedWG — bowed/struck metal bars, glass harmonica, Tibetan bowl |
 
 - **Engine palette** (top row of pads, default view): **short-press** a pad to
   audition its current sound; **Shift + pad** to regenerate it; **hold a pad and
@@ -201,11 +203,24 @@ All voices are **spawned per hit and self-free** (see [voice model](#voice-model
   note tunes the drum along a tom→gong continuum. It frees on silence (the membrane's own
   decay) with a hard time cap, so long gong rings land but nothing leaks. Three targeted
   roles (tom / frame / gong) drive the generator.
+- **MALLET** — **STK ModalBar** (`StkModalBar`, from sc3-plugins): struck modal bars —
+  marimba, vibraphone, agogo, wood block, reso, beats/bells. Pitched by the note (`freq`
+  in Hz); one strike at spawn and a perc amp envelope sets how long it rings (short =
+  damped mallet, long = ringing vibraphone). Per-instrument targeting in `kits._MALLET_SPEC`.
+- **BOWED** — **STK BandedWG** (`StkBandedWG`, from sc3-plugins): a banded waveguide —
+  uniform/tuned bar, glass harmonica, Tibetan bowl. `striking` toggles struck vs bowed, so
+  it does both percussive metal and evolving bowed-glass/metal drones. Pitched by the note.
+
+> Both **MALLET** and **BOWED** are STK physical models that load excitation wavetables
+> (e.g. `marmstk1.raw`) — the **STK rawwaves** are bundled under `supercollider/rawwaves/`
+> and deployed to `$PH/rawwaves`, with the path set at engine boot via a `StkGlobals`
+> synth. (SHAKER is stochastic and needs no rawwaves.)
 
 > RINGS and **PLAITS** need the **mi-UGens** plugins (as does the **CLOUDS** FX);
-> **SHAKER**, **MEMBRANE**, the reverb FX, **ICARUS** (`MoogLadder`) and **BEN**
-> (`PulseDPW`/`SVF`/`DFM1`) need **sc3-plugins** present in the SuperCollider bundle on
-> the device. There are **no silent fallbacks** — a missing dependency fails loudly at build.
+> **SHAKER**, **MEMBRANE**, **MALLET**, **BOWED**, the **RING** / reverb FX, **ICARUS**
+> (`MoogLadder`) and **BEN** (`PulseDPW`/`SVF`/`DFM1`) need **sc3-plugins** present in the
+> SuperCollider bundle on the device. There are **no silent fallbacks** — a missing
+> dependency fails loudly at build.
 
 ---
 
@@ -294,6 +309,10 @@ reverb and feedback, a pitch shift and a freeze. Its macro morphs the cloud in o
 blurs toward reverb as its diffusion and size rise (after ValhallaDSP's Greyhole). Its
 macro sweeps delay time, feedback, size, diffusion, damping and modulation together —
 the dark, smeary IDM space-maker, in place of a plain stereo delay.
+
+**RING** is **DiodeRingMod** (sc3-plugins) — an analog-style diode ring modulator, gnarlier
+and more metallic than a clean multiply (asymmetric diode shaping adds extra sidebands). Its
+macro sweeps the carrier frequency and a `drive` that pushes the signal harder into the diodes.
 
 **OD** is not a polite tube sim: tilt EQ → asymmetric (biased) drive → a
 **wavefolder** that reflects peaks back for metallic bite → a hard-clip **grit**
@@ -477,13 +496,14 @@ overrun the audio thread. Every engine and effect was **measured on the device**
 | Engine | %CPU/track | | FX | %CPU each |
 |---|---|---|---|---|
 | DRUM | 5.3 | | CRSH | 0.8 |
-| FM7 | ~8.5* | | RING | 1.0 |
+| FM7 | ~8.5* | | RING | ~1.5* |
 | BUCHLOID | 6.0 | | FLNG | 1.1 |
-| RINGS | 9.6 | | AMP | 1.7 |
+| RINGS / SHAKER | 9.6 / ~7* | | AMP | 1.7 |
 | BEN | 9.7 | | GREY | ~4.5* |
 | MOLLY | 11.7 | | OD | 2.5 |
 | NOIZEOP | 12.0 | | CLDS | ~6.0* |
 | ICARUS | 13.2 | | **VRB** | **10.0** |
+| MEMBRANE / MALLET / BOWED | ~9 / ~7 / ~8* | | | |
 
 Reverb costs as much as an entire ICARUS voice, and ten expensive tracks with three
 reverbs came to **~160% CPU** — which is exactly what XRuns sound like. The generator
@@ -497,7 +517,7 @@ patterns on the device: **worst sustained 47%, worst peak 50%**.
   **that pattern's own tempo**.
 
 The generated tracks are laid out **contiguously from track 1 and grouped by engine**
-(in palette order — DRUM · FM7 · BUCHLOID · MOLLY · RINGS · BEN · NOIZEOP · ICARUS · PLAITS · SHAKER · MEMBRANE,
+(in palette order — DRUM · FM7 · BUCHLOID · MOLLY · RINGS · BEN · NOIZEOP · ICARUS · PLAITS · SHAKER · MEMBRANE · MALLET · BOWED,
 with roles in musical order inside each block). Since the step buttons are coloured by
 engine, a generated rig reads as **contiguous colour blocks** rather than a scatter.
 
@@ -759,7 +779,7 @@ flag, and the HEAT macro state (`heat / heatPct`).
 ### OSC (controller → engine, sclang langPort 57120)
 
 `/ph/tempo` · `/ph/run` · `/ph/steps` · `/ph/track t typeIdx` (**-1=empty** 0=DRUM
-1=FM7 2=BUCHLOID 3=MOLLY 4=RINGS 5=BEN 6=NOIZEOP 7=ICARUS 8=PLAITS 9=SHAKER 10=MEMBRANE) ·
+1=FM7 2=BUCHLOID 3=MOLLY 4=RINGS 5=BEN 6=NOIZEOP 7=ICARUS 8=PLAITS 9=SHAKER 10=MEMBRANE 11=MALLET 12=BOWED) ·
 `/ph/param t "name" val` ·
 `/ph/preview typeIdx note vel mode [name val …]` (audition one voice → master) ·
 `/ph/pattern` · `/ph/stepset` · `/ph/steplock` · `/ph/stepmacro` · `/ph/clearlocks` ·

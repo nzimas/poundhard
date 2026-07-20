@@ -87,13 +87,15 @@ const TYPE_COL = {
     PLAITS:   [31, 84],   /* Lime / DarkOlive — Mutable Plaits, the 16-model macro-osc */
     SHAKER:   [25, 106],  /* Amber / DarkAmber — STK Shakers (maraca/cabasa/tambourine…) */
     MEMBRANE: [6, 70],    /* WarmRed / Brick — struck 2D-waveguide membrane (drums/gongs) */
+    MALLET:   [13, 85],   /* Gold / DarkGold — STK ModalBar (marimba/vibraphone/bells) */
+    BOWED:    [33, 90],   /* Teal / DarkTeal — STK BandedWG (bowed metal/glass/bowl) */
 };
-/* Engine palette: the 11 assignable engines. The first 8 fill the top row (cells 0..7);
- * PLAITS, SHAKER and MEMBRANE wrap onto the second row (cells 8, 9, 10). Same order &
- * colours as TYPE_COL.
+/* Engine palette: the 13 assignable engines. The first 8 fill the top row (cells 0..7);
+ * PLAITS, SHAKER, MEMBRANE, MALLET and BOWED wrap onto the second row (cells 8..12). Same
+ * order & colours as TYPE_COL.
  * Short-press = audition, Shift+pad = regenerate, hold pad + tap a track = assign. */
 const ENGINE_TYPES = ['DRUM', 'FM7', 'BUCHLOID', 'MOLLY', 'RINGS', 'BEN', 'NOIZEOP',
-    'ICARUS', 'PLAITS', 'SHAKER', 'MEMBRANE'];
+    'ICARUS', 'PLAITS', 'SHAKER', 'MEMBRANE', 'MALLET', 'BOWED'];
 const N_ENGINES = ENGINE_TYPES.length;
 
 /* ---- runtime state (mirrors status.json) ---- */

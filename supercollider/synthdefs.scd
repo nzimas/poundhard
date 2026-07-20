@@ -14,6 +14,12 @@
 	~spread = { |sig, pan = 0| Pan2.ar(sig, pan.clip(-1, 1)) };
 	~killbad = { |sig| LeakDC.ar(sig).clip2(4) };
 
+	// STK rawwave path: the STK physical-model UGens (ModalBar / BandedWG / etc.) load
+	// excitation wavetables (e.g. marmstk1.raw) from this directory. Run once at boot
+	// BEFORE any STK voice spawns, or those instruments excite silence. (StkShakers is
+	// stochastic and needs no rawwaves, which is why it worked without this.)
+	SynthDef(\phStkInit, { StkGlobals.ar(1, 1, "/data/UserData/poundhard/rawwaves"); Line.kr(0, 1, 0.3, doneAction: 2) }).add;
+
 	// master bus clear: zero the private sum bus at the head of each block.
 	SynthDef(\phClear, { |bus = 16| ReplaceOut.ar(bus, DC.ar(0) ! nchan) }).add;
 
@@ -550,6 +556,43 @@
 		Out.ar(out, ~killbad.(~spread.(sig, pan)));
 	}).add;
 
+	// ================= MALLET — STK ModalBar (sc3-plugins), self-freeing ============
+	// Struck modal bars: marimba, vibraphone, agogo, wood, reso, beats. `instrument` picks
+	// the model; the note tunes it (freq in Hz). One strike at spawn; a perc amp env sets
+	// how long it rings (short = damped mallet, long = ringing vibraphone). Frees on silence.
+	SynthDef(\phMallet, { |out = 16, note = 60, vel = 1,
+		instrument = 0, stickhardness = 64, stickposition = 28, vibratogain = 8,
+		vibratofreq = 20, directmix = 40, decay = 1.0, amp = 0.9, pan = 0|
+		var v = vel.clip(0, 2).max(0.03);
+		var f0 = note.clip(0, 127).midicps.clip(20, 8000);
+		var sig = StkModalBar.ar(f0, instrument.round.clip(0, 8), stickhardness.clip(0, 128),
+			stickposition.clip(0, 128), vibratogain.clip(0, 128), vibratofreq.clip(0, 128),
+			directmix.clip(0, 128), 110, Impulse.ar(0));
+		var aEnv = EnvGen.ar(Env.perc(0.001, decay.clip(0.05, 6), 1, -3));
+		sig = LeakDC.ar(sig) * aEnv * v * amp * 4.0;
+		DetectSilence.ar(sig, 0.0003, 0.1, doneAction: 2);
+		Line.kr(0, 1, decay.clip(0.05, 6) + 1.0, doneAction: 2);
+		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+	}).add;
+
+	// ================= BOWED — STK BandedWG (sc3-plugins), self-freeing =============
+	// Banded waveguide: uniform/tuned bar, glass harmonica, Tibetan bowl — struck or bowed
+	// metal/glass. `instr` picks the model; note tunes it. `striking` toggles struck vs bowed.
+	SynthDef(\phBowed, { |out = 16, note = 60, vel = 1,
+		instr = 0, bowpressure = 70, bowmotion = 30, integration = 0, modalresonance = 90,
+		bowvelocity = 80, striking = 0, decay = 1.5, amp = 0.9, pan = 0|
+		var v = vel.clip(0, 2).max(0.03);
+		var f0 = note.clip(0, 127).midicps.clip(20, 7000);
+		var sig = StkBandedWG.ar(f0, instr.round.clip(0, 3), bowpressure.clip(0, 128),
+			bowmotion.clip(0, 128), integration.round.clip(0, 1), modalresonance.clip(0, 128),
+			bowvelocity.clip(0, 128), striking.round.clip(0, 1), Impulse.ar(0));
+		var aEnv = EnvGen.ar(Env.perc(0.005, decay.clip(0.05, 8), 1, -3));
+		sig = LeakDC.ar(sig) * aEnv * v * amp * 4.0;
+		DetectSilence.ar(sig, 0.0003, 0.12, doneAction: 2);
+		Line.kr(0, 1, decay.clip(0.05, 8) + 1.5, doneAction: 2);
+		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+	}).add;
+
 	// ================= FX (per-track insert chain) =================
 	// Each FX reads its track bus (`in`), processes, and REPLACES the bus (`out`
 	// == `in`) — so a track's FX run in place, in canonical chain order. Stereo.
@@ -631,10 +674,14 @@
 		ReplaceOut.ar(out, ~fxOut.(dry, y, amp, enable, wet, bypass));
 	}).add;
 
-	// ---- RINGMOD: input x sine carrier (stereo) ----
-	SynthDef(\phRingmod, { |out = 0, in = 0, freq = 200, amp = 0.9, pan = 0, bypass = 0, wet = 0.5, enable = 1|
+	// ---- RING: DiodeRingMod — analog diode ring modulator (sc3-plugins) ----
+	// Gnarlier and more metallic than a clean multiply: asymmetric diode shaping produces
+	// extra sidebands. `drive` pushes the carrier harder into the diodes for more bite.
+	SynthDef(\phRingmod, { |out = 0, in = 0, freq = 200, drive = 1.0, amp = 0.9, pan = 0, bypass = 0, wet = 0.5, enable = 1|
 		var dry = In.ar(in, 2);
-		var y = dry * SinOsc.ar(freq.clip(0.1, 18000));
+		var modOsc = SinOsc.ar(freq.clip(0.1, 12000));
+		var d = drive.clip(0.1, 6);
+		var y = [DiodeRingMod.ar(dry[0] * d, modOsc), DiodeRingMod.ar(dry[1] * d, modOsc)];
 		ReplaceOut.ar(out, ~fxOut.(dry, y, amp, enable, wet, bypass));
 	}).add;
 

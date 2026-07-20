@@ -213,7 +213,7 @@ def gen_kit(seed: int | None = None) -> dict:
 # essentials that keep a voice idiomatic.
 # --------------------------------------------------------------------------- #
 PALETTE_ENGINES = ["DRUM", "FM7", "BUCHLOID", "MOLLY", "RINGS", "BEN", "NOIZEOP",
-                   "ICARUS", "PLAITS", "SHAKER", "MEMBRANE"]
+                   "ICARUS", "PLAITS", "SHAKER", "MEMBRANE", "MALLET", "BOWED"]
 
 # a canonical note per drum mode, so an auditioned/assigned drum sits in register
 # (mode order matches catalog DRUM enum: kick snare hihat metal clap tom noise)
@@ -447,6 +447,62 @@ PALETTE_ROLES["MEMBRANE"] = MEMBRANE_ROLES["MEM TOM"]
 _MEMBRANE_WEIGHTS = {"MEM TOM": 3, "MEM FRAME": 2, "MEM GONG": 1}
 
 
+# --------------------------------------------------------------------------- #
+# MALLET (STK ModalBar) — per-instrument targeting. `instrument` selects a struck
+# modal bar; note tunes it. Fields: (instr, name, note, hardness, position, vibGain,
+# vibFreq, mix, decay).
+# --------------------------------------------------------------------------- #
+_MALLET_SPEC = [
+    (0, "ML MARIMBA", (tuple(_SCALE), 12), (55, 110), (10, 60), (0, 10),  (10, 40), (20, 70), (0.2, 0.9)),
+    (1, "ML VIBES",   (tuple(_SCALE), 12), (30, 80),  (10, 60), (10, 45), (15, 55), (20, 70), (0.8, 3.0)),
+    (2, "ML AGOGO",   (tuple(_SCALE), 12), (70, 128), (20, 80), (0, 8),   (10, 40), (30, 90), (0.15, 0.7)),
+    (3, "ML WOOD",    (tuple(_SCALE), 12), (80, 128), (5, 50),  (0, 5),   (10, 30), (20, 60), (0.1, 0.5)),
+    (4, "ML RESO",    (tuple(_SCALE), 0),  (40, 100), (15, 70), (5, 30),  (12, 50), (25, 80), (0.5, 2.2)),
+    (6, "ML BELLS",   (tuple(_SCALE), 12), (45, 100), (20, 80), (8, 40),  (14, 60), (25, 85), (0.6, 2.6)),
+]
+
+
+def _mallet_role(spec) -> Role:
+    instr, name, note, hard, pos, vg, vf, mix, dec = spec
+    return Role(name, "MALLET", fixed={"mallet.instrument": float(instr)},
+                note_choices=note[0], octave=note[1],
+                bands={"mallet.stickhardness": hard, "mallet.stickposition": pos,
+                       "mallet.vibratogain": vg, "mallet.vibratofreq": vf,
+                       "mallet.directmix": mix, "mallet.decay": dec}, vel=(0.8, 1.05))
+
+
+MALLET_ROLES: dict[str, Role] = {s[1]: _mallet_role(s) for s in _MALLET_SPEC}
+PALETTE_ROLES["MALLET"] = MALLET_ROLES["ML MARIMBA"]
+_MALLET_WEIGHTS = {"ML MARIMBA": 3, "ML VIBES": 3, "ML BELLS": 2, "ML AGOGO": 2,
+                   "ML WOOD": 2, "ML RESO": 1}
+
+
+# --------------------------------------------------------------------------- #
+# BOWED (STK BandedWG) — per-instrument targeting: uniform/tuned bar, glass, bowl.
+# Fields: (instr, name, note, striking, bowpressure, bowmotion, resonance, velocity, decay).
+# --------------------------------------------------------------------------- #
+_BOWED_SPEC = [
+    (0, "BW UBAR",  (tuple(_SCALE), 0),  1, (40, 110), (0, 60),  (60, 120), (30, 110), (0.3, 2.0)),
+    (1, "BW TBAR",  (tuple(_SCALE), 12), 1, (40, 110), (0, 60),  (60, 120), (30, 110), (0.4, 2.2)),
+    (2, "BW GLASS", (tuple(_SCALE), 12), 0, (50, 120), (10, 80), (70, 128), (40, 120), (0.8, 4.0)),
+    (3, "BW BOWL",  ((0, 5, 7), 0),      0, (40, 110), (0, 70),  (75, 128), (30, 110), (1.5, 4.0)),
+]
+
+
+def _bowed_role(spec) -> Role:
+    instr, name, note, strike, bp, bm, mr, bv, dec = spec
+    return Role(name, "BOWED", fixed={"bowed.instr": float(instr), "bowed.striking": float(strike)},
+                note_choices=note[0], octave=note[1],
+                bands={"bowed.bowpressure": bp, "bowed.bowmotion": bm,
+                       "bowed.modalresonance": mr, "bowed.bowvelocity": bv,
+                       "bowed.decay": dec}, vel=(0.8, 1.05))
+
+
+BOWED_ROLES: dict[str, Role] = {s[1]: _bowed_role(s) for s in _BOWED_SPEC}
+PALETTE_ROLES["BOWED"] = BOWED_ROLES["BW TBAR"]
+_BOWED_WEIGHTS = {"BW TBAR": 3, "BW GLASS": 2, "BW BOWL": 2, "BW UBAR": 2}
+
+
 def gen_palette_voice(engine: str, rng: random.Random | None = None) -> dict:
     """Generate one fresh sound for an engine's palette pad (audition / assign)."""
     rng = rng or random.Random()
@@ -471,6 +527,14 @@ def gen_palette_voice(engine: str, rng: random.Random | None = None) -> dict:
         names = list(_MEMBRANE_WEIGHTS)
         name = rng.choices(names, weights=[_MEMBRANE_WEIGHTS[n] for n in names])[0]
         return gen_voice(MEMBRANE_ROLES[name], rng)
+    if engine == "MALLET":
+        names = list(_MALLET_WEIGHTS)
+        name = rng.choices(names, weights=[_MALLET_WEIGHTS[n] for n in names])[0]
+        return gen_voice(MALLET_ROLES[name], rng)
+    if engine == "BOWED":
+        names = list(_BOWED_WEIGHTS)
+        name = rng.choices(names, weights=[_BOWED_WEIGHTS[n] for n in names])[0]
+        return gen_voice(BOWED_ROLES[name], rng)
     voice = gen_voice(PALETTE_ROLES[engine], rng)
     if engine == "DRUM":                       # put the drum in register for its mode
         mode = int(round(voice["params"].get("drum.mode", 0)))

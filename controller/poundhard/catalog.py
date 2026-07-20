@@ -99,7 +99,7 @@ class VoiceSpec:
 # EMPTY = -1: an unassigned track (no engine, never spawns). Assignable engines 0..7.
 TYPE_INDEX = {"EMPTY": -1, "DRUM": 0, "FM7": 1, "BUCHLOID": 2, "MOLLY": 3,
               "RINGS": 4, "BEN": 5, "NOIZEOP": 6, "ICARUS": 7, "PLAITS": 8,
-              "SHAKER": 9, "MEMBRANE": 10}
+              "SHAKER": 9, "MEMBRANE": 10, "MALLET": 11, "BOWED": 12}
 
 _COMMON_TAIL = lambda pfx, ampd=0.8, ampmus=(0.5, 1.1): [
     P(f"{pfx}.amp", "Amp", unit="dB", rmin=0.0, rmax=2.0, default=ampd, curve=Curve.DB,
@@ -570,9 +570,68 @@ MEMBRANE = VoiceSpec(
     ],
 )
 
+# --------------------------------------------------------------------------- #
+# MALLET — STK ModalBar (sc3-plugins): struck tuned bars (marimba / vibraphone /
+# agogo / wood / reso / beats). Pitched by the note; per-model targeting in kits.
+# --------------------------------------------------------------------------- #
+_MALLET_INSTR = ["marimba", "vibraphon", "agogo", "wood1", "reso", "wood2",
+                 "beats", "twofixed", "clump"]
+MALLET = VoiceSpec(
+    type="MALLET",
+    role="STK modal bars — marimba / vibraphone / agogo / wood / reso / bells.",
+    synthdef="phMallet",
+    params=[
+        P("mallet.instrument", "Instrument", curve=Curve.ENUM, enum=_MALLET_INSTR,
+          default=0, randomize=RandomizePolicy.WIDE),
+        P("mallet.stickhardness", "Stick Hardness", rmin=0.0, rmax=128.0, default=64.0,
+          formatter="float1", musical=(20.0, 120.0)),
+        P("mallet.stickposition", "Stick Position", rmin=0.0, rmax=128.0, default=28.0,
+          formatter="float1", musical=(5.0, 90.0)),
+        P("mallet.vibratogain", "Vibrato Depth", rmin=0.0, rmax=128.0, default=8.0,
+          formatter="float1", musical=(0.0, 40.0)),
+        P("mallet.vibratofreq", "Vibrato Rate", rmin=0.0, rmax=128.0, default=20.0,
+          formatter="float1", musical=(10.0, 80.0)),
+        P("mallet.directmix", "Stick Mix", rmin=0.0, rmax=128.0, default=40.0,
+          formatter="float1", musical=(10.0, 90.0)),
+        P("mallet.decay", "Decay", unit="s", rmin=0.05, rmax=6.0, default=1.0,
+          curve=Curve.EXP, formatter="float2", musical=(0.15, 3.0)),
+        *_COMMON_TAIL("mallet", ampd=0.9, ampmus=(0.5, 1.1)),
+    ],
+)
+
+# --------------------------------------------------------------------------- #
+# BOWED — STK BandedWG (sc3-plugins): banded-waveguide bars/glass/bowl, struck or
+# bowed metal & glass. Pitched by the note; per-model targeting in kits.
+# --------------------------------------------------------------------------- #
+_BOWED_INSTR = ["unibar", "tunedbar", "glass", "bowl"]
+BOWED = VoiceSpec(
+    type="BOWED",
+    role="STK banded waveguide — uniform/tuned bar, glass harmonica, Tibetan bowl.",
+    synthdef="phBowed",
+    params=[
+        P("bowed.instr", "Instrument", curve=Curve.ENUM, enum=_BOWED_INSTR,
+          default=0, randomize=RandomizePolicy.WIDE),
+        P("bowed.striking", "Excite", curve=Curve.ENUM, enum=["bowed", "struck"],
+          default=0, randomize=RandomizePolicy.WIDE),
+        P("bowed.bowpressure", "Bow Pressure", rmin=0.0, rmax=128.0, default=70.0,
+          formatter="float1", musical=(30.0, 120.0)),
+        P("bowed.bowmotion", "Bow Motion", rmin=0.0, rmax=128.0, default=30.0,
+          formatter="float1", musical=(0.0, 90.0)),
+        P("bowed.modalresonance", "Resonance", rmin=0.0, rmax=128.0, default=90.0,
+          formatter="float1", musical=(40.0, 120.0)),
+        P("bowed.bowvelocity", "Bow Velocity", rmin=0.0, rmax=128.0, default=80.0,
+          formatter="float1", musical=(20.0, 120.0)),
+        P("bowed.integration", "Integration", curve=Curve.ENUM, enum=["off", "on"],
+          default=0, randomize=RandomizePolicy.WIDE),
+        P("bowed.decay", "Decay", unit="s", rmin=0.05, rmax=8.0, default=1.5,
+          curve=Curve.EXP, formatter="float2", musical=(0.2, 4.0)),
+        *_COMMON_TAIL("bowed", ampd=0.9, ampmus=(0.5, 1.1)),
+    ],
+)
+
 VOICES: dict[str, VoiceSpec] = {v.type: v for v in
                                 (DRUM, FM7, BUCHLOID, MOLLY, RINGS, BEN, NOIZEOP, ICARUS,
-                                 PLAITS, SHAKER, MEMBRANE)}
+                                 PLAITS, SHAKER, MEMBRANE, MALLET, BOWED)}
 
 
 def macro_specs(voice_type: str) -> list[tuple[str, str, float, float]]:
@@ -632,7 +691,7 @@ FX_SPECS: list[FxSpec] = [
                                ("bias", 0.0, 0.55), ("grit", 0.0, 0.85)]),
     FxSpec("AMPSIM", "AMP", [("gain", 2.0, 20.0), ("bass", -8.0, 8.0), ("mid", -8.0, 8.0), ("treble", -8.0, 8.0)]),
     FxSpec("BITCRUSHER", "CRSH", [("bits", 3.0, 12.0), ("downsample", 1.0, 24.0)]),
-    FxSpec("RINGMOD", "RING", [("freq", 30.0, 1200.0)]),
+    FxSpec("RINGMOD", "RING", [("freq", 20.0, 2000.0), ("drive", 0.5, 3.5)]),
     FxSpec("FLANGER", "FLNG", [("rate", 0.05, 2.0), ("depth", 0.3, 1.0), ("feedback", 0.0, 0.8)]),
     FxSpec("CLOUDS", "CLDS", [("pos", 0.0, 1.0), ("size", 0.12, 0.9), ("dens", 0.2, 0.9),
                               ("tex", 0.15, 0.9), ("spread", 0.3, 1.0), ("rvb", 0.0, 0.6),
