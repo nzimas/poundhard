@@ -389,6 +389,13 @@ class Controller:
             doc = json.loads(raw)
         except json.JSONDecodeError:
             return  # partial write; try again next poll
+        # The UI's top-level seq monotonically rises within a session but RESETS to a low
+        # value when the module reloads (ui.js seq -> 0). If it dropped, the UI restarted its
+        # counter — resync the dedup, or we'd silently drop every post-reload command whose
+        # seq is now below our high-water mark (mutes, assigns, everything appear dead).
+        ui_seq = doc.get("seq")
+        if isinstance(ui_seq, (int, float)) and ui_seq < self._last_seq:
+            self._last_seq = -1
         # continuous: tempo (deduped)
         tempo = doc.get("tempo")
         if tempo is not None and tempo != self._last_tempo:
