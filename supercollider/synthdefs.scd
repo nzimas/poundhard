@@ -8,7 +8,7 @@
 // spawn time; the amp envelope fires on creation.
 //
 // Shared interface: \note (drum=pitch, tonal=fundamental), \vel 0..2, \amp \pan,
-// \out (the stereo master bus). Tracks 1-8 are DRUM; 9-16 add FMTONE/BUCHLOID/
+// \out (the stereo master bus). Tracks 1-8 are DRUM; 9-16 add FM7/BUCHLOID/
 // SAMPLER. Output is stereo (the Move shadow-JACK sink is 2ch).
 ~buildDefs = { |nchan = 2|
 	~spread = { |sig, pan = 0| Pan2.ar(sig, pan.clip(-1, 1)) };
@@ -96,27 +96,67 @@
 	~mkDrum.(\phDrumNoise, { |e|
 		(PinkNoise.ar + (WhiteNoise.ar * 0.5)) * e[\aEnv] });
 
-	// ================= FMTONE (2-op FM note, self-freeing) =================
-	SynthDef(\phFmtone, { |out = 16, note = 48, vel = 1,
-		ratio = 1.0, fmAmt = 0.4, feedback = 0.0, detune = 0.0,
-		attack = 0.002, decay = 0.6, ampCurve = -4,
-		cutoff = 12000, res = 0.1, fold = 0.0, drive = 1.0,
-		amp = 0.6, pan = 0|
-		var v, f0, aEnv, fEnv, modf, mod, car, sig, fcut;
+	// ================= FM7 — real 6-operator FM (sc3-plugins), self-freeing ==========
+	// A full DX7-style 6-operator FM voice with a bank of 6 modulation topologies
+	// ("algorithms"). Each operator's frequency is a RATIO of the note; a modulator-index
+	// envelope makes the tone brighten then dull (classic FM). `algo` picks the topology,
+	// so the generator can target bells, e-pianos, metallic clangs, FM basses and brassy
+	// stabs — using all six operators, not a token 2-op pair.
+	SynthDef(\phFm7, { |out = 16, note = 48, vel = 1,
+		algo = 0, r1 = 1, r2 = 1, r3 = 1, r4 = 2, r5 = 1, r6 = 3.5,
+		index = 1.0, fb = 0.1, bright = 1.0,
+		attack = 0.004, decay = 0.6, ampCurve = -4, mDecay = 0.6,
+		cutoff = 16000, amp = 0.55, pan = 0|
+		var v, f0, aEnv, mEnv, ratios, ctlMatrix, modMatrix, ops, sig, fcut;
+		// algorithm bank: each entry = ( mods: 6x6 modulation weights [row = carrier being
+		// modulated, col = modulator; diagonal = feedback op], carr: 6 output-carrier gains ).
+		var algos = [
+			// 0 EPIANO/BELL — three parallel 2-op stacks (op0<-op1, op2<-op3, op4<-op5)
+			( mods: [[0,1,0,0,0,0],[0,1,0,0,0,0],[0,0,0,1,0,0],[0,0,0,1,0,0],[0,0,0,0,0,1],[0,0,0,0,0,1]],
+			  carr: [1,0,1,0,1,0] ),
+			// 1 CLANG — one long 6-op chain, feedback on op5 (metallic, inharmonic)
+			( mods: [[0,1,0,0,0,0],[0,0,1,0,0,0],[0,0,0,1,0,0],[0,0,0,0,1,0],[0,0,0,0,0,1],[0,0,0,0,0,1]],
+			  carr: [1,0,0,0,0,0] ),
+			// 2 ORGAN/ADDITIVE — four carriers, two shared modulators (op4, op5)
+			( mods: [[0,0,0,0,1,0],[0,0,0,0,1,0],[0,0,0,0,0,1],[0,0,0,0,0,1],[0,0,0,0,1,0],[0,0,0,0,0,1]],
+			  carr: [1,1,1,1,0,0] ),
+			// 3 FMBASS — carrier+modulator (fb) plus a sub carrier+modulator
+			( mods: [[0,1,0,0,0,0],[0,1,0,0,0,0],[0,0,0,1,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0]],
+			  carr: [1,0,1,0,0,0] ),
+			// 4 BELL CLUSTER — one carrier hit by three modulators + a body carrier (op5)
+			( mods: [[0,1,1,1,0,0],[0,0,0,0,1,0],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,1,0],[0,0,0,0,0,0]],
+			  carr: [1,0,0,0,0,1] ),
+			// 5 STAB/BRASS — two stacked 3-op branches, feedback on op2 & op5
+			( mods: [[0,1,0,0,0,0],[0,0,1,0,0,0],[0,0,1,0,0,0],[0,0,0,0,1,0],[0,0,0,0,0,1],[0,0,0,0,0,1]],
+			  carr: [1,0,0,1,0,0] )
+		];
 		v = vel.clip(0, 2).max(0.03);
-		f0 = note.clip(0, 127).midicps * (2 ** (detune / 12));
-		aEnv = EnvGen.ar(Env.perc(attack.clip(0.0005, 2), decay.clip(0.005, 6), 1, ampCurve.clip(-8, -1)));
-		fEnv = EnvGen.ar(Env.perc(0.001, (decay * 0.6).clip(0.005, 4), 1, -4));
-		modf = f0 * ratio.clip(0.05, 24);
-		mod = SinOscFB.ar(modf, feedback.clip(0, 3)) * fmAmt * modf * 3;
-		car = SinOsc.ar((f0 + mod).clip(10, 18000));
-		sig = car * aEnv;
-		sig = SelectX.ar(fold.clip(0, 1), [sig, (sig * (1 + (fold * 5))).fold2(1)]);
-		sig = (sig * (1 + (drive.clip(0.1, 6) * 2))).tanh;
-		fcut = (cutoff * (1 + (fEnv * 0.5))).clip(40, 18000);
-		sig = RLPF.ar(sig, fcut, (1 - (res.clip(0, 1) * 0.9)).clip(0.05, 1));
-		sig = LeakDC.ar(sig) * v * amp;
-		Line.kr(0, 1, attack.clip(0.0005, 2) + decay.clip(0.005, 6) + 0.2, doneAction: 2);
+		f0 = note.clip(0, 127).midicps;
+		aEnv = EnvGen.ar(Env.perc(attack.clip(0.0005, 2), decay.clip(0.01, 8), 1, ampCurve.clip(-8, -1)));
+		// modulator-index envelope: FM brightness rises fast, then decays (its own, shorter tail).
+		// Control-rate — it only feeds the modulation matrix, keeping it uniform-rate.
+		mEnv = EnvGen.kr(Env.perc(0.002, (decay * mDecay).clip(0.01, 6), 1, -3.5));
+		ratios = [r1, r2, r3, r4, r5, r6].collect { |r| r.clip(0.01, 24) };
+		// FM7 control matrix is 6x3 per operator: [frequency, phase, amplitude].
+		ctlMatrix = ratios.collect { |rr| [(rr * f0).clip(1, 20000), 0, 1] };
+		// build the modulation matrix: off-diagonal = topology weight * FM index * index-env;
+		// diagonal = per-op feedback (topology feedback-mask * fb param).
+		modMatrix = 6.collect { |i|
+			6.collect { |j|
+				var w = Select.kr(algo, algos.collect { |a| a[\mods][i][j] });
+				(i == j).if(
+					{ w * fb.clip(0, 1) * 1.6 },
+					{ w * index.clip(0, 12) * mEnv }
+				)
+			}
+		};
+		ops = FM7.ar(ctlMatrix, modMatrix);
+		sig = 6.collect { |k| ops[k] * Select.kr(algo, algos.collect { |a| a[\carr][k] }) }.sum;
+		sig = sig * aEnv;
+		fcut = (cutoff * bright.clip(0.1, 4)).clip(60, 19000);
+		sig = LPF.ar(sig, fcut);
+		sig = LeakDC.ar(sig) * v * amp * 0.5;
+		Line.kr(0, 1, attack.clip(0.0005, 2) + decay.clip(0.01, 8) + 0.2, doneAction: 2);
 		Out.ar(out, ~killbad.(~spread.(sig, pan)));
 	}).add;
 
@@ -573,19 +613,16 @@
 	}).add;
 
 	// ---- SDLY: stereo ping-pong delay (true stereo) ----
-	SynthDef(\phSdly, { |out = 0, in = 0, timeL = 280, timeR = 420, feedback = 0.35, crossFeed = 0.4, damp = 0.4, width = 1.1, modRate = 0.3, modDepth = 0.12, amp = 1, pan = 0, bypass = 0, wet = 0.5, enable = 1|
+	// ---- DLY: Greyhole — diffuse, pitch-modulated feedback delay/reverb (sc3-plugins) ----
+	// A dark, smeary delay that blurs toward reverb as diffusion/size rise — the
+	// characterful IDM space-maker (after ValhallaDSP's Greyhole).
+	SynthDef(\phGreyhole, { |out = 0, in = 0, dTime = 0.28, damp = 0.4, size = 1.6, diff = 0.7, feedback = 0.4, modDepth = 0.1, modFreq = 2.0, width = 1.0, amp = 1, pan = 0, bypass = 0, wet = 0.5, enable = 1|
 		var dry = In.ar(in, 2), inL = dry[0], inR = dry[1];
-		var fb = LocalIn.ar(2);
-		var modL = SinOsc.kr(modRate, 0) * modDepth * 0.004;
-		var modR = SinOsc.kr(modRate, 0.5pi) * modDepth * 0.004;
-		var dL = DelayC.ar(inL + (fb[0] * feedback) + (fb[1] * crossFeed), 4, (timeL * 0.001 + modL).clip(0.001, 4));
-		var dR = DelayC.ar(inR + (fb[1] * feedback) + (fb[0] * crossFeed), 4, (timeR * 0.001 + modR).clip(0.001, 4));
-		var mid, side, wetL, wetR, outSig;
-		dL = LPF.ar(dL, damp.linexp(0, 1, 16000, 1200));
-		dR = LPF.ar(dR, damp.linexp(0, 1, 16000, 1200));
-		LocalOut.ar(~killbad.([LeakDC.ar(dL), LeakDC.ar(dR)].clip2(0.98) * enable));
-		mid = (dL + dR) * 0.5; side = (dL - dR) * 0.5 * width;
-		wetL = (mid + side) * amp; wetR = (mid - side) * amp;
+		var g = Greyhole.ar(dry, dTime.clip(0.01, 4), damp.clip(0, 1), size.clip(0.5, 5),
+			diff.clip(0, 1), feedback.clip(0, 1), modDepth.clip(0, 1), modFreq.clip(0, 10)) * enable;
+		var wL = g[0], wR = g[1];
+		var mid = (wL + wR) * 0.5, side = (wL - wR) * 0.5 * width;
+		var wetL = (mid + side) * amp, wetR = (mid - side) * amp, outSig;
 		outSig = [XFade2.ar(inL, wetL, wet * 2 - 1), XFade2.ar(inR, wetR, wet * 2 - 1)];
 		ReplaceOut.ar(out, ~killbad.(~panOut.((outSig * (1 - bypass)) + (dry * bypass), pan)));
 	}).add;

@@ -62,7 +62,7 @@ const DIM_COLOR = 74;               /* very-dark-yellow: in-length inactive step
 const SEL_COLOR = White;            /* playhead / selected edit track */
 const OFF_COLOR = Black;            /* muted track / out-of-length step */
 const LIVE_ON = 23, LIVE_DIM = 109; /* NeonPink / DeepMagenta — a LIVING (self-transforming) step */
-/* 8 distinct FX pad colours (canonical chain order: OD AMP CRSH RING FLNG GRN DLY VRB) */
+/* 8 distinct FX pad colours (canonical chain order: OD AMP CRSH RING FLNG GRN GREY VRB) */
 const FX_COLORS = [3, 27, 14, 21, 12, 31, 16, 20];
 const BYPASS_COLOR = 118;           /* light grey: a track whose FX are bypassed (visible) */
 const N_FX = 8;
@@ -72,13 +72,13 @@ const HEAT_HOT = 5, HEAT_WARM = 1, HEAT_IDLE = 84;  /* fire pulse (on) / dim emb
 
 /* Per-generator-type step-button colours [bright, dim] — same hue, two brightnesses.
  * The step buttons are grouped by generator (see kits.py) so each block is one hue:
- * DRUM=yellow, RINGS=cyan, BUCHLOID=magenta, FMTONE=green, MOLLY=blue. A track with
+ * DRUM=yellow, RINGS=cyan, BUCHLOID=magenta, FM7=green, MOLLY=blue. A track with
  * events PULSES bright<->dim at its sequence pace; muted/empty tracks sit steady dim. */
 const TYPE_COL = {
     DRUM:     [7, 74],    /* VividYellow / VeryDarkYellow */
     RINGS:    [14, 87],   /* Cyan / DarkTeal */
     BUCHLOID: [21, 107],  /* HotMagenta / DarkPurple */
-    FMTONE:   [8, 80],    /* BrightGreen / VeryDarkGreen */
+    FM7:      [8, 80],    /* BrightGreen / VeryDarkGreen — real 6-op FM */
     MOLLY:    [16, 95],   /* RoyalBlue / DarkBlue — dim MUST come from the dark band (74-107),
                            * not the bright band: Navy(17) reads as lit and swamped the pulse. */
     BEN:      [2, 67],    /* OrangeRed / Brick — the Benjolin chaos machine */
@@ -90,7 +90,7 @@ const TYPE_COL = {
  * PLAITS wraps onto the first pad of the second row (cell 8) — the lone lit pad under
  * the leftmost, easy to find by feel. Same order & colours as TYPE_COL.
  * Short-press = audition, Shift+pad = regenerate, hold pad + tap a track = assign. */
-const ENGINE_TYPES = ['DRUM', 'FMTONE', 'BUCHLOID', 'MOLLY', 'RINGS', 'BEN', 'NOIZEOP',
+const ENGINE_TYPES = ['DRUM', 'FM7', 'BUCHLOID', 'MOLLY', 'RINGS', 'BEN', 'NOIZEOP',
     'ICARUS', 'PLAITS'];
 const N_ENGINES = ENGINE_TYPES.length;
 
@@ -168,7 +168,7 @@ for (let i = 0; i < N_TRACKS; i++) fxOn.push([]);
 let fxBypass = new Array(N_TRACKS).fill(false);
 let fxMacro = new Array(N_FX).fill(0.5);
 let fxWet = new Array(N_FX).fill(0.5);   /* per-fx dry/wet (Shift + FX macro knob) */
-let fxNames = ['OD', 'AMP', 'CRSH', 'RING', 'FLNG', 'GRN', 'DLY', 'VRB'];
+let fxNames = ['OD', 'AMP', 'CRSH', 'RING', 'FLNG', 'GRN', 'GREY', 'VRB'];
 let overlay = null, overlayUntil = -1;
 let ledDirty = true, screenDirty = true, lastLedSig = '', lastScreenSig = '', lastDrawAt = -100;
 

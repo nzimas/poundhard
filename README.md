@@ -68,7 +68,7 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   | Pad | Engine | Colour | Character |
   |--------|--------|--------|-----------|
   | 1 | **DRUM** | 🟡 yellow | digital drum — kick/snare/hat/metal/clap/tom/noise |
-  | 2 | **FMTONE** | 🟢 green | 2-op FM — bass / mallet / metallic / stab |
+  | 2 | **FM7** | 🟢 green | real 6-operator FM — bells / e-pianos / clangs / FM bass / stabs |
   | 3 | **BUCHLOID** | 🟣 magenta | Buchla complex osc — drone / noise texture |
   | 4 | **MOLLY** | 🔵 blue | gritty Moog-ladder subtractive lead/pad |
   | 5 | **RINGS** | 🩵 cyan | Mutable Rings modal / sympathetic resonator |
@@ -108,7 +108,14 @@ All voices are **spawned per hit and self-free** (see [voice model](#voice-model
 - **DRUM** — a full digital drum voice with 7 modes (kick / snare / hihat /
   metal / clap / tom / noise); generating a drum sound rolls the mode and pitches it
   to suit.
-- **FMTONE** — 2-operator FM with feedback, wavefolding and a filter.
+- **FM7** — a real **6-operator FM** voice (the `FM7` UGen from sc3-plugins). Six
+  operators, each tuned to a ratio of the note, wired through one of **6 modulation
+  topologies** (`algo`): three parallel 2-op stacks (e-piano/bell), a 6-op chain
+  (metallic clang), a 4-carrier additive organ, a carrier+modulator+sub (FM bass), a
+  3-modulator inharmonic bell cluster, and two stacked branches (brass stab). A
+  modulator-index envelope makes the tone brighten then dull — classic FM movement.
+  The generator picks an algorithm first, then targets its six operator ratios + index +
+  feedback to that role (see `kits._FM7_SPEC`), so it never rolls the operators blind.
 - **BUCHLOID** — Buchla-flavoured complex-oscillator/wavefolder voice for
   drones and noise textures.
 - **MOLLY** — a Moog-ladder (`MoogFF`) subtractive synth, built for **grit** rather
@@ -258,8 +265,13 @@ place.
 ### FX view
 
 **Track 2** opens the FX view. The top two pad rows are the 16 tracks; the bottom
-row is an 8-effect chain — `OD · AMP · CRSH · RING · FLNG · GRN · DLY · VRB`
+row is an 8-effect chain — `OD · AMP · CRSH · RING · FLNG · GRN · GREY · VRB`
 (reverb always last/rightmost), each a distinct colour.
+
+**GREY** is **Greyhole** (sc3-plugins) — a diffuse, pitch-modulated feedback delay that
+blurs toward reverb as its diffusion and size rise (after ValhallaDSP's Greyhole). Its
+macro sweeps delay time, feedback, size, diffusion, damping and modulation together —
+the dark, smeary IDM space-maker, in place of a plain stereo delay.
 
 **OD** is not a polite tube sim: tilt EQ → asymmetric (biased) drive → a
 **wavefolder** that reflects peaks back for metallic bite → a hard-clip **grit**
@@ -443,10 +455,10 @@ overrun the audio thread. Every engine and effect was **measured on the device**
 | Engine | %CPU/track | | FX | %CPU each |
 |---|---|---|---|---|
 | DRUM | 5.3 | | CRSH | 0.8 |
-| FMTONE | 5.5 | | RING | 1.0 |
+| FM7 | ~8.5* | | RING | 1.0 |
 | BUCHLOID | 6.0 | | FLNG | 1.1 |
 | RINGS | 9.6 | | AMP | 1.7 |
-| BEN | 9.7 | | DLY | 2.0 |
+| BEN | 9.7 | | GREY | ~4.5* |
 | MOLLY | 11.7 | | OD | 2.5 |
 | NOIZEOP | 12.0 | | GRN | 4.5 |
 | ICARUS | 13.2 | | **VRB** | **10.0** |
@@ -463,7 +475,7 @@ patterns on the device: **worst sustained 47%, worst peak 50%**.
   **that pattern's own tempo**.
 
 The generated tracks are laid out **contiguously from track 1 and grouped by engine**
-(in palette order — DRUM · FMTONE · BUCHLOID · MOLLY · RINGS · BEN · NOIZEOP · ICARUS,
+(in palette order — DRUM · FM7 · BUCHLOID · MOLLY · RINGS · BEN · NOIZEOP · ICARUS,
 with roles in musical order inside each block). Since the step buttons are coloured by
 engine, a generated rig reads as **contiguous colour blocks** rather than a scatter.
 
@@ -725,7 +737,7 @@ flag, and the HEAT macro state (`heat / heatPct`).
 ### OSC (controller → engine, sclang langPort 57120)
 
 `/ph/tempo` · `/ph/run` · `/ph/steps` · `/ph/track t typeIdx` (**-1=empty** 0=DRUM
-1=FMTONE 2=BUCHLOID 3=MOLLY 4=RINGS 5=BEN 6=NOIZEOP 7=ICARUS 8=PLAITS) ·
+1=FM7 2=BUCHLOID 3=MOLLY 4=RINGS 5=BEN 6=NOIZEOP 7=ICARUS 8=PLAITS) ·
 `/ph/param t "name" val` ·
 `/ph/preview typeIdx note vel mode [name val …]` (audition one voice → master) ·
 `/ph/pattern` · `/ph/stepset` · `/ph/steplock` · `/ph/stepmacro` · `/ph/clearlocks` ·

@@ -97,7 +97,7 @@ class VoiceSpec:
 
 # Engine `/ph/track` type indices (must match ~typeDefs in engine.scd).
 # EMPTY = -1: an unassigned track (no engine, never spawns). Assignable engines 0..7.
-TYPE_INDEX = {"EMPTY": -1, "DRUM": 0, "FMTONE": 1, "BUCHLOID": 2, "MOLLY": 3,
+TYPE_INDEX = {"EMPTY": -1, "DRUM": 0, "FM7": 1, "BUCHLOID": 2, "MOLLY": 3,
               "RINGS": 4, "BEN": 5, "NOIZEOP": 6, "ICARUS": 7, "PLAITS": 8}
 
 _COMMON_TAIL = lambda pfx, ampd=0.8, ampmus=(0.5, 1.1): [
@@ -159,32 +159,48 @@ DRUM = VoiceSpec(
 )
 
 # --------------------------------------------------------------------------- #
-# FMTONE — compact gate-triggered 2-op FM (bass / mallet / metallic / stab).
+# FM7 — real 6-operator FM (sc3-plugins). `algo` picks one of 6 modulation
+# topologies; the six operator ratios + FM index + feedback shape the tone. The
+# generator targets each algorithm to a role (bell / e-piano / clang / FM bass /
+# metal / stab) — see kits._FM7_SPEC.
 # --------------------------------------------------------------------------- #
-FMTONE = VoiceSpec(
-    type="FMTONE",
-    role="2-op FM note: carrier + modulator (ratio/amount/feedback), drive, filter.",
-    synthdef="phFmtone",
+FM7 = VoiceSpec(
+    type="FM7",
+    role="6-operator FM: 6 algorithms, per-operator ratios, FM index + feedback.",
+    synthdef="phFm7",
     params=[
-        P("fmtone.ratio", "FM Ratio", rmin=0.05, rmax=24.0, default=1.0, curve=Curve.EXP,
+        P("fm7.algo", "Algorithm", curve=Curve.ENUM,
+          enum=["epiano", "clang", "organ", "fmbass", "bell", "stab"],
+          default=0, randomize=RandomizePolicy.WIDE),
+        P("fm7.r1", "Ratio 1", rmin=0.01, rmax=24.0, default=1.0, curve=Curve.EXP,
           formatter="float2", musical=(0.5, 8.0)),
-        P("fmtone.fmAmt", "FM Amount", default=0.4, musical=(0.05, 0.9)),
-        P("fmtone.feedback", "Feedback", rmin=0.0, rmax=3.0, default=0.0, musical=(0.0, 1.4)),
-        P("fmtone.detune", "Detune", unit="st", rmin=-1.0, rmax=1.0, default=0.0,
-          curve=Curve.BIPOLAR, musical=(-0.2, 0.2)),
-        P("fmtone.attack", "Attack", unit="s", rmin=0.0005, rmax=2.0, default=0.002,
-          curve=Curve.EXP, formatter="float3", musical=(0.001, 0.05)),
-        P("fmtone.decay", "Decay", unit="s", rmin=0.005, rmax=6.0, default=0.6,
-          curve=Curve.EXP, formatter="float2", musical=(0.05, 2.0)),
-        P("fmtone.ampCurve", "Amp Curve", rmin=-8.0, rmax=-1.0, default=-4.0,
-          formatter="float1", musical=(-6.0, -2.0)),
-        P("fmtone.cutoff", "Cutoff", unit="Hz", rmin=40.0, rmax=18000.0, default=12000.0,
-          curve=Curve.EXP, formatter="Hz", musical=(300.0, 16000.0)),
-        P("fmtone.res", "Resonance", default=0.1, musical=(0.0, 0.6), danger=DangerClass.FEEDBACK),
-        P("fmtone.fold", "Wavefold", default=0.0, musical=(0.0, 0.5)),
-        P("fmtone.drive", "Drive", rmin=0.1, rmax=6.0, default=1.0, curve=Curve.EXP,
+        P("fm7.r2", "Ratio 2", rmin=0.01, rmax=24.0, default=1.0, curve=Curve.EXP,
+          formatter="float2", musical=(0.5, 8.0)),
+        P("fm7.r3", "Ratio 3", rmin=0.01, rmax=24.0, default=1.0, curve=Curve.EXP,
+          formatter="float2", musical=(0.5, 8.0)),
+        P("fm7.r4", "Ratio 4", rmin=0.01, rmax=24.0, default=2.0, curve=Curve.EXP,
+          formatter="float2", musical=(0.5, 11.0)),
+        P("fm7.r5", "Ratio 5", rmin=0.01, rmax=24.0, default=1.0, curve=Curve.EXP,
+          formatter="float2", musical=(0.5, 8.0)),
+        P("fm7.r6", "Ratio 6", rmin=0.01, rmax=24.0, default=3.5, curve=Curve.EXP,
+          formatter="float2", musical=(0.5, 11.0)),
+        P("fm7.index", "FM Index", rmin=0.0, rmax=12.0, default=1.0, curve=Curve.EXP,
+          formatter="float2", musical=(0.3, 6.0)),
+        P("fm7.fb", "Feedback", rmin=0.0, rmax=1.0, default=0.1, musical=(0.0, 0.7),
+          danger=DangerClass.FEEDBACK),
+        P("fm7.bright", "Brightness", rmin=0.1, rmax=4.0, default=1.0, curve=Curve.EXP,
           formatter="float2", musical=(0.4, 2.5)),
-        *_COMMON_TAIL("fmtone", ampd=0.6, ampmus=(0.35, 0.95)),
+        P("fm7.attack", "Attack", unit="s", rmin=0.0005, rmax=2.0, default=0.004,
+          curve=Curve.EXP, formatter="float3", musical=(0.001, 0.05)),
+        P("fm7.decay", "Decay", unit="s", rmin=0.01, rmax=8.0, default=0.6,
+          curve=Curve.EXP, formatter="float2", musical=(0.08, 2.5)),
+        P("fm7.ampCurve", "Amp Curve", rmin=-8.0, rmax=-1.0, default=-4.0,
+          formatter="float1", musical=(-6.0, -2.0)),
+        P("fm7.mDecay", "Index Decay", rmin=0.05, rmax=1.5, default=0.6,
+          formatter="float2", musical=(0.2, 1.2)),
+        P("fm7.cutoff", "Cutoff", unit="Hz", rmin=60.0, rmax=19000.0, default=16000.0,
+          curve=Curve.EXP, formatter="Hz", musical=(800.0, 18000.0)),
+        *_COMMON_TAIL("fm7", ampd=0.55, ampmus=(0.35, 0.9)),
     ],
 )
 
@@ -504,7 +520,7 @@ PLAITS = VoiceSpec(
 )
 
 VOICES: dict[str, VoiceSpec] = {v.type: v for v in
-                                (DRUM, FMTONE, BUCHLOID, MOLLY, RINGS, BEN, NOIZEOP, ICARUS, PLAITS)}
+                                (DRUM, FM7, BUCHLOID, MOLLY, RINGS, BEN, NOIZEOP, ICARUS, PLAITS)}
 
 
 def macro_specs(voice_type: str) -> list[tuple[str, str, float, float]]:
@@ -570,9 +586,9 @@ FX_SPECS: list[FxSpec] = [
                              ("spray", 0.0, 0.3), ("jitter", 0.0, 0.6), ("spread", 0.3, 1.0),
                              ("reverse", 0.0, 0.5), ("shimmer", 0.0, 0.6), ("texture", 0.2, 0.8),
                              ("feedback", 0.0, 0.5)]),
-    FxSpec("SDLY", "DLY", [("timeL", 80.0, 900.0), ("timeR", 80.0, 900.0), ("feedback", 0.1, 0.7),
-                           ("crossFeed", 0.2, 0.85), ("damp", 0.1, 0.6), ("width", 0.85, 1.4),
-                           ("modDepth", 0.0, 0.35)]),
+    FxSpec("GREYHOLE", "GREY", [("dTime", 0.05, 1.2), ("feedback", 0.2, 0.85), ("size", 0.8, 4.0),
+                                ("diff", 0.3, 1.0), ("damp", 0.1, 0.7), ("modDepth", 0.0, 0.5),
+                                ("modFreq", 0.1, 6.0)]),
     FxSpec("VERB", "VRB", [("size", 1.0, 3.8), ("decay", 1.5, 12.0), ("damp", 0.1, 0.6),
                            ("modDepth", 0.0, 0.4), ("earlyDiff", 0.4, 0.95), ("lowCut", 50.0, 400.0),
                            ("highCut", 4000.0, 14000.0), ("width", 0.85, 1.35)]),

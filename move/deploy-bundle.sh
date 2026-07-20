@@ -1,7 +1,7 @@
 #!/bin/bash
 # Provision the scsynth/sclang runtime bundle for PoundHard on the Move.
 #
-# PoundHard's four voices (DRUM/FMTONE/BUCHLOID/SAMPLER) are pure-SuperCollider —
+# PoundHard's four voices (DRUM/FM7/BUCHLOID) are pure-SuperCollider —
 # they need NO extra UGen plugins beyond the core, so the same scsynth/sclang
 # bundle the wildrider takeover already ships works verbatim. This script copies
 # that bundle (bin/ lib/ plugins/ share/) from an existing on-device wildrider

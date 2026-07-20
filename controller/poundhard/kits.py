@@ -11,7 +11,7 @@ noise, percussion-centric experimental electronica):
   Track  9     BEN        — Benjolin (rungler) chaotic generative machine
   Tracks 10-11 BUCHLOID   — drone, noise texture
   Track  12    NOIZEOP    — deeg's 4-sine / 6-algorithm glitch-noise machine
-  Tracks 13-14 FMTONE     — bass, metallic ornament
+  Tracks 13-14 FM7        — FM bass, metallic ornament (6-op FM)
   Tracks 15-16 MOLLY      — gritty lead/stab, corroded pad
 
 Each role fixes the essentials (voice type, drum mode, register) and randomizes
@@ -125,15 +125,18 @@ ROLES: list[Role] = [
                 "noizeop.ffreq01": (30, 800), "noizeop.ffreq02": (1500, 14000),
                 "noizeop.ffreq03": (200, 5000), "noizeop.q03": (0.06, 0.6),
                 "noizeop.gain": (0.7, 4.0), "noizeop.decay": (0.15, 1.6)}, vel=(0.7, 1.0)),
-    # ---- tracks 13-14: FMTONE (bass / ornament) ----
-    Role("BASS", "FMTONE", note_choices=(0, 3, 5), octave=0,
-         bands={"fmtone.ratio": (0.5, 3.0), "fmtone.fmAmt": (0.2, 0.7),
-                "fmtone.feedback": (0.0, 1.2), "fmtone.decay": (0.15, 0.8),
-                "fmtone.cutoff": (400, 5000), "fmtone.drive": (1.0, 2.6)}),
-    Role("ORNMNT", "FMTONE", note_choices=(7, 10, 12, 15), octave=24,
-         bands={"fmtone.ratio": (2.0, 11.0), "fmtone.fmAmt": (0.2, 0.8),
-                "fmtone.feedback": (0.0, 1.0), "fmtone.decay": (0.1, 0.7),
-                "fmtone.cutoff": (2000, 15000), "fmtone.fold": (0.0, 0.4)}),
+    # ---- tracks 13-14: FM7 (FM bass / metallic ornament) ----
+    Role("BASS", "FM7", note_choices=(0, 3, 5), octave=0,
+         fixed={"fm7.algo": 3},                          # fmbass topology
+         bands={"fm7.r1": (0.99, 1.01), "fm7.r2": (1.0, 2.5), "fm7.r3": (0.5, 1.01),
+                "fm7.r4": (1.0, 3.0), "fm7.index": (1.0, 3.5), "fm7.fb": (0.1, 0.5),
+                "fm7.decay": (0.15, 0.7), "fm7.mDecay": (0.25, 0.7), "fm7.bright": (0.4, 1.5)}),
+    Role("ORNMNT", "FM7", note_choices=(7, 10, 12, 15), octave=24,
+         fixed={"fm7.algo": 1},                          # clang (6-op chain) topology
+         bands={"fm7.r1": (0.99, 1.01), "fm7.r2": (1.4, 6.0), "fm7.r3": (1.4, 6.0),
+                "fm7.r4": (1.4, 7.0), "fm7.r5": (1.4, 6.0), "fm7.r6": (1.4, 6.0),
+                "fm7.index": (2.0, 5.0), "fm7.fb": (0.1, 0.5), "fm7.decay": (0.1, 0.6),
+                "fm7.mDecay": (0.3, 0.8), "fm7.bright": (0.7, 2.2)}),
     # ---- tracks 15-16: MOLLY (lead / pad) ----
     Role("M LEAD", "MOLLY", note_choices=(0, 7, 12), octave=24,      # gritty lead / stab
          bands={"molly.oscShape": (0.4, 1.0), "molly.cutoff": (900, 7000),
@@ -209,7 +212,7 @@ def gen_kit(seed: int | None = None) -> dict:
 # its engine (wider note choices; drums roll every mode) while still pinning the
 # essentials that keep a voice idiomatic.
 # --------------------------------------------------------------------------- #
-PALETTE_ENGINES = ["DRUM", "FMTONE", "BUCHLOID", "MOLLY", "RINGS", "BEN", "NOIZEOP",
+PALETTE_ENGINES = ["DRUM", "FM7", "BUCHLOID", "MOLLY", "RINGS", "BEN", "NOIZEOP",
                    "ICARUS", "PLAITS"]
 
 # a canonical note per drum mode, so an auditioned/assigned drum sits in register
@@ -219,7 +222,8 @@ _DRUM_MODE_NOTE = [33, 49, 72, 64, 60, 45, 67]
 PALETTE_ROLES: dict[str, Role] = {
     # DRUM — roll every mode; the note is fixed up per mode in gen_palette_voice.
     "DRUM": Role("DRUM", "DRUM", note=45, jitter=0.9),
-    "FMTONE": Role("FMTONE", "FMTONE", note_choices=tuple(_SCALE), octave=0, jitter=0.85),
+    # FM7 — the algorithm (and its targeted role) is chosen per generation in
+    # gen_palette_voice, like PLAITS; this is just the default entry.
     "BUCHLOID": Role("BUCHLOID", "BUCHLOID", note_choices=tuple(_SCALE), octave=12, jitter=0.85),
     "MOLLY": Role("MOLLY", "MOLLY", note_choices=tuple(_SCALE), octave=12, jitter=0.85,
                   bands={"molly.fold": (0.2, 0.7), "molly.grit": (0.1, 0.5)}),
@@ -324,6 +328,68 @@ _PLAITS_WEIGHTS = {"PL SPCH": 3, "PL PART": 3, "PL WSHP": 3, "PL MODL": 3, "PL C
                    "PL VA": 2, "PL FM": 2, "PL HARM": 2, "PL BD": 1, "PL SD": 1, "PL HH": 1}
 
 
+# --------------------------------------------------------------------------- #
+# FM7 — per-algorithm targeting.
+#
+# FM7's `algo` selects a modulation topology, and each topology wants its own
+# operator ratios to sound like the thing it's good at. Rolling 6 ratios + index
+# blindly would mostly make noise; so each algorithm gets a role that pins the
+# ratios that make it a bell / e-piano / clang / FM bass / metal / stab, in the
+# register that suits it.  The six operators are ordered [op0..op5]; which are
+# carriers vs modulators depends on the algorithm (see \phFm7 in synthdefs.scd).
+#
+# Fields: (algo, name, category, note, rbands[6], index, fb, decay, mDecay, bright)
+# --------------------------------------------------------------------------- #
+_ONE = (0.99, 1.01)
+_FM7_SPEC = [
+    # 0 EPIANO — three parallel 2-op stacks: carriers op0/op2/op4 near unison, integer mods.
+    (0, "FM EP", "tonal", (tuple(_SCALE), 12),
+     [_ONE, (1.0, 3.0), _ONE, (1.0, 4.0), (0.99, 2.01), (1.0, 3.0)],
+     (0.5, 2.2), (0.0, 0.3), (0.25, 1.1), (0.35, 0.9), (0.6, 1.8)),
+    # 1 CLANG — 6-op chain, carrier op0, inharmonic modulators. Metallic, percussive.
+    (1, "FM CLANG", "texture", (tuple(_SCALE), 0),
+     [_ONE, (1.4, 6.5), (1.4, 6.5), (1.4, 7.5), (1.4, 6.5), (1.4, 6.5)],
+     (2.0, 6.0), (0.2, 0.6), (0.08, 0.5), (0.3, 0.8), (0.8, 2.4)),
+    # 2 ORGAN — additive: carriers op0..op3 as a harmonic series, two soft modulators.
+    (2, "FM ORGAN", "pad", ((0, 7), 0),
+     [_ONE, (1.99, 2.01), (2.99, 3.01), (3.99, 4.01), (1.0, 4.0), (1.0, 5.0)],
+     (0.3, 2.0), (0.0, 0.25), (0.5, 2.2), (0.5, 1.2), (0.5, 1.6)),
+    # 3 FMBASS — carrier+modulator with feedback, plus a sub carrier. Low register.
+    (3, "FM BASS", "bass", ((0, 3, 5, 7), 0),
+     [_ONE, (1.0, 2.5), (0.5, 1.01), (1.0, 3.0), _ONE, _ONE],
+     (1.0, 4.0), (0.1, 0.5), (0.12, 0.6), (0.25, 0.7), (0.4, 1.5)),
+    # 4 BELL — one carrier hit by three inharmonic modulators + a body carrier. Long.
+    (4, "FM BELL", "tonal", (tuple(_SCALE), 12),
+     [_ONE, (1.41, 3.5), (2.0, 5.0), (3.0, 7.0), (2.0, 6.0), (0.5, 1.01)],
+     (1.5, 5.0), (0.1, 0.5), (0.6, 2.5), (0.5, 1.2), (0.6, 2.2)),
+    # 5 STAB — two stacked 3-op branches, feedback. Brassy near-integer ratios.
+    (5, "FM STAB", "tonal", ((0, 5, 7), 12),
+     [_ONE, (1.0, 2.5), (1.0, 3.0), (0.99, 2.01), (1.0, 3.0), (1.0, 4.0)],
+     (1.5, 4.5), (0.1, 0.4), (0.12, 0.8), (0.4, 1.0), (0.7, 2.2)),
+]
+
+
+def _fm7_role(spec) -> Role:
+    algo, name, _cat, note, rb, idx, fbb, dec, mdec, brt = spec
+    kw = {}
+    if isinstance(note, int):
+        kw["note"] = note
+    else:
+        kw["note_choices"], kw["octave"] = note[0], note[1]
+    bands = {"fm7.r%d" % (i + 1): rb[i] for i in range(6)}
+    bands.update({"fm7.index": idx, "fm7.fb": fbb, "fm7.decay": dec,
+                  "fm7.mDecay": mdec, "fm7.bright": brt})
+    return Role(name, "FM7", fixed={"fm7.algo": float(algo)}, bands=bands,
+                vel=(0.82, 1.05), **kw)
+
+
+FM7_ROLES: dict[str, Role] = {s[1]: _fm7_role(s) for s in _FM7_SPEC}
+FM7_CAT: dict[str, str] = {s[1]: s[2] for s in _FM7_SPEC}
+PALETTE_ROLES["FM7"] = FM7_ROLES["FM EP"]
+# lean toward the algorithms that most define PoundHard's edge (clang, bass, bell)
+_FM7_WEIGHTS = {"FM CLANG": 3, "FM BASS": 3, "FM BELL": 3, "FM STAB": 2, "FM EP": 2, "FM ORGAN": 1}
+
+
 def gen_palette_voice(engine: str, rng: random.Random | None = None) -> dict:
     """Generate one fresh sound for an engine's palette pad (audition / assign)."""
     rng = rng or random.Random()
@@ -333,6 +399,12 @@ def gen_palette_voice(engine: str, rng: random.Random | None = None) -> dict:
         names = list(_PLAITS_WEIGHTS)
         name = rng.choices(names, weights=[_PLAITS_WEIGHTS[n] for n in names])[0]
         return gen_voice(PLAITS_ROLES[name], rng)
+    if engine == "FM7":
+        # pick an ALGORITHM first, then generate through its targeted role — the six
+        # operator ratios mean something different under each topology.
+        names = list(_FM7_WEIGHTS)
+        name = rng.choices(names, weights=[_FM7_WEIGHTS[n] for n in names])[0]
+        return gen_voice(FM7_ROLES[name], rng)
     voice = gen_voice(PALETTE_ROLES[engine], rng)
     if engine == "DRUM":                       # put the drum in register for its mode
         mode = int(round(voice["params"].get("drum.mode", 0)))

@@ -133,9 +133,14 @@ class Track:
 
     @classmethod
     def from_dict(cls, d: dict) -> "Track":
-        t = cls(type=d.get("type", "EMPTY"), note=int(d.get("note", 40)),
+        raw_type = d.get("type", "EMPTY")
+        params = dict(d.get("params", {}))
+        if raw_type == "FMTONE":            # legacy compat: FMTONE was replaced by FM7 (same
+            raw_type = "FM7"                # track index). 2-op params don't map onto 6-op FM,
+            params = {}                     # so the track loads as a default FM7 to be re-rolled.
+        t = cls(type=raw_type, note=int(d.get("note", 40)),
                 vel=float(d.get("vel", 1.0)), sample=int(d.get("sample", -1)),
-                params=dict(d.get("params", {})), muted=bool(d.get("muted", False)),
+                params=params, muted=bool(d.get("muted", False)),
                 length=int(d.get("length", N_STEPS)), rate=float(d.get("rate", 1.0)))
         pat = list(d.get("pattern", []))[:N_STEPS]
         t.pattern = (pat + [0] * N_STEPS)[:N_STEPS]

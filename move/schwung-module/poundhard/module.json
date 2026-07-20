@@ -3,7 +3,7 @@
     "name": "PoundHard",
     "abbrev": "PND",
     "version": "0.1.0",
-    "description": "PoundHard — 16-track groovebox for edgy IDM, rhythmic noise and percussion-centric experimental electronica. DRUM/FMTONE/BUCHLOID/SAMPLER voices on a SuperCollider engine, driven from the Move.",
+    "description": "PoundHard — 16-track groovebox for edgy IDM, rhythmic noise and percussion-centric experimental electronica. DRUM/FM7/BUCHLOID voices on a SuperCollider engine, driven from the Move.",
     "author": "nzimas",
     "license": "MIT",
     "ui": "ui.js",

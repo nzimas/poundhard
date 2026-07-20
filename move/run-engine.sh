@@ -4,7 +4,7 @@
 # the headless controller (run-controller.sh) then drives it over OSC.
 #
 # PoundHard reuses the same scsynth/sclang bundle layout as the wildrider
-# takeover (bin/ lib/ plugins/ share/ under $PH); DRUM/FMTONE/BUCHLOID/SAMPLER
+# takeover (bin/ lib/ plugins/ share/ under $PH); DRUM/FM7/BUCHLOID
 # are pure-SC voices, so no mi-UGens are strictly required, but the bundle's
 # sc3-plugins are harmless if present.
 set -e

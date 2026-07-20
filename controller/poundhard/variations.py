@@ -26,7 +26,7 @@ from .tracks import Track, N_TRACKS, N_STEPS, N_PATTERNS
 
 # engines whose pitch is genuinely melodic (worth per-step pitch locks). BEN /
 # NOIZEOP / BUCHLOID track `note` but as texture, so they get rhythm-only variation.
-_MELODIC = {"FMTONE", "MOLLY", "RINGS", "ICARUS"}
+_MELODIC = {"FM7", "MOLLY", "RINGS", "ICARUS"}
 _DRUM_MODE = ["kick", "snare", "hihat", "metal", "clap", "tom", "noise"]
 
 
@@ -372,14 +372,16 @@ _MAX_ONSETS = 56                           # musical restraint: total onsets acr
 # MEASURED on the device (scsynth /status, one track at density 0.5, maxPoly 3,
 # 120bpm), as %CPU above a 4.9% idle baseline. These are why generated patterns
 # could XRun: ten expensive tracks is >130% CPU before a single effect.
-_ENGINE_COST = {"DRUM": 5.3, "FMTONE": 5.5, "BUCHLOID": 6.0, "RINGS": 9.6,
+_ENGINE_COST = {"DRUM": 5.3, "FM7": 8.5, "BUCHLOID": 6.0, "RINGS": 9.6,
                 "BEN": 9.7, "MOLLY": 11.7, "NOIZEOP": 12.0, "ICARUS": 13.2,
                 # PLAITS measured 5.1% mean / 6.9% worst across its models (it's one
                 # well-optimised macro-oscillator) — the conservative figure is used.
+                # FM7 is a real 6-operator matrix — provisional 8.5 pending device measure.
                 "PLAITS": 6.9}
 # Measured per FX INSTANCE (they're per-track inserts, not sends!). Reverb costs as
-# much as a whole ICARUS voice, so a pattern gets at most one.
-_FX_COST = [2.5, 1.7, 0.8, 1.0, 1.1, 4.5, 2.0, 10.0]   # OD AMP CRSH RING FLNG GRN DLY VRB
+# much as a whole ICARUS voice, so a pattern gets at most one. GREY = Greyhole
+# (diffuse delay/reverb) is provisional pending device measure.
+_FX_COST = [2.5, 1.7, 0.8, 1.0, 1.1, 4.5, 4.5, 10.0]   # OD AMP CRSH RING FLNG GRN GREY VRB
 _CPU_BUDGET = 52.0                         # leaves ~45% headroom for peaks/jitter on the ARM
 _MAX_TRACKS = 8
 
