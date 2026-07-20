@@ -632,6 +632,32 @@
 		Out.ar(out, ~killbad.(~spread.(sig, pan)));
 	}).add;
 
+	// ================= CHAOS — chaotic-map oscillator (core UGens), self-freeing =========
+	// A voice built from SuperCollider's audio-rate CHAOS generators (feedback sine + iterated
+	// maps). `type` selects the map; the note sets the iteration frequency, chaosA/chaosB steer
+	// the attractor (from tone to noise), plus a wavefolder and resonant filter. Glitch/noise
+	// in the spirit of BEN and NOIZEOP, from core UGens (no plugin).
+	SynthDef(\phChaos, { |out = 16, note = 48, vel = 1,
+		type = 0, chaosA = 1.1, chaosB = 0.5, fold = 0.0, cutoff = 6000, res = 0.2,
+		attack = 0.003, decay = 0.5, ampCurve = -4, amp = 0.55, pan = 0|
+		var v = vel.clip(0, 2).max(0.03);
+		var f0 = note.clip(0, 127).midicps.clip(20, 8000);
+		var aEnv = EnvGen.ar(Env.perc(attack.clip(0.0005, 2), decay.clip(0.01, 8), 1, ampCurve.clip(-8, -1)));
+		var srcs = [
+			FBSineC.ar(f0 * 2, chaosA.clip(0.1, 4), chaosB.clip(0, 3), 1.0, 0.5),
+			LatoocarfianC.ar(f0, chaosA.linlin(0, 4, -3, 3), chaosB.linlin(0, 3, 0.5, 1.5), 1.5, 0.5),
+			HenonC.ar(f0, chaosA.linlin(0, 4, 1.0, 1.4), chaosB.linlin(0, 3, 0.2, 0.4)),
+			StandardL.ar(f0, chaosA.linlin(0, 4, 0.3, 3.0)),
+			CuspL.ar(f0, chaosA.linlin(0, 4, 0.9, 1.2), chaosB.linlin(0, 3, 1.7, 2.0))
+		];
+		var sig = Select.ar(type.round.clip(0, 4), srcs).tanh;
+		sig = SelectX.ar(fold.clip(0, 1), [sig, (sig * (1 + (fold * 4))).fold2(1)]);
+		sig = RLPF.ar(sig, cutoff.clip(40, 16000), (1 - (res.clip(0, 1) * 0.9)).clip(0.05, 1));
+		sig = LeakDC.ar(sig) * aEnv * v * amp * 2.8;   // chaotic maps have low RMS — bring up
+		Line.kr(0, 1, attack.clip(0.0005, 2) + decay.clip(0.01, 8) + 0.2, doneAction: 2);
+		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+	}).add;
+
 	// ================= FX (per-track insert chain) =================
 	// Each FX reads its track bus (`in`), processes, and REPLACES the bus (`out`
 	// == `in`) — so a track's FX run in place, in canonical chain order. Stereo.
@@ -681,6 +707,7 @@
 	// Not a polite tube sim: bias adds even harmonics, the folder reflects peaks back for
 	// Buchla-ish metallic bite, and the grit stage hard-clips for fizz/breakup.
 	SynthDef(\phOverdrive, { |out = 0, in = 0, drive = 4, tone = 0, fold = 0, bias = 0, grit = 0,
+		shape = 0, glitch = 0, glitchfreq = 1200,
 		amp = 0.8, pan = 0, bypass = 0, wet = 0.5, enable = 1|
 		var dry = In.ar(in, 2), y;
 		y = BHiShelf.ar(dry, 1500, 1.0, tone * 9);
@@ -689,6 +716,10 @@
 		y = (y + bias).tanh;                                                     // asymmetry -> even harmonics
 		y = XFade2.ar(y, (y * (1 + (fold * 9))).fold2(1) * 0.8, (fold.clip(0, 1) * 2 - 1));
 		y = XFade2.ar(y, (y * (1 + (grit * 6))).clip2(0.6) * 1.25, (grit.clip(0, 1) * 2 - 1));
+		// SineShaper: sinusoidal waveshaping fold (lower limit = harder)
+		y = XFade2.ar(y, SineShaper.ar(y, (1 - (shape.clip(0, 1) * 0.9)).clip(0.1, 1)), (shape.clip(0, 1) * 2 - 1));
+		// GlitchRHPF: glitchy resonant highpass (low rq = screaming resonance)
+		y = XFade2.ar(y, GlitchRHPF.ar(y, glitchfreq.clip(60, 12000), (1 - (glitch.clip(0, 1) * 0.9)).clip(0.05, 1)), (glitch.clip(0, 1) * 2 - 1));
 		y = LeakDC.ar(y) / (1 + (drive * 0.10));                                 // level compensation
 		ReplaceOut.ar(out, ~fxOut.(dry, y, amp, enable, wet, bypass));
 	}).add;

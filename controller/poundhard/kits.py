@@ -214,7 +214,7 @@ def gen_kit(seed: int | None = None) -> dict:
 # --------------------------------------------------------------------------- #
 PALETTE_ENGINES = ["DRUM", "FM7", "BUCHLOID", "MOLLY", "RINGS", "BEN", "NOIZEOP",
                    "ICARUS", "PLAITS", "SHAKER", "MEMBRANE", "MALLET", "BOWED",
-                   "PLUCK", "TUBE"]
+                   "PLUCK", "TUBE", "CHAOS"]
 
 # a canonical note per drum mode, so an auditioned/assigned drum sits in register
 # (mode order matches catalog DRUM enum: kick snare hihat metal clap tom noise)
@@ -548,6 +548,32 @@ PALETTE_ROLES["TUBE"] = TUBE_ROLES["TB HOLLOW"]
 _TUBE_WEIGHTS = {"TB HOLLOW": 3, "TB REEDY": 2}
 
 
+# --------------------------------------------------------------------------- #
+# CHAOS (chaotic-map oscillator) — per-map targeting. (type, name, note, chaosA,
+# chaosB, fold, cutoff, decay). A texture/noise voice in the BEN/NOIZEOP spirit.
+# --------------------------------------------------------------------------- #
+_CHAOS_SPEC = [
+    (0, "CH FBSINE", (0, 5, 7), (0.5, 3.0), (0.2, 2.5), (0.0, 0.5), (400, 10000), (0.1, 1.0)),
+    (1, "CH LATOO",  (0, 5, 7), (0.5, 3.5), (0.3, 2.0), (0.0, 0.5), (600, 12000), (0.15, 1.2)),
+    (2, "CH HENON",  (0, 5, 7), (1.0, 3.0), (0.5, 2.0), (0.0, 0.4), (500, 9000),  (0.1, 0.8)),
+    (3, "CH STD",    (0, 5, 7), (1.0, 3.0), (0.2, 1.5), (0.0, 0.4), (400, 8000),  (0.1, 0.9)),
+    (4, "CH CUSP",   (0, 5, 7), (0.8, 2.5), (0.3, 2.0), (0.0, 0.5), (500, 10000), (0.1, 0.9)),
+]
+
+
+def _chaos_role(spec) -> Role:
+    typ, name, note, ca, cb, fold, cut, dec = spec
+    return Role(name, "CHAOS", fixed={"chaos.type": float(typ)},
+                note_choices=note, octave=0,
+                bands={"chaos.chaosA": ca, "chaos.chaosB": cb, "chaos.fold": fold,
+                       "chaos.cutoff": cut, "chaos.decay": dec}, vel=(0.75, 1.0))
+
+
+CHAOS_ROLES: dict[str, Role] = {s[1]: _chaos_role(s) for s in _CHAOS_SPEC}
+PALETTE_ROLES["CHAOS"] = CHAOS_ROLES["CH FBSINE"]
+_CHAOS_WEIGHTS = {"CH FBSINE": 3, "CH LATOO": 2, "CH HENON": 2, "CH STD": 2, "CH CUSP": 2}
+
+
 def gen_palette_voice(engine: str, rng: random.Random | None = None) -> dict:
     """Generate one fresh sound for an engine's palette pad (audition / assign)."""
     rng = rng or random.Random()
@@ -588,6 +614,10 @@ def gen_palette_voice(engine: str, rng: random.Random | None = None) -> dict:
         names = list(_TUBE_WEIGHTS)
         name = rng.choices(names, weights=[_TUBE_WEIGHTS[n] for n in names])[0]
         return gen_voice(TUBE_ROLES[name], rng)
+    if engine == "CHAOS":
+        names = list(_CHAOS_WEIGHTS)
+        name = rng.choices(names, weights=[_CHAOS_WEIGHTS[n] for n in names])[0]
+        return gen_voice(CHAOS_ROLES[name], rng)
     voice = gen_voice(PALETTE_ROLES[engine], rng)
     if engine == "DRUM":                       # put the drum in register for its mode
         mode = int(round(voice["params"].get("drum.mode", 0)))

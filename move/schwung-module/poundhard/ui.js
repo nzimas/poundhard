@@ -91,12 +91,14 @@ const TYPE_COL = {
     BOWED:    [33, 90],   /* Teal / DarkTeal — STK BandedWG (bowed metal/glass/bowl) */
     PLUCK:    [29, 108],  /* SpringGreen / DarkGreen — DWG plucked stiff string */
     TUBE:     [37, 96],   /* SkyBlue / DarkBlue — TwoTube waveguide (hollow/reedy) */
+    CHAOS:    [5, 68],    /* Red / DarkRed — chaotic-map oscillator (glitch/noise) */
 };
-/* Engine palette: the 15 assignable engines. The first 8 fill the top row (cells 0..7);
- * PLAITS..TUBE wrap onto the second row (cells 8..14). Same order & colours as TYPE_COL.
+/* Engine palette: the 16 assignable engines — they exactly fill the top two pad rows.
+ * Row 1 = cells 0..7 (DRUM..ICARUS), row 2 = cells 8..15 (PLAITS..CHAOS). Same order &
+ * colours as TYPE_COL.
  * Short-press = audition, Shift+pad = regenerate, hold pad + tap a track = assign. */
 const ENGINE_TYPES = ['DRUM', 'FM7', 'BUCHLOID', 'MOLLY', 'RINGS', 'BEN', 'NOIZEOP',
-    'ICARUS', 'PLAITS', 'SHAKER', 'MEMBRANE', 'MALLET', 'BOWED', 'PLUCK', 'TUBE'];
+    'ICARUS', 'PLAITS', 'SHAKER', 'MEMBRANE', 'MALLET', 'BOWED', 'PLUCK', 'TUBE', 'CHAOS'];
 const N_ENGINES = ENGINE_TYPES.length;
 
 /* ---- runtime state (mirrors status.json) ---- */

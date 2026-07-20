@@ -100,7 +100,7 @@ class VoiceSpec:
 TYPE_INDEX = {"EMPTY": -1, "DRUM": 0, "FM7": 1, "BUCHLOID": 2, "MOLLY": 3,
               "RINGS": 4, "BEN": 5, "NOIZEOP": 6, "ICARUS": 7, "PLAITS": 8,
               "SHAKER": 9, "MEMBRANE": 10, "MALLET": 11, "BOWED": 12,
-              "PLUCK": 13, "TUBE": 14}
+              "PLUCK": 13, "TUBE": 14, "CHAOS": 15}
 
 _COMMON_TAIL = lambda pfx, ampd=0.8, ampmus=(0.5, 1.1): [
     P(f"{pfx}.amp", "Amp", unit="dB", rmin=0.0, rmax=2.0, default=ampd, curve=Curve.DB,
@@ -673,9 +673,37 @@ TUBE = VoiceSpec(
     ],
 )
 
+# --------------------------------------------------------------------------- #
+# CHAOS — chaotic-map oscillator (core UGens): feedback sine + iterated maps.
+# `type` selects the map; chaosA/chaosB steer it from tone to noise. Glitch/noise.
+# --------------------------------------------------------------------------- #
+CHAOS = VoiceSpec(
+    type="CHAOS",
+    role="Chaotic-map oscillator (FBSine / Latoocarfian / Henon / Standard / Cusp).",
+    synthdef="phChaos",
+    params=[
+        P("chaos.type", "Map", curve=Curve.ENUM,
+          enum=["fbsine", "latoocarf", "henon", "standard", "cusp"],
+          default=0, randomize=RandomizePolicy.WIDE),
+        P("chaos.chaosA", "Chaos A", rmin=0.0, rmax=4.0, default=1.1, musical=(0.3, 3.2)),
+        P("chaos.chaosB", "Chaos B", rmin=0.0, rmax=3.0, default=0.5, musical=(0.1, 2.4)),
+        P("chaos.fold", "Wavefold", default=0.0, musical=(0.0, 0.6)),
+        P("chaos.cutoff", "Cutoff", unit="Hz", rmin=40.0, rmax=16000.0, default=6000.0,
+          curve=Curve.EXP, formatter="Hz", musical=(300.0, 14000.0)),
+        P("chaos.res", "Resonance", default=0.2, musical=(0.0, 0.7), danger=DangerClass.FEEDBACK),
+        P("chaos.attack", "Attack", unit="s", rmin=0.0005, rmax=2.0, default=0.003,
+          curve=Curve.EXP, formatter="float3", musical=(0.001, 0.05)),
+        P("chaos.decay", "Decay", unit="s", rmin=0.01, rmax=8.0, default=0.5,
+          curve=Curve.EXP, formatter="float2", musical=(0.05, 2.0)),
+        P("chaos.ampCurve", "Amp Curve", rmin=-8.0, rmax=-1.0, default=-4.0,
+          formatter="float1", musical=(-6.0, -2.0)),
+        *_COMMON_TAIL("chaos", ampd=0.55, ampmus=(0.35, 0.9)),
+    ],
+)
+
 VOICES: dict[str, VoiceSpec] = {v.type: v for v in
                                 (DRUM, FM7, BUCHLOID, MOLLY, RINGS, BEN, NOIZEOP, ICARUS,
-                                 PLAITS, SHAKER, MEMBRANE, MALLET, BOWED, PLUCK, TUBE)}
+                                 PLAITS, SHAKER, MEMBRANE, MALLET, BOWED, PLUCK, TUBE, CHAOS)}
 
 
 def macro_specs(voice_type: str) -> list[tuple[str, str, float, float]]:
@@ -732,7 +760,8 @@ class FxSpec:
 
 FX_SPECS: list[FxSpec] = [
     FxSpec("OVERDRIVE", "OD", [("drive", 2.0, 32.0), ("tone", -0.6, 0.7), ("fold", 0.0, 0.9),
-                               ("bias", 0.0, 0.55), ("grit", 0.0, 0.85)]),
+                               ("bias", 0.0, 0.55), ("grit", 0.0, 0.85), ("shape", 0.0, 0.8),
+                               ("glitch", 0.0, 0.7)]),
     FxSpec("AMPSIM", "AMP", [("gain", 2.0, 20.0), ("bass", -8.0, 8.0), ("mid", -8.0, 8.0), ("treble", -8.0, 8.0)]),
     FxSpec("DEGRADE", "DGRD", [("rate", 1500.0, 22000.0), ("smooth", 0.0, 1.0),
                                ("drop", 0.0, 28.0), ("outof", 12.0, 40.0), ("prob", 0.0, 0.6),

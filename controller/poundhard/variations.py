@@ -380,7 +380,7 @@ _ENGINE_COST = {"DRUM": 5.3, "FM7": 8.5, "BUCHLOID": 6.0, "RINGS": 9.6,
                 # SHAKER (STK) / MEMBRANE (2D waveguide) provisional pending device measure.
                 # MALLET (STK ModalBar) / BOWED (STK BandedWG) provisional too.
                 "PLAITS": 6.9, "SHAKER": 7.0, "MEMBRANE": 9.0, "MALLET": 7.0, "BOWED": 8.0,
-                "PLUCK": 7.0, "TUBE": 7.0}
+                "PLUCK": 7.0, "TUBE": 7.0, "CHAOS": 8.0}
 # Measured per FX INSTANCE (they're per-track inserts, not sends!). Reverb costs as
 # much as a whole ICARUS voice, so a pattern gets at most one. CLDS = MiClouds
 # (granular), GREY = Greyhole, RING = DiodeRingMod are provisional pending device measure.
@@ -433,12 +433,15 @@ def _role_pool() -> dict:
     pool.update(kits.BOWED_ROLES)                     # STK banded waveguide — tonal metal/glass
     pool.update(kits.PLUCK_ROLES)                     # DWG plucked strings — tonal plucks
     pool.update(kits.TUBE_ROLES)                      # two-tube waveguide — tonal/formant
+    pool.update(kits.CHAOS_ROLES)                     # chaotic-map oscillator — texture/noise
     for n in kits.SHAKER_ROLES:
         _CAT[n] = "perc"
     for n in kits.MEMBRANE_ROLES:
         _CAT[n] = "perc"
     for n in list(kits.MALLET_ROLES) + list(kits.BOWED_ROLES) + list(kits.PLUCK_ROLES) + list(kits.TUBE_ROLES):
         _CAT[n] = "tonal"
+    for n in kits.CHAOS_ROLES:
+        _CAT[n] = "texture"
     return pool
 
 
@@ -456,6 +459,7 @@ _ROLE_ORDER.update({s[1]: 400 + i for i, s in enumerate(kits._MALLET_SPEC)})
 _ROLE_ORDER.update({s[1]: 500 + i for i, s in enumerate(kits._BOWED_SPEC)})
 _ROLE_ORDER.update({s[0]: 600 + i for i, s in enumerate(kits._PLUCK_SPEC)})
 _ROLE_ORDER.update({s[0]: 700 + i for i, s in enumerate(kits._TUBE_SPEC)})
+_ROLE_ORDER.update({s[1]: 800 + i for i, s in enumerate(kits._CHAOS_SPEC)})
 
 
 def _layout_key(name: str, pool: dict) -> tuple[int, int]:

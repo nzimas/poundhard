@@ -62,8 +62,8 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   build your rig by assigning engines from the **engine palette** (see below). Any
   engine can go on any track, and the assignment is **per pattern** — two patterns can
   carry completely different rigs.
-- **15 assignable engines** on the palette pads (the top row, plus PLAITS / SHAKER /
-  MEMBRANE / MALLET / BOWED / PLUCK / TUBE wrapping onto the second row), each in its own colour:
+- **16 assignable engines** on the palette pads — they exactly fill the top two rows (row 1
+  DRUM..ICARUS, row 2 PLAITS..CHAOS), each in its own colour:
 
   | Pad | Engine | Colour | Character |
   |--------|--------|--------|-----------|
@@ -82,6 +82,7 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   | 13 | **BOWED** | 🟦 teal | STK BandedWG — bowed/struck metal bars, glass harmonica, Tibetan bowl |
   | 14 | **PLUCK** | 🟩 spring | DWG plucked stiff string — koto / clav / harp / muted plucks |
   | 15 | **TUBE** | 🟦 sky | TwoTube waveguide — hollow formant plucks / reedy tones |
+  | 16 | **CHAOS** | 🟥 red | chaotic-map oscillator — FBSine / Latoocarfian / Henon / Standard / Cusp (glitch/noise) |
 
 - **Engine palette** (top row of pads, default view): **short-press** a pad to
   audition its current sound; **Shift + pad** to regenerate it; **hold a pad and
@@ -219,6 +220,11 @@ All voices are **spawned per hit and self-free** (see [voice model](#voice-model
 - **TUBE** — a **two-tube waveguide** (`TwoTube`, from sc3-plugins): hollow, vocal-tract-ish
   formant plucks and reedy tones. The tube lengths (set from the note) fix the resonance;
   `balance` splits them and `k` sets the junction. A short burst excites it.
+- **CHAOS** — a voice built from SuperCollider's audio-rate **chaos generators** (feedback
+  sine + iterated maps: Latoocarfian, Henon, Standard, Cusp). `type` picks the map; the note
+  sets the iteration frequency and `chaosA`/`chaosB` steer the attractor from pitched tone to
+  full noise, then a wavefolder and resonant filter shape it. Glitch/noise from core UGens —
+  no plugin — in the spirit of BEN and NOIZEOP.
 
 > Both **MALLET** and **BOWED** are STK physical models that load excitation wavetables
 > (e.g. `marmstk1.raw`) — the **STK rawwaves** are bundled under `supercollider/rawwaves/`
@@ -331,7 +337,8 @@ place of a plain bit-crusher.
 
 **OD** is not a polite tube sim: tilt EQ → asymmetric (biased) drive → a
 **wavefolder** that reflects peaks back for metallic bite → a hard-clip **grit**
-stage for fizz and breakup. Its macro sweeps drive/tone/fold/bias/grit together.
+stage for fizz and breakup, plus a **SineShaper** sinusoidal fold and a **GlitchRHPF**
+screaming resonant highpass. Its macro sweeps drive/tone/fold/bias/grit/shape/glitch together.
 
 | Control | Action |
 |---|---|
@@ -519,7 +526,7 @@ overrun the audio thread. Every engine and effect was **measured on the device**
 | NOIZEOP | 12.0 | | CLDS | ~6.0* |
 | ICARUS | 13.2 | | **VRB** | **10.0** |
 | MEMBRANE / MALLET / BOWED | ~9 / ~7 / ~8* | | | |
-| PLUCK / TUBE | ~7 / ~7* | | | |
+| PLUCK / TUBE / CHAOS | ~7 / ~7 / ~8* | | | |
 
 Reverb costs as much as an entire ICARUS voice, and ten expensive tracks with three
 reverbs came to **~160% CPU** — which is exactly what XRuns sound like. The generator
@@ -533,7 +540,7 @@ patterns on the device: **worst sustained 47%, worst peak 50%**.
   **that pattern's own tempo**.
 
 The generated tracks are laid out **contiguously from track 1 and grouped by engine**
-(in palette order — DRUM · FM7 · BUCHLOID · MOLLY · RINGS · BEN · NOIZEOP · ICARUS · PLAITS · SHAKER · MEMBRANE · MALLET · BOWED · PLUCK · TUBE,
+(in palette order — DRUM · FM7 · BUCHLOID · MOLLY · RINGS · BEN · NOIZEOP · ICARUS · PLAITS · SHAKER · MEMBRANE · MALLET · BOWED · PLUCK · TUBE · CHAOS,
 with roles in musical order inside each block). Since the step buttons are coloured by
 engine, a generated rig reads as **contiguous colour blocks** rather than a scatter.
 
@@ -795,7 +802,7 @@ flag, and the HEAT macro state (`heat / heatPct`).
 ### OSC (controller → engine, sclang langPort 57120)
 
 `/ph/tempo` · `/ph/run` · `/ph/steps` · `/ph/track t typeIdx` (**-1=empty** 0=DRUM
-1=FM7 2=BUCHLOID 3=MOLLY 4=RINGS 5=BEN 6=NOIZEOP 7=ICARUS 8=PLAITS 9=SHAKER 10=MEMBRANE 11=MALLET 12=BOWED 13=PLUCK 14=TUBE) ·
+1=FM7 2=BUCHLOID 3=MOLLY 4=RINGS 5=BEN 6=NOIZEOP 7=ICARUS 8=PLAITS 9=SHAKER 10=MEMBRANE 11=MALLET 12=BOWED 13=PLUCK 14=TUBE 15=CHAOS) ·
 `/ph/param t "name" val` ·
 `/ph/preview typeIdx note vel mode [name val …]` (audition one voice → master) ·
 `/ph/pattern` · `/ph/stepset` · `/ph/steplock` · `/ph/stepmacro` · `/ph/clearlocks` ·
