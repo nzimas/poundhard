@@ -120,6 +120,29 @@ def _wt_sprite_count() -> int:
 
 WT_SPRITE_COUNT = _wt_sprite_count()
 
+
+def _wt_sprite_names() -> list[str]:
+    """The sorted sprite filenames the engine will enumerate (same dir + sort as
+    ~wtScan). Empty when the sprite dir isn't on this host (e.g. a dev box)."""
+    for d in ("/opt/move/Dsp/Vector/Sprites",
+              os.path.join(os.environ.get("PH_DATA", "./data"), "wtsprites")):
+        try:
+            names = sorted(f for f in os.listdir(d) if f.lower().endswith(".wav"))
+            if names:
+                return names
+        except OSError:
+            continue
+    return []
+
+
+WT_SPRITE_NAMES = _wt_sprite_names()
+# Sprite indices the generator is allowed to pick. Ableton ships a whole "Noise"
+# category (Brown/White/… noise wavetables) — a noise sprite read as an oscillator
+# IS white noise, so the generator must never auto-select one (they stay reachable by
+# hand via the wt1/wt2 range). Falls back to the whole range when names are unavailable.
+WT_MUSICAL_INDICES = [i for i, n in enumerate(WT_SPRITE_NAMES)
+                      if "Noise" not in n] or list(range(WT_SPRITE_COUNT))
+
 _COMMON_TAIL = lambda pfx, ampd=0.8, ampmus=(0.5, 1.1): [
     P(f"{pfx}.amp", "Amp", unit="dB", rmin=0.0, rmax=2.0, default=ampd, curve=Curve.DB,
       formatter="dB1", danger=DangerClass.LOUDNESS, musical=ampmus),
