@@ -417,7 +417,10 @@ class Project:
         pos = self.fx_macro[fx]
         out = []
         for (arg, lo, hi) in FX_SPECS[fx].params:
-            t = pos if self.fx_dir[fx][arg] > 0 else (1.0 - pos)
+            # .get(arg, 1): a project saved with an OLDER FX param set has no direction for
+            # params added since — default to +1 (moves with the knob) instead of KeyError,
+            # which would crash the load mid-push. Forwards compatibility.
+            t = pos if self.fx_dir[fx].get(arg, 1) > 0 else (1.0 - pos)
             out.append((arg, round(lo + t * (hi - lo), 5)))
         return out
 

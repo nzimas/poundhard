@@ -313,7 +313,7 @@ place.
 ### FX view
 
 **Track 2** opens the FX view. The top two pad rows are the 16 tracks; the bottom
-row is an 8-effect chain — `OD · AMP · DGRD · RING · FLNG · CLDS · GREY · VRB`
+row is an 8-effect chain — `OD · AMP · CRSH · RING · FLNG · CLDS · GREY · VRB`
 (reverb always last/rightmost), each a distinct colour.
 
 **CLDS** is **MiClouds** — Mutable Instruments **Clouds** (mi-UGens) as a live granular
@@ -330,11 +330,6 @@ the dark, smeary IDM space-maker, in place of a plain stereo delay.
 and more metallic than a clean multiply (asymmetric diode shaping adds extra sidebands). Its
 macro sweeps the carrier frequency and a `drive` that pushes the signal harder into the diodes.
 
-**DGRD** is a **DEGRADE** unit (sc3-plugins) — three glitch/lo-fi stages in series:
-`SmoothDecimator` (anti-aliased sample-rate crush), `WaveLoss` (deletes `drop`-of-`outof`
-waveform segments — stutter/aliasing artifacts), and `Disintegrator` (probabilistic sample
-mangling). Its macro sweeps rate/smoothing/dropout/probability together — a lo-fi eroder in
-place of a plain bit-crusher.
 
 **OD** is not a polite tube sim: tilt EQ → asymmetric (biased) drive → a
 **wavefolder** that reflects peaks back for metallic bite → a hard-clip **grit**

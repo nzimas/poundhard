@@ -735,15 +735,12 @@
 		ReplaceOut.ar(out, ~fxOut.(dry, y, amp, enable, wet, bypass));
 	}).add;
 
-	// ---- DEGRADE: sample-rate crush + waveform-dropout + probabilistic mangle (sc3-plugins) ----
-	// Three glitch/lo-fi stages in series: SmoothDecimator (anti-aliased rate crush),
-	// WaveLoss (deletes `drop`-of-`outof` waveform segments — stutter/aliasing artifacts),
-	// and Disintegrator (probabilistically mangles samples). The IDM degrade unit.
-	SynthDef(\phBitcrusher, { |out = 0, in = 0, rate = 12000, smooth = 0.5, drop = 6, outof = 40, prob = 0.0, mult = 0.0, amp = 0.9, pan = 0, bypass = 0, wet = 0.5, enable = 1|
-		var dry = In.ar(in, 2), y;
-		y = SmoothDecimator.ar(dry, rate.clip(400, 44100), smooth.clip(0, 1));
-		y = WaveLoss.ar(y, drop.clip(0, 60).round, outof.clip(1, 60).round.max(1), 1);
-		y = Select.ar(prob > 0.001, [y, Disintegrator.ar(y, prob.clip(0, 1), mult.clip(0, 1))]);
+	// ---- BITCRUSHER: bit + rate reduction (stereo) ----
+	SynthDef(\phBitcrusher, { |out = 0, in = 0, bits = 8, downsample = 4, amp = 0.9, pan = 0, bypass = 0, wet = 0.5, enable = 1|
+		var dry = In.ar(in, 2), levels, y;
+		levels = (2 ** bits.clip(1, 24)).max(2);
+		y = (dry * levels).round / levels;
+		y = Latch.ar(y, Impulse.ar((SampleRate.ir / downsample.max(1)).clip(200, SampleRate.ir)));
 		ReplaceOut.ar(out, ~fxOut.(dry, y, amp, enable, wet, bypass));
 	}).add;
 
