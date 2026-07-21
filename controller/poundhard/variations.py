@@ -26,7 +26,7 @@ from .tracks import Track, N_TRACKS, N_STEPS, N_PATTERNS
 
 # engines whose pitch is genuinely melodic (worth per-step pitch locks). BEN /
 # NOIZEOP / BUCHLOID track `note` but as texture, so they get rhythm-only variation.
-_MELODIC = {"FM7", "MOLLY", "RINGS", "ICARUS", "MALLET", "BOWED", "PLUCK", "TUBE"}
+_MELODIC = {"FM7", "MOLLY", "RINGS", "ICARUS", "MALLET", "BOWED", "PLUCK", "TUBE", "WTABLE"}
 _DRUM_MODE = ["kick", "snare", "hihat", "metal", "clap", "tom", "noise"]
 
 
@@ -380,7 +380,9 @@ _ENGINE_COST = {"DRUM": 5.3, "FM7": 8.5, "BUCHLOID": 6.0, "RINGS": 9.6,
                 # SHAKER (STK) / MEMBRANE (2D waveguide) provisional pending device measure.
                 # MALLET (STK ModalBar) / BOWED (STK BandedWG) provisional too.
                 "PLAITS": 6.9, "SHAKER": 7.0, "MEMBRANE": 9.0, "MALLET": 7.0, "BOWED": 8.0,
-                "PLUCK": 7.0, "TUBE": 7.0, "CHAOS": 8.0}
+                # WTABLE: 2 morphing BufRd oscillators + sub + noise + filter —
+                # provisional 9.5 pending device measure.
+                "PLUCK": 7.0, "TUBE": 7.0, "CHAOS": 8.0, "WTABLE": 9.5}
 # Measured per FX INSTANCE (they're per-track inserts, not sends!). Reverb costs as
 # much as a whole ICARUS voice, so a pattern gets at most one. CLDS = MiClouds
 # (granular), GREY = Greyhole, RING = DiodeRingMod are provisional pending device measure.
@@ -434,6 +436,7 @@ def _role_pool() -> dict:
     pool.update(kits.PLUCK_ROLES)                     # DWG plucked strings — tonal plucks
     pool.update(kits.TUBE_ROLES)                      # two-tube waveguide — tonal/formant
     pool.update(kits.CHAOS_ROLES)                     # chaotic-map oscillator — texture/noise
+    pool.update(kits.WTABLE_ROLES)                    # Ableton-sprite wavetable — tonal/bass/pad
     for n in kits.SHAKER_ROLES:
         _CAT[n] = "perc"
     for n in kits.MEMBRANE_ROLES:
@@ -442,6 +445,10 @@ def _role_pool() -> dict:
         _CAT[n] = "tonal"
     for n in kits.CHAOS_ROLES:
         _CAT[n] = "texture"
+    _CAT["WT PAD"] = "pad"
+    _CAT["WT PLUCK"] = "tonal"
+    _CAT["WT BASS"] = "bass"
+    _CAT["WT LEAD"] = "tonal"
     return pool
 
 
@@ -460,6 +467,7 @@ _ROLE_ORDER.update({s[1]: 500 + i for i, s in enumerate(kits._BOWED_SPEC)})
 _ROLE_ORDER.update({s[0]: 600 + i for i, s in enumerate(kits._PLUCK_SPEC)})
 _ROLE_ORDER.update({s[0]: 700 + i for i, s in enumerate(kits._TUBE_SPEC)})
 _ROLE_ORDER.update({s[1]: 800 + i for i, s in enumerate(kits._CHAOS_SPEC)})
+_ROLE_ORDER.update({s[0]: 900 + i for i, s in enumerate(kits._WT_SPEC)})
 
 
 def _layout_key(name: str, pool: dict) -> tuple[int, int]:

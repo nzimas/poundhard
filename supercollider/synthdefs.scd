@@ -658,6 +658,55 @@
 		Out.ar(out, ~killbad.(~spread.(sig, pan)));
 	}).add;
 
+	// ================= WTABLE — Ableton Wavetable rebuild (uses Move's own sprites) =====
+	// Two morphing wavetable oscillators reading Ableton's Wavetable "sprites" (each a bank
+	// of 1024-sample single-cycle frames, loaded per track), + a sub osc and noise -> a
+	// 2-mode-morph filter with drive -> AR/sustain amp envelope. The oscillator POSITION
+	// (which frame the osc reads) is swept by a per-hit envelope + an LFO — the movement that
+	// makes Wavetable "wavetable". Reverb/delay are Ableton devices, not the synth, so absent.
+	SynthDef(\phWtable, { |out = 16, note = 48, vel = 1, buf1 = 0, buf2 = 0,
+		pos1 = 0.0, pos2 = 0.0, oscmix = 0.5, detune = 0.0, transpose2 = 0,
+		suboct = 1, sublevel = 0.0, noiselevel = 0.0,
+		cutoff = 8000, res = 0.2, filttype = 0, drive = 1.0, filtenv = 0.3,
+		posenv = 0.35, poslfoRate = 0.5, poslfoAmt = 0.0,
+		attack = 0.01, decay = 0.5, sustain = 0.7, release = 0.7, ampcurve = -4,
+		amp = 0.5, pan = 0|
+		var v, f0, aEnv, pEnv, fEnv, posMod, p1, p2, o1, o2, sub, noise, sig, fcut, rq;
+		// morphing wavetable oscillator: read frame `position` of `buf` at `freq`, linearly
+		// interpolating both within the cycle (BufRd) and between adjacent frames.
+		var wtOsc = { |buf, freq, position|
+			var n = (BufFrames.kr(buf) / 1024).max(1);
+			var ph = Phasor.ar(0, freq * 1024 / SampleRate.ir, 0, 1024);
+			var fp = position.clip(0, 1) * (n - 1);
+			var fa = fp.floor, frac = fp - fp.floor;
+			var wa = BufRd.ar(1, buf, (fa * 1024) + ph, 1, 2);
+			var wb = BufRd.ar(1, buf, ((fa + 1).min(n - 1) * 1024) + ph, 1, 2);
+			(wa * (1 - frac)) + (wb * frac);
+		};
+		v = vel.clip(0, 2).max(0.03);
+		f0 = note.clip(0, 127).midicps;
+		aEnv = EnvGen.ar(Env.new([0, 1, sustain.clip(0, 1), 0],
+			[attack.clip(0.001, 4), decay.clip(0.005, 8), release.clip(0.01, 8)], \sine), doneAction: 2);
+		pEnv = EnvGen.kr(Env.perc(attack.clip(0.001, 4), (decay * 1.5).clip(0.01, 8), 1, -3));   // position sweep
+		fEnv = EnvGen.kr(Env.perc(attack.clip(0.001, 2), (decay * 1.2).clip(0.01, 6), 1, -4));   // filter env
+		posMod = (pEnv * posenv) + (SinOsc.kr(poslfoRate.clip(0.01, 30)) * poslfoAmt * 0.5);
+		p1 = (pos1 + posMod).clip(0, 1);
+		p2 = (pos2 + posMod).clip(0, 1);
+		o1 = wtOsc.(buf1, f0, p1);
+		o2 = wtOsc.(buf2, f0 * (2 ** (transpose2.round / 12)) * (2 ** (detune / 1200)), p2);
+		sig = XFade2.ar(o1, o2, oscmix.clip(0, 1) * 2 - 1);
+		sub = SinOsc.ar(f0 / (2 ** suboct.round.clip(0, 3))) * sublevel.clip(0, 1);
+		noise = PinkNoise.ar * noiselevel.clip(0, 1) * 0.6;
+		sig = sig + sub + noise;
+		rq = (1 - (res.clip(0, 1) * 0.9)).clip(0.05, 1);
+		fcut = (cutoff * (1 + (fEnv * filtenv * 4))).clip(30, 18000);
+		sig = Select.ar(filttype.round.clip(0, 2),
+			[RLPF.ar(sig, fcut, rq), BPF.ar(sig, fcut, rq), RHPF.ar(sig, fcut, rq)]);
+		sig = (sig * (1 + (drive.clip(0.1, 6) * 1.5))).tanh;
+		sig = LeakDC.ar(sig) * aEnv * v * amp * 1.4;
+		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+	}).add;
+
 	// ================= FX (per-track insert chain) =================
 	// Each FX reads its track bus (`in`), processes, and REPLACES the bus (`out`
 	// == `in`) — so a track's FX run in place, in canonical chain order. Stereo.

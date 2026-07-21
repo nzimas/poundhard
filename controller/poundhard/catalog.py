@@ -100,7 +100,25 @@ class VoiceSpec:
 TYPE_INDEX = {"EMPTY": -1, "DRUM": 0, "FM7": 1, "BUCHLOID": 2, "MOLLY": 3,
               "RINGS": 4, "BEN": 5, "NOIZEOP": 6, "ICARUS": 7, "PLAITS": 8,
               "SHAKER": 9, "MEMBRANE": 10, "MALLET": 11, "BOWED": 12,
-              "PLUCK": 13, "TUBE": 14, "CHAOS": 15}
+              "PLUCK": 13, "TUBE": 14, "CHAOS": 15, "WTABLE": 16}
+
+
+def _wt_sprite_count() -> int:
+    """Number of Ableton Wavetable sprites the engine will enumerate. Must mirror
+    ~wtScan in engine.scd (same directory, same sort). Falls back to a large count so
+    the wt1/wt2 selector range stays usable when the sprite dir isn't on this host."""
+    for d in ("/opt/move/Dsp/Vector/Sprites",
+              os.path.join(os.environ.get("PH_DATA", "./data"), "wtsprites")):
+        try:
+            n = sum(1 for f in os.listdir(d) if f.lower().endswith(".wav"))
+            if n > 0:
+                return n
+        except OSError:
+            continue
+    return 194
+
+
+WT_SPRITE_COUNT = _wt_sprite_count()
 
 _COMMON_TAIL = lambda pfx, ampd=0.8, ampmus=(0.5, 1.1): [
     P(f"{pfx}.amp", "Amp", unit="dB", rmin=0.0, rmax=2.0, default=ampd, curve=Curve.DB,
@@ -701,9 +719,63 @@ CHAOS = VoiceSpec(
     ],
 )
 
+# --------------------------------------------------------------------------- #
+# WTABLE — a full SuperCollider rebuild of Ableton's Wavetable, reading the Move's
+# own factory sprites. Two morphing wavetable oscillators (position swept per-hit by
+# an envelope + LFO — the movement that defines the timbre) + sub + noise -> a
+# mode-morph filter with drive -> AR/sustain envelope. wt1/wt2 pick sprites (loaded
+# engine-side, not synth args); everything else is a live synth control.
+# --------------------------------------------------------------------------- #
+_wt_hi = float(max(0, WT_SPRITE_COUNT - 1))
+WTABLE = VoiceSpec(
+    type="WTABLE",
+    role="Wavetable synth (Ableton sprites): morphing dual-osc + sub + noise, mode-morph filter.",
+    synthdef="phWtable",
+    params=[
+        # sprite selectors — buffer loads, not synth args (engine intercepts wt1/wt2).
+        P("wtable.wt1", "Wavetable 1", rmin=0.0, rmax=_wt_hi, default=0.0,
+          musical=(0.0, _wt_hi), modulatable=False, macro=False, randomize=RandomizePolicy.WIDE),
+        P("wtable.wt2", "Wavetable 2", rmin=0.0, rmax=_wt_hi, default=0.0,
+          musical=(0.0, _wt_hi), modulatable=False, macro=False, randomize=RandomizePolicy.WIDE),
+        P("wtable.pos1", "Position 1", default=0.0, musical=(0.0, 0.85)),
+        P("wtable.pos2", "Position 2", default=0.0, musical=(0.0, 0.85)),
+        P("wtable.oscmix", "Osc Mix", default=0.5, musical=(0.2, 0.8)),
+        P("wtable.detune", "Detune", unit="cents", rmin=-50.0, rmax=50.0, default=0.0,
+          curve=Curve.BIPOLAR, formatter="float1", musical=(-24.0, 24.0)),
+        P("wtable.transpose2", "Osc2 Transpose", unit="st", curve=Curve.ENUM,
+          enum=[str(i) for i in range(-24, 25)], rmin=-24.0, rmax=24.0, default=0.0),
+        P("wtable.suboct", "Sub Octave", curve=Curve.ENUM,
+          enum=["0", "-1", "-2", "-3"], rmin=0.0, rmax=3.0, default=1.0),
+        P("wtable.sublevel", "Sub Level", default=0.0, musical=(0.0, 0.6)),
+        P("wtable.noiselevel", "Noise Level", default=0.0, musical=(0.0, 0.4)),
+        P("wtable.cutoff", "Cutoff", unit="Hz", rmin=40.0, rmax=18000.0, default=8000.0,
+          curve=Curve.EXP, formatter="Hz", musical=(400.0, 14000.0)),
+        P("wtable.res", "Resonance", default=0.2, musical=(0.0, 0.75), danger=DangerClass.FEEDBACK),
+        P("wtable.filttype", "Filter Mode", curve=Curve.ENUM,
+          enum=["lowpass", "bandpass", "highpass"], rmin=0.0, rmax=2.0, default=0.0),
+        P("wtable.drive", "Drive", rmin=0.1, rmax=6.0, default=1.0, musical=(0.3, 3.0)),
+        P("wtable.filtenv", "Filter Env", default=0.3, musical=(0.0, 0.8)),
+        P("wtable.posenv", "Position Env", default=0.35, musical=(0.0, 0.85)),
+        P("wtable.poslfoRate", "Pos LFO Rate", unit="Hz", rmin=0.01, rmax=30.0, default=0.5,
+          curve=Curve.EXP, formatter="float2", musical=(0.05, 8.0)),
+        P("wtable.poslfoAmt", "Pos LFO Amount", default=0.0, musical=(0.0, 0.6)),
+        P("wtable.attack", "Attack", unit="s", rmin=0.001, rmax=4.0, default=0.01,
+          curve=Curve.EXP, formatter="float3", musical=(0.002, 0.4)),
+        P("wtable.decay", "Decay", unit="s", rmin=0.005, rmax=8.0, default=0.5,
+          curve=Curve.EXP, formatter="float2", musical=(0.05, 2.0)),
+        P("wtable.sustain", "Sustain", default=0.7, musical=(0.2, 0.95)),
+        P("wtable.release", "Release", unit="s", rmin=0.01, rmax=8.0, default=0.7,
+          curve=Curve.EXP, formatter="float2", musical=(0.05, 3.0)),
+        P("wtable.ampcurve", "Amp Curve", rmin=-8.0, rmax=-1.0, default=-4.0,
+          formatter="float1", musical=(-6.0, -2.0)),
+        *_COMMON_TAIL("wtable", ampd=0.5, ampmus=(0.35, 0.85)),
+    ],
+)
+
 VOICES: dict[str, VoiceSpec] = {v.type: v for v in
                                 (DRUM, FM7, BUCHLOID, MOLLY, RINGS, BEN, NOIZEOP, ICARUS,
-                                 PLAITS, SHAKER, MEMBRANE, MALLET, BOWED, PLUCK, TUBE, CHAOS)}
+                                 PLAITS, SHAKER, MEMBRANE, MALLET, BOWED, PLUCK, TUBE, CHAOS,
+                                 WTABLE)}
 
 
 def macro_specs(voice_type: str) -> list[tuple[str, str, float, float]]:

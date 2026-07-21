@@ -214,7 +214,7 @@ def gen_kit(seed: int | None = None) -> dict:
 # --------------------------------------------------------------------------- #
 PALETTE_ENGINES = ["DRUM", "FM7", "BUCHLOID", "MOLLY", "RINGS", "BEN", "NOIZEOP",
                    "ICARUS", "PLAITS", "SHAKER", "MEMBRANE", "MALLET", "BOWED",
-                   "PLUCK", "TUBE", "CHAOS"]
+                   "PLUCK", "TUBE", "CHAOS", "WTABLE"]
 
 # a canonical note per drum mode, so an auditioned/assigned drum sits in register
 # (mode order matches catalog DRUM enum: kick snare hihat metal clap tom noise)
@@ -579,6 +579,45 @@ PALETTE_ROLES["CHAOS"] = CHAOS_ROLES["CH FBSINE"]
 _CHAOS_WEIGHTS = {"CH FBSINE": 3, "CH LATOO": 2, "CH HENON": 2, "CH STD": 2, "CH CUSP": 2}
 
 
+# --------------------------------------------------------------------------- #
+# WTABLE (Ableton-sprite wavetable synth) — character roles. wt1/wt2 are left to
+# randomize WIDE (fresh sprite pair each generation); each role shapes the movement:
+# position env/LFO, filter, envelope and register. name, note(choices, octave),
+# posenv, poslfoRate, poslfoAmt, cutoff, attack, decay, sustain, sub.
+# --------------------------------------------------------------------------- #
+_WT_SPEC = [
+    # slow-morphing pad: long env, gentle LFO position drift, mid cutoff.
+    ("WT PAD",   ((0, 3, 5, 7, 10), 0),  (0.2, 0.6),  (0.1, 1.5),  (0.15, 0.5),
+     (1500, 8000),  (0.05, 0.4),  (0.6, 2.0),  (0.6, 0.9),  (0.0, 0.15)),
+    # bright pluck: fast attack, strong position env sweep, short decay.
+    ("WT PLUCK", ((0, 3, 5, 7, 12), 0),  (0.4, 0.85), (0.0, 0.8),  (0.0, 0.25),
+     (3000, 14000), (0.002, 0.02), (0.15, 0.7), (0.0, 0.35), (0.0, 0.1)),
+    # sub-heavy bass: low register, tight, sub osc up, darker.
+    ("WT BASS",  ((0, 5, 7), -12),       (0.15, 0.5), (0.0, 0.6),  (0.0, 0.2),
+     (600, 4000),   (0.003, 0.03), (0.2, 0.9),  (0.3, 0.8),  (0.3, 0.6)),
+    # moving lead: mid register, LFO wobble on position, medium env.
+    ("WT LEAD",  ((0, 3, 7, 10, 12), 0), (0.3, 0.7),  (1.0, 6.0),  (0.2, 0.55),
+     (2500, 11000), (0.005, 0.06), (0.2, 1.0), (0.35, 0.85), (0.0, 0.2)),
+]
+
+
+def _wt_role(spec) -> Role:
+    name, note, posenv, lfor, lfoamt, cut, atk, dec, sus, sub = spec
+    return Role(name, "WTABLE", note_choices=note[0], octave=note[1],
+                bands={"wtable.posenv": posenv, "wtable.poslfoRate": lfor,
+                       "wtable.poslfoAmt": lfoamt, "wtable.cutoff": cut,
+                       "wtable.attack": atk, "wtable.decay": dec,
+                       "wtable.sustain": sus, "wtable.sublevel": sub,
+                       "wtable.pos1": (0.0, 0.5), "wtable.pos2": (0.0, 0.6),
+                       "wtable.oscmix": (0.25, 0.75), "wtable.filtenv": (0.1, 0.7)},
+                vel=(0.8, 1.05))
+
+
+WTABLE_ROLES: dict[str, Role] = {s[0]: _wt_role(s) for s in _WT_SPEC}
+PALETTE_ROLES["WTABLE"] = WTABLE_ROLES["WT PAD"]
+_WT_WEIGHTS = {"WT PAD": 3, "WT PLUCK": 3, "WT BASS": 2, "WT LEAD": 2}
+
+
 def gen_palette_voice(engine: str, rng: random.Random | None = None) -> dict:
     """Generate one fresh sound for an engine's palette pad (audition / assign)."""
     rng = rng or random.Random()
@@ -623,6 +662,15 @@ def gen_palette_voice(engine: str, rng: random.Random | None = None) -> dict:
         names = list(_CHAOS_WEIGHTS)
         name = rng.choices(names, weights=[_CHAOS_WEIGHTS[n] for n in names])[0]
         return gen_voice(CHAOS_ROLES[name], rng)
+    if engine == "WTABLE":
+        names = list(_WT_WEIGHTS)
+        name = rng.choices(names, weights=[_WT_WEIGHTS[n] for n in names])[0]
+        voice = gen_voice(WTABLE_ROLES[name], rng)
+        # ensure a distinct sprite per oscillator for audible morph between them.
+        n = max(1, catalog.WT_SPRITE_COUNT)
+        voice["params"]["wtable.wt1"] = float(rng.randrange(n))
+        voice["params"]["wtable.wt2"] = float(rng.randrange(n))
+        return voice
     voice = gen_voice(PALETTE_ROLES[engine], rng)
     if engine == "DRUM":                       # put the drum in register for its mode
         mode = int(round(voice["params"].get("drum.mode", 0)))

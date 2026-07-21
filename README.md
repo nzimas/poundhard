@@ -22,7 +22,7 @@ buttons, encoders and screen. It runs on the same on-device stack as the
    controller  (python — poundhard.headless, authoritative Project state)
         │  ▲
         ▼  │   OSC  /ph/…  →  ← /ph/step /ph/cpu /ph/cycle
-   engine  (sclang — 16 voices + TempoClock step sequencer + FX chains)
+   engine  (sclang — 17 engines × 16 tracks + TempoClock step sequencer + FX chains)
         │
         ▼
    scsynth → jackd → Move speaker / output
@@ -62,8 +62,8 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   build your rig by assigning engines from the **engine palette** (see below). Any
   engine can go on any track, and the assignment is **per pattern** — two patterns can
   carry completely different rigs.
-- **16 assignable engines** on the palette pads — they exactly fill the top two rows (row 1
-  DRUM..ICARUS, row 2 PLAITS..CHAOS), each in its own colour:
+- **17 assignable engines** on the palette pads — the first 16 fill the top two rows (row 1
+  DRUM..ICARUS, row 2 PLAITS..CHAOS) and **WTABLE** begins row 3 (cell 16), each in its own colour:
 
   | Pad | Engine | Colour | Character |
   |--------|--------|--------|-----------|
@@ -83,6 +83,7 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   | 14 | **PLUCK** | 🟩 spring | DWG plucked stiff string — koto / clav / harp / muted plucks |
   | 15 | **TUBE** | 🟦 sky | TwoTube waveguide — hollow formant plucks / reedy tones |
   | 16 | **CHAOS** | 🟥 red | chaotic-map oscillator — FBSine / Latoocarfian / Henon / Standard / Cusp (glitch/noise) |
+  | 17 | **WTABLE** | 🟪 violet | Ableton Wavetable rebuild — two morphing wavetable oscillators over the Move's own factory sprites |
 
 - **Engine palette** (top row of pads, default view): **short-press** a pad to
   audition its current sound; **Shift + pad** to regenerate it; **hold a pad and
@@ -225,6 +226,21 @@ All voices are **spawned per hit and self-free** (see [voice model](#voice-model
   sets the iteration frequency and `chaosA`/`chaosB` steer the attractor from pitched tone to
   full noise, then a wavefolder and resonant filter shape it. Glitch/noise from core UGens —
   no plugin — in the spirit of BEN and NOIZEOP.
+- **WTABLE** — a full **SuperCollider rebuild of Ableton's Wavetable** that plays the Move's
+  **own factory wavetables** (the *sprites* under `/opt/move/Dsp/Vector/Sprites/` — each a bank
+  of single-cycle 1024-sample frames). Two oscillators read a sprite each and **morph** through
+  their frames as they play; `wt1`/`wt2` pick the sprites, `pos1`/`pos2` set the start frame,
+  and — the signature Wavetable move — a per-hit **position envelope** (`posenv`) plus an LFO
+  (`poslfoRate`/`poslfoAmt`) sweep the read position over the note. A **sub oscillator** and
+  **noise** thicken it, a **mode-morph filter** (low/band/high-pass) with its own envelope and
+  **drive** carve it, and an AR/sustain amp envelope frees the voice. No reverb/delay — those
+  are Ableton *devices*, not part of the synth, so PoundHard's own FX chain covers that ground.
+  The engine loads each sprite as one buffer on demand and reads it with a `BufRd` 2D-morph
+  (interpolating both within a cycle and between adjacent frames); the controller and engine
+  sort the sprite list identically so `wt1`/`wt2` select the same wavetable on both sides.
+
+> **WTABLE** reads the Move's factory **wavetable sprites** straight from `/opt/move/Dsp/Vector/
+> Sprites/` on the device — nothing is bundled or redeployed; the engine enumerates them at boot.
 
 > Both **MALLET** and **BOWED** are STK physical models that load excitation wavetables
 > (e.g. `marmstk1.raw`) — the **STK rawwaves** are bundled under `supercollider/rawwaves/`
@@ -533,6 +549,7 @@ overrun the audio thread. Every engine and effect was **measured on the device**
 | ICARUS | 13.2 | | RESO | ~2.0* |
 | MEMBRANE / MALLET / BOWED | ~9 / ~7 / ~8* | | | |
 | PLUCK / TUBE / CHAOS | ~7 / ~7 / ~8* | | | |
+| WTABLE | ~9.5* | | | |
 
 Reverb costs as much as an entire ICARUS voice, and ten expensive tracks with three
 reverbs came to **~160% CPU** — which is exactly what XRuns sound like. The generator
@@ -546,7 +563,7 @@ patterns on the device: **worst sustained 47%, worst peak 50%**.
   **that pattern's own tempo**.
 
 The generated tracks are laid out **contiguously from track 1 and grouped by engine**
-(in palette order — DRUM · FM7 · BUCHLOID · MOLLY · RINGS · BEN · NOIZEOP · ICARUS · PLAITS · SHAKER · MEMBRANE · MALLET · BOWED · PLUCK · TUBE · CHAOS,
+(in palette order — DRUM · FM7 · BUCHLOID · MOLLY · RINGS · BEN · NOIZEOP · ICARUS · PLAITS · SHAKER · MEMBRANE · MALLET · BOWED · PLUCK · TUBE · CHAOS · WTABLE,
 with roles in musical order inside each block). Since the step buttons are coloured by
 engine, a generated rig reads as **contiguous colour blocks** rather than a scatter.
 
@@ -830,8 +847,8 @@ flag, and the HEAT / SHUFFLE macro state (`heat / heatPct / shuffle`).
 ### OSC (controller → engine, sclang langPort 57120)
 
 `/ph/tempo` · `/ph/run` · `/ph/steps` · `/ph/track t typeIdx` (**-1=empty** 0=DRUM
-1=FM7 2=BUCHLOID 3=MOLLY 4=RINGS 5=BEN 6=NOIZEOP 7=ICARUS 8=PLAITS 9=SHAKER 10=MEMBRANE 11=MALLET 12=BOWED 13=PLUCK 14=TUBE 15=CHAOS) ·
-`/ph/param t "name" val` ·
+1=FM7 2=BUCHLOID 3=MOLLY 4=RINGS 5=BEN 6=NOIZEOP 7=ICARUS 8=PLAITS 9=SHAKER 10=MEMBRANE 11=MALLET 12=BOWED 13=PLUCK 14=TUBE 15=CHAOS 16=WTABLE) ·
+`/ph/param t "name" val` (WTABLE's `wt1`/`wt2` are sprite selectors — the engine (re)loads that oscillator's wavetable buffer instead of setting a synth arg) ·
 `/ph/preview typeIdx note vel mode [name val …]` (audition one voice → master) ·
 `/ph/pattern` · `/ph/stepset` · `/ph/steplock` · `/ph/stepmacro` · `/ph/clearlocks` ·
 `/ph/stepratchet t cell k` · `/ph/stepsend t cell on` · `/ph/livingfx dTime dFb dMix vMix vRoom vDamp`

@@ -17,7 +17,7 @@
 
 ~nTracks = 16;
 ~maxSteps = 32;
-~typeDefs = [\phDrum, \phFm7, \phBuchloid, \phMolly, \phRings, \phBen, \phNoizeop, \phIcarus, \phPlaits, \phShaker, \phMembrane, \phMallet, \phBowed, \phPluck, \phTube, \phChaos];  // /ph/track type index (-1 = empty/unassigned)
+~typeDefs = [\phDrum, \phFm7, \phBuchloid, \phMolly, \phRings, \phBen, \phNoizeop, \phIcarus, \phPlaits, \phShaker, \phMembrane, \phMallet, \phBowed, \phPluck, \phTube, \phChaos, \phWtable];  // /ph/track type index (-1 = empty/unassigned)
 // DRUM is split into per-mode defs (chosen from the track's `mode` param at spawn).
 ~drumDefs = [\phDrumKick, \phDrumSnare, \phDrumHat, \phDrumMetal, \phDrumClap, \phDrumTom, \phDrumNoise];
 
@@ -54,6 +54,13 @@
 ~pstore    = Array.fill(~nTracks, { IdentityDictionary.new });   // param name -> value
 ~sampBuf   = Array.fill(~nTracks, { nil });
 ~sampFiles = [];
+// WTABLE: Ableton Wavetable sprites (each a bank of 1024-sample frames). Per-track, per-osc
+// buffer, loaded on demand from the shared, alphabetically-sorted sprite list so the
+// controller's `wt1`/`wt2` index selects the same sprite here.
+~wtSpriteDir = "/opt/move/Dsp/Vector/Sprites";
+~wtSprites = [];
+~wtBuf1    = Array.fill(~nTracks, { nil });
+~wtBuf2    = Array.fill(~nTracks, { nil });
 ~maxPoly   = 3;                                      // per-track voice cap (steal oldest)
 ~trackVoices = Array.fill(~nTracks, { List.new });   // live voices per track
 // FX: per-track insert chains. Canonical chain order (verb last); pad index == fx index.
@@ -160,6 +167,11 @@
 		(def == \phSampler).if {
 			args = args ++ [\buf, ~sampBuf[t].notNil.if({ ~sampBuf[t].bufnum }, { ~silentBuf.bufnum })];
 		};
+		(def == \phWtable).if {
+			args = args ++ [
+				\buf1, ~wtBuf1[t].notNil.if({ ~wtBuf1[t].bufnum }, { ~silentBuf.bufnum }),
+				\buf2, ~wtBuf2[t].notNil.if({ ~wtBuf2[t].bufnum }, { ~silentBuf.bufnum })];
+		};
 		lst = ~trackVoices[t];
 		syn = Synth(def, args, ~gVoices);
 		syn.register;
@@ -240,6 +252,19 @@
 		});
 	};
 };
+// WTABLE sprite enumeration + on-demand loading (osc = 1 or 2 -> ~wtBuf1/~wtBuf2).
+~wtScan = { ~wtSprites = (~wtSpriteDir ++ "/*.wav").pathMatch.sort; };
+~wtLoad = { |t, osc, index|
+	(~wtSprites.size > 0).if {
+		var i = index.asInteger.clip(0, ~wtSprites.size - 1);
+		Buffer.readChannel(s, ~wtSprites[i], channels: [0], action: { |b|
+			var slot = (osc == 2).if({ ~wtBuf2 }, { ~wtBuf1 });
+			var old = slot[t];
+			slot[t] = b;
+			old.notNil.if { old.free };
+		});
+	};
+};
 
 // ================= OSC dispatch (/ph/...) =================
 ~defs = [
@@ -270,8 +295,13 @@
 		var t = m[1].asInteger.clip(0, ~nTracks - 1);
 		var sym = m[2].asSymbol;                     // string arg arrives as Symbol
 		var val = m[3].asFloat;
-		~pstore[t][sym] = val;                       // default for future strikes
-		~trackVoices[t].do { |v| v.set(sym, val) };  // update currently-ringing voices live (fixes pan, enables live macro)
+		// wt1/wt2 are sprite selectors, not synth args: (re)load the buffer for that osc.
+		((sym == \wt1) || (sym == \wt2)).if({
+			~wtLoad.(t, (sym == \wt2).if({ 2 }, { 1 }), val);
+		}, {
+			~pstore[t][sym] = val;                       // default for future strikes
+			~trackVoices[t].do { |v| v.set(sym, val) };  // update currently-ringing voices live
+		});
 	}, '/ph/param'),
 	OSCdef(\phPattern, { |m|
 		var t = m[1].asInteger.clip(0, ~nTracks - 1);
@@ -370,6 +400,7 @@
 		~buildDefs.(2);            // from synthdefs.scd
 		s.sync;
 		~sampScan.value;
+		~wtScan.value;             // enumerate Ableton Wavetable sprites
 		~scaffold.value;           // buses + groups + master + silent buffer
 		s.sync;
 		s.startAliveThread;
