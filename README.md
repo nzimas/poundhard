@@ -799,7 +799,7 @@ wrote twice between polls). Commands include: `audition` / `palettegen` / `assig
 (engine palette), `randtrack`, `mute`, `solo`, `editenter` / `editexit`, `stepset`,
 `steplock`, `stepmacro`, `setlen`, `trackset`, `voicemacro`,
 `fxassign` / `fxbypass` / `fxmacro` / `fxwet`, `marklive` / `liveperiod` (living steps),
-`heat` / `heatpct` (the HEAT macro), `run`, `note`, `savepat` / `loadpat`,
+`heat` / `heatpct` (the HEAT macro), `shuffle` (the SHUFFLE macro), `run`, `note`, `savepat` / `loadpat`,
 `patdel` / `patcopy` / `patpaste` / `patclipclear`, `undo`, `chaos` / `chaosreset`
 (knob-8 macro), `genvar` (generate
 variations), `randpat` (randomise this pattern), `saveproj` / `loadproj`, `loadauto`
@@ -814,7 +814,7 @@ per-track `muted / active / note / vel / pan / amp / rate / length`, the engine
 fxWet / fxNames`), the open track's `edit` block (`steps`, per-step `stepNote / stepVel /
 stepPan / stepMacro`, plus `living / period` for living steps, and defaults), the
 pattern/project state (`patFilled / patCur / patPending / projFilled`), the `autoSave`
-flag, and the HEAT macro state (`heat / heatPct`).
+flag, and the HEAT / SHUFFLE macro state (`heat / heatPct / shuffle`).
 
 ### OSC (controller → engine, sclang langPort 57120)
 
@@ -866,6 +866,11 @@ an angular, industrial typeface that suits the hard, percussion-centric aestheti
   `.asSymbol` / `.asInteger`.
 - **No fallbacks:** a required dependency (a UGen, plugin, file) is called
   unconditionally and fails loudly if absent — features work or they don't.
+- **Forwards compatibility:** older projects load into the current stack. A `FMTONE`
+  track is remapped to **FM7** at load (the old 2-op params don't map onto 6-op, so it
+  comes back as a default FM7 to re-roll), and an FX macro reads its direction with
+  `.get(arg, 1)` so a project saved before a param was added won't `KeyError` mid-load —
+  which used to crash the load and freeze the instrument.
 - Only one takeover runs at a time; the exit hook kills the whole stack, so there
   is no port conflict with wildrider (shared langPort 57120 / telemetry 57140).
 ```
