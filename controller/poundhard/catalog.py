@@ -136,12 +136,14 @@ def _wt_sprite_names() -> list[str]:
 
 
 WT_SPRITE_NAMES = _wt_sprite_names()
-# Sprite indices the generator is allowed to pick. Ableton ships a whole "Noise"
-# category (Brown/White/… noise wavetables) — a noise sprite read as an oscillator
-# IS white noise, so the generator must never auto-select one (they stay reachable by
-# hand via the wt1/wt2 range). Falls back to the whole range when names are unavailable.
+# Sprite indices the generator is allowed to pick. Two categories are excluded because
+# the oscillator has no band-limiting: "Noise" sprites ARE noise, and "Distortion"
+# sprites are so harmonically dense they alias into hash. Both stay reachable by hand
+# via the wt1/wt2 range. Falls back to the whole range when names are unavailable.
+_WT_SKIP_CATEGORIES = ("Noise", "Distortion")
 WT_MUSICAL_INDICES = [i for i, n in enumerate(WT_SPRITE_NAMES)
-                      if "Noise" not in n] or list(range(WT_SPRITE_COUNT))
+                      if not any(c in n for c in _WT_SKIP_CATEGORIES)] \
+                     or list(range(WT_SPRITE_COUNT))
 
 _COMMON_TAIL = lambda pfx, ampd=0.8, ampmus=(0.5, 1.1): [
     P(f"{pfx}.amp", "Amp", unit="dB", rmin=0.0, rmax=2.0, default=ampd, curve=Curve.DB,

@@ -589,29 +589,29 @@ _CHAOS_WEIGHTS = {"CH FBSINE": 3, "CH LATOO": 2, "CH HENON": 2, "CH STD": 2, "CH
 
 
 # --------------------------------------------------------------------------- #
-# WTABLE (Ableton-sprite wavetable synth) — character roles. wt1/wt2 are left to
-# randomize WIDE (fresh sprite pair each generation); each role shapes the movement:
-# position env/LFO, filter, envelope and register. The point of this engine is the
-# WAVETABLES — so noise stays a trace (never a wall) and the filter is a lowpass by
-# default (a highpass/bandpass would strip the fundamental and leave only the noise,
-# which reads as pure white noise). name, note(choices, octave), posenv, poslfoRate,
-# poslfoAmt, cutoff, attack, decay, sustain, sub, filttype (0=LP 1=BP 2=HP).
+# WTABLE (Ableton-sprite wavetable synth) — character roles. The TIMBRE comes from
+# WHERE each oscillator sits in its bank (pos1/pos2), like a real wavetable synth —
+# NOT from sweeping the position on every hit. Position movement is therefore kept
+# GENTLE (a fast per-hit sweep smears the pitch into a noise transient). Cutoffs stay
+# moderate and lowpass: the raw single-cycle tables are not band-limited, so a bright
+# table played high aliases into hash unless a lowpass tames the top. name,
+# note(choices, octave), posenv, poslfoRate, poslfoAmt, cutoff, attack, decay,
+# sustain, sub, filttype (0=LP 1=BP 2=HP).
 # --------------------------------------------------------------------------- #
 _WT_SPEC = [
-    # slow-morphing pad: long env, gentle LFO position drift, mid cutoff.
-    ("WT PAD",   ((0, 3, 5, 7, 10), 0),  (0.2, 0.6),  (0.1, 1.5),  (0.15, 0.5),
-     (1500, 8000),  (0.05, 0.4),  (0.6, 2.0),  (0.6, 0.9),  (0.0, 0.15), 0),
-    # bright pluck: fast attack, strong position env sweep, short decay.
-    ("WT PLUCK", ((0, 3, 5, 7, 12), 0),  (0.4, 0.85), (0.0, 0.8),  (0.0, 0.25),
-     (3000, 14000), (0.002, 0.02), (0.15, 0.7), (0.0, 0.35), (0.0, 0.1), 0),
+    # slow-evolving pad: long env, barely-there position drift, dark-ish cutoff.
+    ("WT PAD",   ((0, 3, 5, 7, 10), 0),  (0.0, 0.10), (0.05, 0.6), (0.0, 0.08),
+     (1200, 6000),  (0.05, 0.4),  (0.6, 2.0),  (0.6, 0.9),  (0.0, 0.15), 0),
+    # pluck: fast attack, short decay. A touch of position env for a bloom, not a sweep.
+    ("WT PLUCK", ((0, 3, 5, 7, 12), 0),  (0.0, 0.12), (0.05, 0.5), (0.0, 0.05),
+     (2000, 8000),  (0.002, 0.02), (0.15, 0.7), (0.0, 0.35), (0.0, 0.1), 0),
     # sub-heavy bass: low register, tight, sub osc up, darker.
-    ("WT BASS",  ((0, 5, 7), -12),       (0.15, 0.5), (0.0, 0.6),  (0.0, 0.2),
-     (600, 4000),   (0.003, 0.03), (0.2, 0.9),  (0.3, 0.8),  (0.3, 0.6), 0),
-    # moving lead: mid register, LFO wobble on position, medium env. Bandpass gives
-    # it a vocal/formant colour — safe here because noise is a trace, so the band
-    # emphasises harmonics rather than hiss.
-    ("WT LEAD",  ((0, 3, 7, 10, 12), 0), (0.3, 0.7),  (1.0, 6.0),  (0.2, 0.55),
-     (2500, 11000), (0.005, 0.06), (0.2, 1.0), (0.35, 0.85), (0.0, 0.2), 1),
+    ("WT BASS",  ((0, 5, 7), -12),       (0.0, 0.08), (0.05, 0.4), (0.0, 0.05),
+     (600, 3500),   (0.003, 0.03), (0.2, 0.9),  (0.3, 0.8),  (0.3, 0.6), 0),
+    # lead: mid register, slow gentle position wobble. Lowpass (bandpass thinned it out
+    # and stripped the fundamental).
+    ("WT LEAD",  ((0, 3, 7, 10, 12), 0), (0.0, 0.10), (0.1, 2.0),  (0.0, 0.08),
+     (2000, 8000),  (0.005, 0.06), (0.2, 1.0), (0.35, 0.85), (0.0, 0.2), 0),
 ]
 
 
@@ -625,10 +625,15 @@ def _wt_role(spec) -> Role:
                        "wtable.sustain": sus, "wtable.sublevel": sub,
                        # noise is a trace of air, never a wall — this engine is about
                        # the wavetables, not the noise source.
-                       "wtable.noiselevel": (0.0, 0.05),
-                       "wtable.drive": (0.6, 2.0),
-                       "wtable.pos1": (0.0, 0.5), "wtable.pos2": (0.0, 0.6),
-                       "wtable.oscmix": (0.25, 0.75), "wtable.filtenv": (0.1, 0.6)},
+                       "wtable.noiselevel": (0.0, 0.03),
+                       "wtable.drive": (0.5, 1.4),
+                       # pos1/pos2 spread across the bank: THIS is where the timbral
+                       # variety comes from (each voice sits at a different waveform).
+                       "wtable.pos1": (0.0, 0.9), "wtable.pos2": (0.0, 0.9),
+                       "wtable.oscmix": (0.3, 0.7),
+                       # keep the filter envelope shallow — a big sweep re-introduces the
+                       # bright-onset hash we're trying to kill.
+                       "wtable.filtenv": (0.0, 0.3)},
                 vel=(0.8, 1.05))
 
 

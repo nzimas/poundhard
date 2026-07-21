@@ -61,6 +61,7 @@
 ~wtSprites = [];
 ~wtBuf1    = Array.fill(~nTracks, { nil });
 ~wtBuf2    = Array.fill(~nTracks, { nil });
+~wtBufPrev = Array.fill(2, { nil });   // audition (palette-preview) sprite pair
 ~maxPoly   = 3;                                      // per-track voice cap (steal oldest)
 ~trackVoices = Array.fill(~nTracks, { List.new });   // live voices per track
 // FX: per-track insert chains. Canonical chain order (verb last); pad index == fx index.
@@ -265,6 +266,17 @@
 		});
 	};
 };
+// audition: load a sprite into the shared preview slot (osc = 0 or 1).
+~wtLoadPrev = { |osc, index|
+	(~wtSprites.size > 0).if {
+		var i = index.asInteger.clip(0, ~wtSprites.size - 1);
+		Buffer.readChannel(s, ~wtSprites[i], channels: [0], action: { |b|
+			var old = ~wtBufPrev[osc];
+			~wtBufPrev[osc] = b;
+			old.notNil.if { old.free };
+		});
+	};
+};
 
 // ================= OSC dispatch (/ph/...) =================
 ~defs = [
@@ -288,7 +300,28 @@
 			var def = (typeIdx == 0).if(
 				{ ~drumDefs[mode.clip(0, 6)] },
 				{ ~typeDefs[typeIdx.clip(0, ~typeDefs.size - 1)] });
-			Synth(def, [\out, ~masterBus.index, \note, nn, \vel, vv] ++ pairs, ~gVoices);
+			(def == \phWtable).if({
+				// WTABLE audition: wt1/wt2 are sprite selectors, not synth args. Load
+				// them into the preview slots, strip them from the args, then spawn once
+				// the buffers are in (readChannel is async).
+				var clean = [], j = 0;
+				while { j < pairs.size } {
+					var k = pairs[j], val = pairs[j + 1];
+					(k == \wt1).if({ ~wtLoadPrev.(0, val) },
+					{ (k == \wt2).if({ ~wtLoadPrev.(1, val) },
+					{ clean = clean ++ [k, val] }) });
+					j = j + 2;
+				};
+				SystemClock.sched(0.18, {
+					Synth(def, [\out, ~masterBus.index, \note, nn, \vel, vv,
+						\buf1, ~wtBufPrev[0].notNil.if({ ~wtBufPrev[0].bufnum }, { ~silentBuf.bufnum }),
+						\buf2, ~wtBufPrev[1].notNil.if({ ~wtBufPrev[1].bufnum }, { ~silentBuf.bufnum })]
+						++ clean, ~gVoices);
+					nil;
+				});
+			}, {
+				Synth(def, [\out, ~masterBus.index, \note, nn, \vel, vv] ++ pairs, ~gVoices);
+			});
 		};
 	}, '/ph/preview'),
 	OSCdef(\phParam, { |m|
