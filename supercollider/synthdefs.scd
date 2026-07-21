@@ -348,8 +348,16 @@
 		var trim = Select.kr(model.round.clip(0, 15), [
 			0.76, 0.99, 0.82, 1.54, 0.97, 1.01, 0.74, 1.77,
 			0.78, 0.74, 1.25, 6.00, 1.29, 2.70, 1.44, 1.71]);
-		var s = LeakDC.ar(mono) * trim * amp;
-		Line.kr(0, 1, life, doneAction: 2);
+		// Amplitude envelope OWNS the voice lifetime + self-free. Plaits' own LPG shapes the
+		// tone, but sustained models (drone/organ/analog/chord) are still loud at `life`, so a
+		// bare doneAction:2 would cut a non-zero signal -> click/pop. A short fade-in and a
+		// ~50ms fade-OUT ramp the signal cleanly to zero before the node frees. `hold` is what's
+		// left of the lifetime after the ramps.
+		var atk = 0.004, rel = 0.05;
+		var aEnv = EnvGen.ar(
+			Env.new([0, 1, 1, 0], [atk, (life - atk - rel).max(0.02), rel], [\sin, \lin, \sin]),
+			doneAction: 2);
+		var s = LeakDC.ar(mono) * trim * amp * aEnv;
 		Out.ar(out, ~killbad.(~spread.(s, pan)));
 	}).add;
 
