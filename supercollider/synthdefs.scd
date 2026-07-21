@@ -715,6 +715,39 @@
 		Out.ar(out, ~killbad.(~spread.(sig, pan)));
 	}).add;
 
+	// ================= BYTEBEAT — midouest's ByteBeat UGen (real plugin) ================
+	// A bytebeat interpreter compiled as an scsynth UGen (aarch64 build in $PH/plugins).
+	// `ByteBeat.ar(t)` evaluates a bytebeat expression against an integer sample counter
+	// `t` and emits the classic 8-bit stream. The EXPRESSION is not a synthdef constant —
+	// it is pushed to the running node with the plugin's `/eval` unit command AFTER spawn
+	// (see ~spawn / ~bbUgenIndex in engine.scd), which is why there is no `expr` arg here.
+	// `t` is driven by a Phasor-like counter whose clock (Impulse rate) sets the bytebeat
+	// "sample rate" — the master control of pitch/speed and the lo-fi crunch. The note
+	// scales that clock so different steps play at different pitches. A real amp envelope
+	// (with a release, unlike a bare timer) shapes each hit and self-frees the voice.
+	~bbDef = SynthDef(\phBytebeat, { |out = 16, note = 48, vel = 1, rate = 8000,
+		cutoff = 12000, res = 0.1, drive = 1.0,
+		attack = 0.004, decay = 0.5, sustain = 0.7, release = 0.3, ampcurve = -4,
+		amp = 0.5, pan = 0|
+		var v = vel.clip(0, 2).max(0.03);
+		// bytebeat clock: base `rate` (its sample rate) scaled by the note, an octave per 12.
+		// Floor at 200Hz so a low note can't drop the clock subsonic (which LeakDC would
+		// then strip to silence) — the whole voice stays at least a lo-fi audible rate.
+		var clk = (rate * (2 ** ((note.clip(0, 127) - 48) / 12))).clip(200, 44100);
+		var t = PulseCount.ar(Impulse.ar(clk));
+		var raw = ByteBeat.ar(t);                       // -1..1, 8-bit; expression set via /eval
+		var aEnv = EnvGen.ar(Env.new([0, 1, sustain.clip(0, 1), 0],
+			[attack.clip(0.001, 4), decay.clip(0.005, 8), release.clip(0.005, 8)], \sin),
+			doneAction: 2);
+		var rq = (1 - res.clip(0, 0.96)).clip(0.05, 1);
+		var sig = RLPF.ar(raw, cutoff.clip(40, 18000), rq);
+		sig = (sig * (1 + (drive.clip(0.1, 6) * 1.5))).tanh;
+		sig = LeakDC.ar(sig) * aEnv * v * amp * 1.2;
+		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+	}).add;
+	// the /eval unit command targets the ByteBeat UGen by its index in the graph; capture it.
+	~bbUgenIndex = ~bbDef.children.detect({ |u| u.class.asSymbol == 'ByteBeat' }).synthIndex;
+
 	// ================= FX (per-track insert chain) =================
 	// Each FX reads its track bus (`in`), processes, and REPLACES the bus (`out`
 	// == `in`) — so a track's FX run in place, in canonical chain order. Stereo.

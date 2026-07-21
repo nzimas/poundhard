@@ -22,7 +22,7 @@ buttons, encoders and screen. It runs on the same on-device stack as the
    controller  (python — poundhard.headless, authoritative Project state)
         │  ▲
         ▼  │   OSC  /ph/…  →  ← /ph/step /ph/cpu /ph/cycle
-   engine  (sclang — 17 engines × 16 tracks + TempoClock step sequencer + FX chains)
+   engine  (sclang — 18 engines × 16 tracks + TempoClock step sequencer + FX chains)
         │
         ▼
    scsynth → jackd → Move speaker / output
@@ -62,8 +62,8 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   build your rig by assigning engines from the **engine palette** (see below). Any
   engine can go on any track, and the assignment is **per pattern** — two patterns can
   carry completely different rigs.
-- **17 assignable engines** on the palette pads — the first 16 fill the top two rows (row 1
-  DRUM..ICARUS, row 2 PLAITS..CHAOS) and **WTABLE** begins row 3 (cell 16), each in its own colour:
+- **18 assignable engines** on the palette pads — the first 16 fill the top two rows (row 1
+  DRUM..ICARUS, row 2 PLAITS..CHAOS) and **WTABLE**/**BYTEBEAT** sit on row 3 (cells 16-17), each in its own colour:
 
   | Pad | Engine | Colour | Character |
   |--------|--------|--------|-----------|
@@ -84,6 +84,7 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   | 15 | **TUBE** | 🟦 sky | TwoTube waveguide — hollow formant plucks / reedy tones |
   | 16 | **CHAOS** | 🟥 red | chaotic-map oscillator — FBSine / Latoocarfian / Henon / Standard / Cusp (glitch/noise) |
   | 17 | **WTABLE** | 🟪 violet | Ableton Wavetable rebuild — two morphing wavetable oscillators over the Move's own factory sprites |
+  | 18 | **BYTEBEAT** | 🟢 green | ByteBeat UGen — 8-bit algorithmic expressions (`t*(t>>5\|t>>8)` …) evaluated at audio rate |
 
 - **Engine palette** (top row of pads, default view): **short-press** a pad to
   audition its current sound; **Shift + pad** to regenerate it; **hold a pad and
@@ -238,6 +239,20 @@ All voices are **spawned per hit and self-free** (see [voice model](#voice-model
   The engine loads each sprite as one buffer on demand and reads it with a `BufRd` 2D-morph
   (interpolating both within a cycle and between adjacent frames); the controller and engine
   sort the sprite list identically so `wt1`/`wt2` select the same wavetable on both sides.
+- **BYTEBEAT** — midouest's **ByteBeat UGen** ([github.com/midouest/bytebeat](https://github.com/midouest/bytebeat)),
+  a real compiled scsynth plugin (not a reimplementation). Bytebeat synthesis evaluates a single
+  integer expression over a sample counter `t` (`t*(t>>5|t>>8)` …) and emits the classic 8-bit
+  algorithmic stream. `expr` picks one of the engine's 19 curated expressions — pushed to the
+  voice with the plugin's `/eval` unit command right after it spawns (it's a bank index, not a
+  synth arg). `rate` is the bytebeat clock — its "sample rate", the master control of pitch,
+  speed and lo-fi crunch — and the note scales it (floored so a low note can't go subsonic). A
+  lowpass + drive + a real AR envelope shape and free each hit. Glitch/texture, in the
+  BEN/NOIZEOP/CHAOS family.
+
+> **BYTEBEAT** needs a native plugin: `supercollider/plugins/ByteBeat/ByteBeat.so` is a
+> **prebuilt aarch64 UGen** (static libstdc++, needs only GLIBC_2.17 — loads on the CM4's scsynth
+> 3.13). `deploy-controller.sh` ships it to `$PH/plugins` and the `ByteBeat.sc` class to the SC
+> Extensions dir. Rebuild it from source with `move/build-bytebeat.sh` (arm64 Docker).
 
 > **WTABLE** reads the Move's factory **wavetable sprites** straight from `/opt/move/Dsp/Vector/
 > Sprites/` on the device — nothing is bundled or redeployed; the engine enumerates them at boot.
@@ -550,6 +565,7 @@ overrun the audio thread. Every engine and effect was **measured on the device**
 | MEMBRANE / MALLET / BOWED | ~9 / ~7 / ~8* | | | |
 | PLUCK / TUBE / CHAOS | ~7 / ~7 / ~8* | | | |
 | WTABLE | ~9.5* | | | |
+| BYTEBEAT | ~6* | | | |
 
 Reverb costs as much as an entire ICARUS voice, and ten expensive tracks with three
 reverbs came to **~160% CPU** — which is exactly what XRuns sound like. The generator
@@ -563,7 +579,7 @@ patterns on the device: **worst sustained 47%, worst peak 50%**.
   **that pattern's own tempo**.
 
 The generated tracks are laid out **contiguously from track 1 and grouped by engine**
-(in palette order — DRUM · FM7 · BUCHLOID · MOLLY · RINGS · BEN · NOIZEOP · ICARUS · PLAITS · SHAKER · MEMBRANE · MALLET · BOWED · PLUCK · TUBE · CHAOS · WTABLE,
+(in palette order — DRUM · FM7 · BUCHLOID · MOLLY · RINGS · BEN · NOIZEOP · ICARUS · PLAITS · SHAKER · MEMBRANE · MALLET · BOWED · PLUCK · TUBE · CHAOS · WTABLE · BYTEBEAT,
 with roles in musical order inside each block). Since the step buttons are coloured by
 engine, a generated rig reads as **contiguous colour blocks** rather than a scatter.
 
@@ -847,8 +863,8 @@ flag, and the HEAT / SHUFFLE macro state (`heat / heatPct / shuffle`).
 ### OSC (controller → engine, sclang langPort 57120)
 
 `/ph/tempo` · `/ph/run` · `/ph/steps` · `/ph/track t typeIdx` (**-1=empty** 0=DRUM
-1=FM7 2=BUCHLOID 3=MOLLY 4=RINGS 5=BEN 6=NOIZEOP 7=ICARUS 8=PLAITS 9=SHAKER 10=MEMBRANE 11=MALLET 12=BOWED 13=PLUCK 14=TUBE 15=CHAOS 16=WTABLE) ·
-`/ph/param t "name" val` (WTABLE's `wt1`/`wt2` are sprite selectors — the engine (re)loads that oscillator's wavetable buffer instead of setting a synth arg) ·
+1=FM7 2=BUCHLOID 3=MOLLY 4=RINGS 5=BEN 6=NOIZEOP 7=ICARUS 8=PLAITS 9=SHAKER 10=MEMBRANE 11=MALLET 12=BOWED 13=PLUCK 14=TUBE 15=CHAOS 16=WTABLE 17=BYTEBEAT) ·
+`/ph/param t "name" val` (WTABLE's `wt1`/`wt2` are sprite selectors — the engine (re)loads that oscillator's wavetable buffer instead of setting a synth arg; BYTEBEAT's `expr` is a bank index — the engine pushes that expression to the voice's ByteBeat UGen via the plugin's `/eval` unit command) ·
 `/ph/preview typeIdx note vel mode [name val …]` (audition one voice → master) ·
 `/ph/pattern` · `/ph/stepset` · `/ph/steplock` · `/ph/stepmacro` · `/ph/clearlocks` ·
 `/ph/stepratchet t cell k` · `/ph/stepsend t cell on` · `/ph/livingfx dTime dFb dMix vMix vRoom vDamp`

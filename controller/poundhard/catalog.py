@@ -100,7 +100,7 @@ class VoiceSpec:
 TYPE_INDEX = {"EMPTY": -1, "DRUM": 0, "FM7": 1, "BUCHLOID": 2, "MOLLY": 3,
               "RINGS": 4, "BEN": 5, "NOIZEOP": 6, "ICARUS": 7, "PLAITS": 8,
               "SHAKER": 9, "MEMBRANE": 10, "MALLET": 11, "BOWED": 12,
-              "PLUCK": 13, "TUBE": 14, "CHAOS": 15, "WTABLE": 16}
+              "PLUCK": 13, "TUBE": 14, "CHAOS": 15, "WTABLE": 16, "BYTEBEAT": 17}
 
 
 def _wt_sprite_count() -> int:
@@ -797,10 +797,48 @@ WTABLE = VoiceSpec(
     ],
 )
 
+# --------------------------------------------------------------------------- #
+# BYTEBEAT — midouest's ByteBeat UGen (a real compiled scsynth plugin). A bytebeat
+# interpreter: an integer expression over a sample counter `t` produces the classic
+# 8-bit algorithmic stream. `expr` selects one of the engine's curated expressions
+# (pushed to the voice with the plugin's /eval command — a bank index, not a synth
+# arg). `rate` is the bytebeat clock (its sample rate = the master pitch/speed/crunch
+# control); the note scales it. Glitch/texture — think BEN/NOIZEOP/CHAOS territory.
+# --------------------------------------------------------------------------- #
+# MUST match the size of ~bbExprs in engine.scd (the engine clips out-of-range indices).
+BB_EXPR_COUNT = 19
+_bb_hi = float(max(0, BB_EXPR_COUNT - 1))
+BYTEBEAT = VoiceSpec(
+    type="BYTEBEAT",
+    role="Bytebeat interpreter (real ByteBeat UGen): 8-bit algorithmic expressions over t.",
+    synthdef="phBytebeat",
+    params=[
+        # expression selector — a /eval bank index, not a synth arg (engine intercepts).
+        P("bytebeat.expr", "Expression", rmin=0.0, rmax=_bb_hi, default=0.0,
+          musical=(0.0, _bb_hi), modulatable=False, macro=False, randomize=RandomizePolicy.WIDE),
+        P("bytebeat.rate", "Clock", unit="Hz", rmin=500.0, rmax=44100.0, default=8000.0,
+          curve=Curve.EXP, formatter="Hz", musical=(2000.0, 22050.0)),
+        P("bytebeat.cutoff", "Cutoff", unit="Hz", rmin=40.0, rmax=18000.0, default=12000.0,
+          curve=Curve.EXP, formatter="Hz", musical=(600.0, 16000.0)),
+        P("bytebeat.res", "Resonance", default=0.1, musical=(0.0, 0.7), danger=DangerClass.FEEDBACK),
+        P("bytebeat.drive", "Drive", rmin=0.1, rmax=6.0, default=1.0, musical=(0.3, 3.0)),
+        P("bytebeat.attack", "Attack", unit="s", rmin=0.001, rmax=4.0, default=0.004,
+          curve=Curve.EXP, formatter="float3", musical=(0.002, 0.2)),
+        P("bytebeat.decay", "Decay", unit="s", rmin=0.005, rmax=8.0, default=0.5,
+          curve=Curve.EXP, formatter="float2", musical=(0.05, 2.0)),
+        P("bytebeat.sustain", "Sustain", default=0.7, musical=(0.2, 0.95)),
+        P("bytebeat.release", "Release", unit="s", rmin=0.005, rmax=8.0, default=0.3,
+          curve=Curve.EXP, formatter="float2", musical=(0.02, 2.0)),
+        P("bytebeat.ampcurve", "Amp Curve", rmin=-8.0, rmax=-1.0, default=-4.0,
+          formatter="float1", musical=(-6.0, -2.0)),
+        *_COMMON_TAIL("bytebeat", ampd=0.5, ampmus=(0.35, 0.85)),
+    ],
+)
+
 VOICES: dict[str, VoiceSpec] = {v.type: v for v in
                                 (DRUM, FM7, BUCHLOID, MOLLY, RINGS, BEN, NOIZEOP, ICARUS,
                                  PLAITS, SHAKER, MEMBRANE, MALLET, BOWED, PLUCK, TUBE, CHAOS,
-                                 WTABLE)}
+                                 WTABLE, BYTEBEAT)}
 
 
 def macro_specs(voice_type: str) -> list[tuple[str, str, float, float]]:

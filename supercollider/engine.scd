@@ -17,7 +17,7 @@
 
 ~nTracks = 16;
 ~maxSteps = 32;
-~typeDefs = [\phDrum, \phFm7, \phBuchloid, \phMolly, \phRings, \phBen, \phNoizeop, \phIcarus, \phPlaits, \phShaker, \phMembrane, \phMallet, \phBowed, \phPluck, \phTube, \phChaos, \phWtable];  // /ph/track type index (-1 = empty/unassigned)
+~typeDefs = [\phDrum, \phFm7, \phBuchloid, \phMolly, \phRings, \phBen, \phNoizeop, \phIcarus, \phPlaits, \phShaker, \phMembrane, \phMallet, \phBowed, \phPluck, \phTube, \phChaos, \phWtable, \phBytebeat];  // /ph/track type index (-1 = empty/unassigned)
 // DRUM is split into per-mode defs (chosen from the track's `mode` param at spawn).
 ~drumDefs = [\phDrumKick, \phDrumSnare, \phDrumHat, \phDrumMetal, \phDrumClap, \phDrumTom, \phDrumNoise];
 
@@ -62,6 +62,34 @@
 ~wtBuf1    = Array.fill(~nTracks, { nil });
 ~wtBuf2    = Array.fill(~nTracks, { nil });
 ~wtBufPrev = Array.fill(2, { nil });   // audition (palette-preview) sprite pair
+// BYTEBEAT: a curated bank of bytebeat expressions (the "presets"). Each track holds an
+// index into this bank; on spawn the engine pushes that expression to the voice's ByteBeat
+// UGen with the /eval unit command (see ~spawn + ~bbUgenIndex). All are valid in the
+// plugin's grammar (t, ints, + - * / %, & | ^ << >> ~, relational, ?:, subscript).
+~bbExprs = [
+	"t*(t>>5|t>>8)",
+	"t*(((t>>12)|(t>>8))&(63&(t>>4)))",
+	"(t>>6|t|t>>(t>>16))*10+((t>>11)&7)",
+	"t*5&(t>>7)|t*3&(t*4>>10)",
+	"t*9&t>>4|t*5&t>>7|t*3&t/1024",
+	"t>>4|t&(t>>5)|t>>7",
+	"((t<<1)^((t<<1)+(t>>7)&t>>12))|t>>(4-(1^7&(t>>19)))|t>>7",
+	"t&t>>8",
+	"t*(42&t>>10)",
+	"(t*5&t>>7)|(t*3&t>>10)",
+	"t*((t>>9|t>>13)&25&t>>6)",
+	"(t>>7|t|t>>6)*10+4*(t&t>>13|t>>6)",
+	"t*(t>>11&t>>8&123&t>>3)",
+	"(t*(t>>5|t>>8))>>(t>>16)",
+	"t*(t>>7|t>>10)^(t>>5)",
+	"(t/8)&(t>>10)|(t*4)&(t>>7)|(t*2)&(t>>5)",
+	"t*(((t>>16)|(t>>8))&(63&(t>>4)))",
+	"t>>4|t*(t>>12|t>>8)&(63&t>>4)",
+	"(t&t>>12)*(t>>4|t>>8)"
+];
+~bbExprIdx = Array.fill(~nTracks, { 0 });   // per-track expression index into ~bbExprs
+~bbExprPrev = 0;                            // audition expression index
+// ~bbUgenIndex (the ByteBeat UGen's graph index for /eval) is set in synthdefs.scd.
 ~maxPoly   = 3;                                      // per-track voice cap (steal oldest)
 ~trackVoices = Array.fill(~nTracks, { List.new });   // live voices per track
 // FX: per-track insert chains. Canonical chain order (verb last); pad index == fx index.
@@ -175,6 +203,12 @@
 		};
 		lst = ~trackVoices[t];
 		syn = Synth(def, args, ~gVoices);
+		// BYTEBEAT: the expression is not a synth arg — push it to this voice's ByteBeat
+		// UGen via the /eval unit command right after /s_new (ordered on the server).
+		(def == \phBytebeat).if {
+			s.sendMsg('/u_cmd', syn.nodeID, ~bbUgenIndex, '/eval',
+				~bbExprs[~bbExprIdx[t].clip(0, ~bbExprs.size - 1)]);
+		};
 		syn.register;
 		syn.onFree({ lst.remove(syn) });
 		lst.add(syn);
@@ -320,7 +354,21 @@
 					nil;
 				});
 			}, {
-				Synth(def, [\out, ~masterBus.index, \note, nn, \vel, vv] ++ pairs, ~gVoices);
+				(def == \phBytebeat).if({
+					// BYTEBEAT audition: expr is a bank index, not a synth arg. Strip it,
+					// spawn, then push the expression to the voice with /eval.
+					var clean = [], j = 0, ei = ~bbExprPrev, syn;
+					while { j < pairs.size } {
+						var k = pairs[j], val = pairs[j + 1];
+						(k == \expr).if({ ei = val.asInteger }, { clean = clean ++ [k, val] });
+						j = j + 2;
+					};
+					syn = Synth(def, [\out, ~masterBus.index, \note, nn, \vel, vv] ++ clean, ~gVoices);
+					s.sendMsg('/u_cmd', syn.nodeID, ~bbUgenIndex, '/eval',
+						~bbExprs[ei.clip(0, ~bbExprs.size - 1)]);
+				}, {
+					Synth(def, [\out, ~masterBus.index, \note, nn, \vel, vv] ++ pairs, ~gVoices);
+				});
 			});
 		};
 	}, '/ph/preview'),
@@ -332,8 +380,17 @@
 		((sym == \wt1) || (sym == \wt2)).if({
 			~wtLoad.(t, (sym == \wt2).if({ 2 }, { 1 }), val);
 		}, {
-			~pstore[t][sym] = val;                       // default for future strikes
-			~trackVoices[t].do { |v| v.set(sym, val) };  // update currently-ringing voices live
+			// `expr` is a bytebeat bank index, not a synth arg: store it, and live-update
+			// any currently-ringing bytebeat voices with the /eval unit command.
+			(sym == \expr).if({
+				~bbExprIdx[t] = val.asInteger.clip(0, ~bbExprs.size - 1);
+				~trackVoices[t].do { |v|
+					s.sendMsg('/u_cmd', v.nodeID, ~bbUgenIndex, '/eval', ~bbExprs[~bbExprIdx[t]]);
+				};
+			}, {
+				~pstore[t][sym] = val;                       // default for future strikes
+				~trackVoices[t].do { |v| v.set(sym, val) };  // update currently-ringing voices live
+			});
 		});
 	}, '/ph/param'),
 	OSCdef(\phPattern, { |m|

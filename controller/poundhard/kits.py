@@ -196,6 +196,9 @@ def gen_voice(role: Role, rng: random.Random) -> dict:
         i2 = rng.choice(pool) if len(pool) < 2 else rng.choice([x for x in pool if x != i1])
         params["wtable.wt1"] = float(i1)
         params["wtable.wt2"] = float(i2)
+    if role.type == "BYTEBEAT":
+        # expr is a bank index (not a synth arg): land it on a clean integer expression.
+        params["bytebeat.expr"] = float(rng.randrange(catalog.BB_EXPR_COUNT))
     return {
         "type": role.type,
         "note": _pick_note(role, rng),
@@ -223,7 +226,7 @@ def gen_kit(seed: int | None = None) -> dict:
 # --------------------------------------------------------------------------- #
 PALETTE_ENGINES = ["DRUM", "FM7", "BUCHLOID", "MOLLY", "RINGS", "BEN", "NOIZEOP",
                    "ICARUS", "PLAITS", "SHAKER", "MEMBRANE", "MALLET", "BOWED",
-                   "PLUCK", "TUBE", "CHAOS", "WTABLE"]
+                   "PLUCK", "TUBE", "CHAOS", "WTABLE", "BYTEBEAT"]
 
 # a canonical note per drum mode, so an auditioned/assigned drum sits in register
 # (mode order matches catalog DRUM enum: kick snare hihat metal clap tom noise)
@@ -642,6 +645,44 @@ PALETTE_ROLES["WTABLE"] = WTABLE_ROLES["WT PAD"]
 _WT_WEIGHTS = {"WT PAD": 3, "WT PLUCK": 3, "WT BASS": 2, "WT LEAD": 2}
 
 
+# --------------------------------------------------------------------------- #
+# BYTEBEAT (ByteBeat UGen) — the expression (`expr`) carries the melody/rhythm and is
+# chosen at random from the engine's bank; each role shapes the CLOCK (rate = pitch/
+# speed/crunch), the register and the envelope. Glitch/texture, in the BEN/NOIZEOP/
+# CHAOS family. name, note(choices, octave), rate, cutoff, attack, decay, sustain,
+# release.
+# --------------------------------------------------------------------------- #
+_BB_SPEC = [
+    # evolving drone: mid clock, long-ish env, darker filter.
+    ("BB DRONE", ((0, 7), 0),        (3000, 10000),  (2000, 8000),  (0.02, 0.3),
+     (0.6, 2.5),  (0.5, 0.9),  (0.3, 1.5)),
+    # glitch stab: fast clock, high register, tight env.
+    ("BB GLITCH", ((0, 5, 7, 12), 12), (8000, 30000), (4000, 15000), (0.001, 0.02),
+     (0.1, 0.6),  (0.15, 0.5), (0.02, 0.3)),
+    # bytebeat bass: low register, slow clock, dark.
+    ("BB BASS", ((0, 5, 7), -12),    (1500, 6000),   (800, 3000),   (0.002, 0.03),
+     (0.2, 1.0),  (0.3, 0.8),  (0.05, 0.5)),
+    # chirpy lead: mid register, bright, medium clock.
+    ("BB CHIRP", ((0, 3, 7, 10, 12), 0), (6000, 20000), (3000, 12000), (0.002, 0.04),
+     (0.15, 0.8), (0.3, 0.7),  (0.05, 0.6)),
+]
+
+
+def _bb_role(spec) -> Role:
+    name, note, rate, cut, atk, dec, sus, rel = spec
+    return Role(name, "BYTEBEAT", note_choices=note[0], octave=note[1],
+                bands={"bytebeat.rate": rate, "bytebeat.cutoff": cut,
+                       "bytebeat.attack": atk, "bytebeat.decay": dec,
+                       "bytebeat.sustain": sus, "bytebeat.release": rel,
+                       "bytebeat.drive": (0.5, 2.0), "bytebeat.res": (0.0, 0.4)},
+                vel=(0.8, 1.05))
+
+
+BYTEBEAT_ROLES: dict[str, Role] = {s[0]: _bb_role(s) for s in _BB_SPEC}
+PALETTE_ROLES["BYTEBEAT"] = BYTEBEAT_ROLES["BB GLITCH"]
+_BB_WEIGHTS = {"BB DRONE": 2, "BB GLITCH": 3, "BB BASS": 2, "BB CHIRP": 3}
+
+
 def gen_palette_voice(engine: str, rng: random.Random | None = None) -> dict:
     """Generate one fresh sound for an engine's palette pad (audition / assign)."""
     rng = rng or random.Random()
@@ -690,6 +731,10 @@ def gen_palette_voice(engine: str, rng: random.Random | None = None) -> dict:
         names = list(_WT_WEIGHTS)
         name = rng.choices(names, weights=[_WT_WEIGHTS[n] for n in names])[0]
         return gen_voice(WTABLE_ROLES[name], rng)   # gen_voice picks two musical sprites
+    if engine == "BYTEBEAT":
+        names = list(_BB_WEIGHTS)
+        name = rng.choices(names, weights=[_BB_WEIGHTS[n] for n in names])[0]
+        return gen_voice(BYTEBEAT_ROLES[name], rng)  # gen_voice picks a random expression
     voice = gen_voice(PALETTE_ROLES[engine], rng)
     if engine == "DRUM":                       # put the drum in register for its mode
         mode = int(round(voice["params"].get("drum.mode", 0)))

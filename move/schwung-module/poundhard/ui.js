@@ -95,14 +95,15 @@ const TYPE_COL = {
     TUBE:     [37, 96],   /* SkyBlue / DarkBlue — TwoTube waveguide (hollow/reedy) */
     CHAOS:    [5, 68],    /* Red / DarkRed — chaotic-map oscillator (glitch/noise) */
     WTABLE:   [45, 91],   /* Violet / DarkViolet — Ableton-sprite wavetable synth */
+    BYTEBEAT: [30, 110],  /* BrightGreen / DarkGreen — ByteBeat UGen (8-bit glitch) */
 };
-/* Engine palette: the 17 assignable engines. Row 1 = cells 0..7 (DRUM..ICARUS),
- * row 2 = cells 8..15 (PLAITS..CHAOS), row 3 begins at cell 16 (WTABLE). Same order &
- * colours as TYPE_COL.
+/* Engine palette: the 18 assignable engines. Row 1 = cells 0..7 (DRUM..ICARUS),
+ * row 2 = cells 8..15 (PLAITS..CHAOS), row 3 = cells 16.. (WTABLE, BYTEBEAT). Same
+ * order & colours as TYPE_COL.
  * Short-press = audition, Shift+pad = regenerate, hold pad + tap a track = assign. */
 const ENGINE_TYPES = ['DRUM', 'FM7', 'BUCHLOID', 'MOLLY', 'RINGS', 'BEN', 'NOIZEOP',
     'ICARUS', 'PLAITS', 'SHAKER', 'MEMBRANE', 'MALLET', 'BOWED', 'PLUCK', 'TUBE', 'CHAOS',
-    'WTABLE'];
+    'WTABLE', 'BYTEBEAT'];
 const N_ENGINES = ENGINE_TYPES.length;
 
 /* ---- runtime state (mirrors status.json) ---- */
