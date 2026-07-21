@@ -154,6 +154,7 @@ class Controller:
         self._heat_on = False
         self._shuffle_on = False
         self._shuffle_perm = {}
+        self.state.shuffle_perm = {}
         self.bridge.steps(self.state.steps)
         self.bridge.tempo(self.state.tempo)
         for t in range(N_TRACKS):
@@ -552,6 +553,11 @@ class Controller:
             if on:
                 self._apply_shuffle()          # roll + apply a fresh configuration
             self._shuffle_on = on and bool(self._shuffle_perm)
+            st.shuffle_perm = dict(self._shuffle_perm)   # HEAT + living steps read the current perm
+            if self._heat_on:                  # HEAT follows the shuffle: re-mark on the NEW rhythm
+                for (t, c) in st.heat_clear():
+                    self._reset_engine_cell(t, c)
+                st.heat_apply(self._heat_pct)
         elif cmd == "mute":
             t = int(arg)
             if 0 <= t < N_TRACKS:

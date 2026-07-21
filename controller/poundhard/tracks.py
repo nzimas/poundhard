@@ -191,6 +191,10 @@ class Project:
         # track is soloed every other track is effectively muted, without touching their
         # own mute flags — so un-soloing restores exactly what was muted before.
         self.solo: int = -1
+        # SHUFFLE: engine track -> source track whose rhythm it currently plays (runtime,
+        # set by the controller's shuffle overlay). Empty = no shuffle. HEAT and the living
+        # steps read it so they operate on the rhythm each engine track ACTUALLY plays.
+        self.shuffle_perm: dict[int, int] = {}
         # ENGINE PALETTE: one freshly-generated candidate sound per assignable engine
         # (top-row pads). Auditioned, re-rolled (Shift+pad) and held-to-assign onto any
         # track. In-memory scratch surface — the assignment lands in the track (which is
@@ -616,7 +620,10 @@ class Project:
         exactly one play of the step, regardless of phase — so a fire is ALWAYS audible. The
         period is counted in step PLAYS: fire once, then stay plain for `period-1` loops."""
         tr = self.tracks[track]
-        loop_bars = max(1, math.ceil(tr.length / (16.0 * max(tr.rate, 0.0625))))
+        # under SHUFFLE, engine track `track` plays `src`'s rhythm — time the living period to
+        # the loop it actually plays, not this track's own length/rate.
+        src = self.tracks[self.shuffle_perm.get(track, track)]
+        loop_bars = max(1, math.ceil(src.length / (16.0 * max(src.rate, 0.0625))))
         changed = []
         living_fx = None
         for c in range(N_STEPS):
@@ -682,14 +689,18 @@ class Project:
         for t, tr in enumerate(self.tracks):
             if tr.type == "EMPTY":
                 continue
-            cands = [c for c in range(min(tr.length, N_STEPS))
-                     if tr.pattern[c] and not tr.step_living[c]]   # skip hand-placed living steps
+            # HEAT follows SHUFFLE: engine track t plays `src`'s rhythm, so mark the cells that
+            # ACTUALLY fire on t (src's hits) and time the period to src's loop, while the
+            # transform itself still uses t's own SOUND (reroll_living reads tr.type).
+            src = self.tracks[self.shuffle_perm.get(t, t)]
+            cands = [c for c in range(min(src.length, N_STEPS))
+                     if src.pattern[c] and not tr.step_living[c]]   # skip hand-placed living steps
             if not cands:
                 continue
             random.shuffle(cands)
             k = max(1, int(round(len(cands) * pct)))    # heat every playing track at least a little
             chosen = cands[:k]
-            loop_bars = max(1, math.ceil(tr.length / (16.0 * max(tr.rate, 0.0625))))
+            loop_bars = max(1, math.ceil(src.length / (16.0 * max(src.rate, 0.0625))))
             for cell, per in zip(chosen, self._heat_periods(len(chosen))):
                 tr.step_living[cell] = True
                 tr.step_heat[cell] = True               # HEAT-owned: cleared on toggle-off, never saved

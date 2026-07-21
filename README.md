@@ -624,6 +624,11 @@ pattern, so it's not saved and can't corrupt your work; switching patterns or lo
 project drops it. The pad glows a **cyan pulse** while engaged, and the tracks-view screen
 shows `SHUF`.
 
+**HEAT and SHUFFLE compose.** With both engaged, HEAT **follows** the shuffle: its living
+steps re-mark onto the *migrated* rhythm each engine track now plays (using that track's own
+sound), so the heat transforms fire on the cells that actually sound — in either order, and
+every time the shuffle re-rolls.
+
 ### Autosave
 
 The controller **autosaves the whole project** (all 32 patterns plus the live state) to
