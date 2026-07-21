@@ -384,7 +384,7 @@ _ENGINE_COST = {"DRUM": 5.3, "FM7": 8.5, "BUCHLOID": 6.0, "RINGS": 9.6,
 # Measured per FX INSTANCE (they're per-track inserts, not sends!). Reverb costs as
 # much as a whole ICARUS voice, so a pattern gets at most one. CLDS = MiClouds
 # (granular), GREY = Greyhole, RING = DiodeRingMod are provisional pending device measure.
-_FX_COST = [2.5, 1.7, 0.8, 1.5, 1.1, 6.0, 4.5, 10.0]   # OD AMP CRSH RING FLNG CLDS GREY VRB
+_FX_COST = [2.5, 1.7, 0.8, 1.5, 1.1, 6.0, 2.0, 4.5]   # OD AMP CRSH RING FLNG CLDS RESO GREY
 _CPU_BUDGET = 52.0                         # leaves ~45% headroom for peaks/jitter on the ARM
 _MAX_TRACKS = 8
 
@@ -626,7 +626,7 @@ def random_pattern(project, rng: random.Random | None = None) -> list[str]:
         if rng.random() >= p:
             continue
         want_verb = v["cat"] in ("pad", "tonal") and not _has_verb(voices)
-        fx = 7 if want_verb else rng.choice([0, 2, 6])          # VERB / OD, CRSH, DLY
+        fx = 7 if want_verb else rng.choice([0, 2, 6])          # GREY (space) / OD, CRSH, RESO
         if fx_budget + _FX_COST[fx] > 12.0:                     # keep FX off the voices' budget
             continue
         v["fx"] = [fx]

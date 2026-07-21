@@ -769,11 +769,10 @@ FX_SPECS: list[FxSpec] = [
     FxSpec("CLOUDS", "CLDS", [("pos", 0.0, 1.0), ("size", 0.12, 0.9), ("dens", 0.2, 0.9),
                               ("tex", 0.15, 0.9), ("spread", 0.3, 1.0), ("rvb", 0.0, 0.6),
                               ("fb", 0.0, 0.45), ("pit", -12.0, 12.0)]),
+    # slot 6: RESO (Streson resonator) — replaces the reverb; slot 7: GREY moved to the end.
+    FxSpec("STRESON", "RESO", [("freq", 60.0, 2000.0), ("res", 0.5, 0.96), ("damp", 0.1, 0.8)]),
     FxSpec("GREYHOLE", "GREY", [("dTime", 0.05, 1.2), ("feedback", 0.2, 0.85), ("size", 0.8, 4.0),
                                 ("diff", 0.3, 1.0), ("damp", 0.1, 0.7), ("modDepth", 0.0, 0.5),
                                 ("modFreq", 0.1, 6.0)]),
-    FxSpec("VERB", "VRB", [("size", 1.0, 3.8), ("decay", 1.5, 12.0), ("damp", 0.1, 0.6),
-                           ("modDepth", 0.0, 0.4), ("earlyDiff", 0.4, 0.95), ("lowCut", 50.0, 400.0),
-                           ("highCut", 4000.0, 14000.0), ("width", 0.85, 1.35)]),
 ]
 N_FX = len(FX_SPECS)

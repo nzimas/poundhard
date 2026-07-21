@@ -781,16 +781,16 @@
 		ReplaceOut.ar(out, ~killbad.(~panOut.((outSig * (1 - bypass)) + (dry * bypass), pan)));
 	}).add;
 
-	// ---- VERB: JPverb algorithmic reverb (needs sc3-plugins) ----
-	SynthDef(\phVerb, { |out = 0, in = 0, size = 2.2, decay = 5, damp = 0.3, modDepth = 0.2, modFreq = 2, earlyDiff = 0.7, lowCut = 180, highCut = 9000, width = 1, amp = 1, pan = 0, bypass = 0, wet = 0.5, enable = 1, freeze = 0|
-		var dry = In.ar(in, 2), inL = dry[0], inR = dry[1];
-		var t60 = Select.kr(freeze, [decay, 240]);
-		var rev = JPverb.ar([inL, inR], t60, damp, size, earlyDiff, modDepth, modFreq, 1.0, 1.0, 1.0, lowCut, highCut) * enable;
-		var wL = rev[0], wR = rev[1];
-		var mid = (wL + wR) * 0.5, side = (wL - wR) * 0.5 * width;
-		var wetL = (mid + side) * amp, wetR = (mid - side) * amp, outSig;
-		outSig = [XFade2.ar(inL, wetL, wet * 2 - 1), XFade2.ar(inR, wetR, wet * 2 - 1)];
-		ReplaceOut.ar(out, ~killbad.(~panOut.((outSig * (1 - bypass)) + (dry * bypass), pan)));
+	// ---- RESO: Streson — a tuned string resonator / comb-with-feedback (sc3-plugins) ----
+	// Rings the input at a tuned frequency, imposing a pitched, metallic/wooden resonant BODY
+	// on anything: a kick becomes a tone, noise becomes a pitched wash. `freq` tunes the
+	// resonance, `res` its sharpness/decay. Replaces the reverb (Greyhole moved to the end
+	// gives the chain its space). res is clamped for feedback safety.
+	SynthDef(\phStreson, { |out = 0, in = 0, freq = 220, res = 0.85, damp = 0.3, amp = 0.9, pan = 0, bypass = 0, wet = 0.5, enable = 1|
+		var dry = In.ar(in, 2);
+		var y = Streson.ar(dry, (1.0 / freq.clip(40, 5000)), res.clip(0, 0.96)) * enable;
+		y = LPF.ar(LeakDC.ar(y), damp.clip(0, 1).linexp(0, 1, 18000, 1500));   // tame the resonant top
+		ReplaceOut.ar(out, ~fxOut.(dry, y, amp, enable, wet, bypass));
 	}).add;
 
 	// ---- CLOUDS: Mutable Instruments Clouds granular texture processor (mi-UGens) ----

@@ -232,7 +232,7 @@ All voices are **spawned per hit and self-free** (see [voice model](#voice-model
 > synth. (SHAKER is stochastic and needs no rawwaves.)
 
 > RINGS and **PLAITS** need the **mi-UGens** plugins (as does the **CLOUDS** FX);
-> **SHAKER**, **MEMBRANE**, **MALLET**, **BOWED**, the **RING** / reverb FX, **ICARUS**
+> **SHAKER**, **MEMBRANE**, **MALLET**, **BOWED**, the **RING** / **RESO** / **GREY** FX, **ICARUS**
 > (`MoogLadder`) and **BEN** (`PulseDPW`/`SVF`/`DFM1`) need **sc3-plugins** present in the
 > SuperCollider bundle on the device. There are **no silent fallbacks** — a missing
 > dependency fails loudly at build.
@@ -313,18 +313,25 @@ place.
 ### FX view
 
 **Track 2** opens the FX view. The top two pad rows are the 16 tracks; the bottom
-row is an 8-effect chain — `OD · AMP · CRSH · RING · FLNG · CLDS · GREY · VRB`
-(reverb always last/rightmost), each a distinct colour.
+row is an 8-effect chain — `OD · AMP · CRSH · RING · FLNG · CLDS · RESO · GREY`
+(**GREY** — the diffuse delay/reverb — sits last, giving the chain its space), each a
+distinct colour.
 
 **CLDS** is **MiClouds** — Mutable Instruments **Clouds** (mi-UGens) as a live granular
 texture processor: grain size / density / texture / position, stereo spread, an internal
 reverb and feedback, a pitch shift and a freeze. Its macro morphs the cloud in one gesture
 — freezing, smearing and pitch-shifting the track into evolving pads and textures.
 
-**GREY** is **Greyhole** (sc3-plugins) — a diffuse, pitch-modulated feedback delay that
-blurs toward reverb as its diffusion and size rise (after ValhallaDSP's Greyhole). Its
-macro sweeps delay time, feedback, size, diffusion, damping and modulation together —
-the dark, smeary IDM space-maker, in place of a plain stereo delay.
+**RESO** is **Streson** (sc3-plugins) — a **tuned string resonator** (a comb with feedback)
+that rings the input at a set frequency, imposing a pitched, metallic/wooden resonant **body**
+on anything: a kick becomes a tone, noise becomes a pitched wash. Its macro sweeps the resonant
+`freq`, `res` (sharpness/decay) and a damping top-cut. It **replaces the reverb** — a
+transforming resonance rather than more space (the last slot, GREY, already provides that).
+
+**GREY** is **Greyhole** (sc3-plugins), now the **last** effect in the chain — a diffuse,
+pitch-modulated feedback delay that blurs toward reverb as its diffusion and size rise (after
+ValhallaDSP's Greyhole). Its macro sweeps delay time, feedback, size, diffusion, damping and
+modulation together — the dark, smeary IDM space-maker that gives the chain its tail.
 
 **RING** is **DiodeRingMod** (sc3-plugins) — an analog-style diode ring modulator, gnarlier
 and more metallic than a clean multiply (asymmetric diode shaping adds extra sidebands). Its
@@ -520,7 +527,7 @@ overrun the audio thread. Every engine and effect was **measured on the device**
 | BEN | 9.7 | | GREY | ~4.5* |
 | MOLLY | 11.7 | | OD | 2.5 |
 | NOIZEOP | 12.0 | | CLDS | ~6.0* |
-| ICARUS | 13.2 | | **VRB** | **10.0** |
+| ICARUS | 13.2 | | RESO | ~2.0* |
 | MEMBRANE / MALLET / BOWED | ~9 / ~7 / ~8* | | | |
 | PLUCK / TUBE / CHAOS | ~7 / ~7 / ~8* | | | |
 
@@ -718,7 +725,8 @@ cd move
    `/data/UserData/poundhard`. PoundHard's voices are pure SuperCollider, so it
    **reuses the wildrider bundle** (`bin/ lib/ plugins/ share/`); deploy
    wildrider's bundle first if it isn't already on the device. The bundle must
-   include **mi-UGens** (for RINGS) and **sc3-plugins** (for the reverb).
+   include **mi-UGens** (for RINGS / PLAITS / CLDS) and **sc3-plugins** (for many
+   engines and the RESO / GREY effects).
 2. **`deploy-controller.sh`** — the Python controller, vendored `python-osc`, the
    engine `.scd` files, and the `run-*.sh` scripts.
 3. **`deploy-module.sh`** — the Schwung overtake module (`module.json` + `ui.js`
