@@ -318,9 +318,12 @@ row is an 8-effect chain — `OD · AMP · CRSH · RING · FLNG · CLDS · RESO 
 distinct colour.
 
 **CLDS** is **MiClouds** — Mutable Instruments **Clouds** (mi-UGens) as a live granular
-texture processor: grain size / density / texture / position, stereo spread, an internal
-reverb and feedback, a pitch shift and a freeze. Its macro morphs the cloud in one gesture
-— freezing, smearing and pitch-shifting the track into evolving pads and textures.
+texture processor (granular mode): grain size / density / texture / read-position, stereo
+spread, an internal reverb and feedback. Its macro is deliberately kept in **granular**
+territory — density stays high (a continuous cloud, not sparse echoes), the read position
+near the write head (live, not a long delay tap), feedback low, and **no global pitch
+shift** — so it smears and thickens the track into an evolving cloud rather than a
+pitch-shifted delay.
 
 **RESO** is **Streson** (sc3-plugins) — a **tuned string resonator** (a comb with feedback)
 that rings the input at a set frequency, imposing a pitched, metallic/wooden resonant **body**

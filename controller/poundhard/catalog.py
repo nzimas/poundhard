@@ -766,9 +766,13 @@ FX_SPECS: list[FxSpec] = [
     FxSpec("BITCRUSHER", "CRSH", [("bits", 3.0, 12.0), ("downsample", 1.0, 24.0)]),
     FxSpec("RINGMOD", "RING", [("freq", 20.0, 2000.0), ("drive", 0.5, 3.5)]),
     FxSpec("FLANGER", "FLNG", [("rate", 0.05, 2.0), ("depth", 0.3, 1.0), ("feedback", 0.0, 0.8)]),
-    FxSpec("CLOUDS", "CLDS", [("pos", 0.0, 1.0), ("size", 0.12, 0.9), ("dens", 0.2, 0.9),
-                              ("tex", 0.15, 0.9), ("spread", 0.3, 1.0), ("rvb", 0.0, 0.6),
-                              ("fb", 0.0, 0.45), ("pit", -12.0, 12.0)]),
+    # Kept firmly in GRANULAR territory: density stays high (a cloud, not sparse echoes),
+    # position near the write head (live, not a long delay tap), feedback low (no echo
+    # tail), and NO global pitch shift (that + position was the "pitch-shifted delay"). The
+    # texture comes from grain size/density/texture/spread + the internal reverb wash.
+    FxSpec("CLOUDS", "CLDS", [("dens", 0.65, 0.98), ("size", 0.25, 0.7), ("tex", 0.3, 0.85),
+                              ("pos", 0.0, 0.35), ("spread", 0.5, 1.0), ("rvb", 0.0, 0.4),
+                              ("fb", 0.0, 0.2)]),
     # slot 6: RESO (Streson resonator) — replaces the reverb; slot 7: GREY moved to the end.
     FxSpec("STRESON", "RESO", [("freq", 60.0, 2000.0), ("res", 0.5, 0.96), ("damp", 0.1, 0.8)]),
     FxSpec("GREYHOLE", "GREY", [("dTime", 0.05, 1.2), ("feedback", 0.2, 0.85), ("size", 0.8, 4.0),
