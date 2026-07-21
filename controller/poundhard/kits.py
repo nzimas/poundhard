@@ -238,11 +238,16 @@ PALETTE_ROLES: dict[str, Role] = {
                     bands={"noizeop.freq01": (0.5, 2.0), "noizeop.freq02": (0.75, 3.5),
                            "noizeop.freq03": (1.0, 5.0), "noizeop.freq04": (1.5, 8.0),
                            "noizeop.a_mod_03": (0.008, 0.15)}),
-    # ICARUS — drones / pads: long-ish envelopes, moderate feedback.
+    # ICARUS — evolving pads: it must SPEAK in a groove, so attacks stay short-ish and
+    # feedback moderate (high feedback washes the tone into a quiet drone); brighter filter,
+    # some drive for presence. Long pads still come from long track notes, not a 2s attack.
     "ICARUS": Role("ICARUS", "ICARUS", note_choices=tuple(_SCALE), octave=0, jitter=0.85,
-                   bands={"icarus.attack": (0.05, 1.5), "icarus.decay": (0.6, 3.5),
-                          "icarus.release": (0.8, 4.0), "icarus.feedback": (0.2, 0.7),
-                          "icarus.lpf": (600, 8000)}),
+                   bands={"icarus.attack": (0.005, 0.2), "icarus.decay": (0.4, 2.0),
+                          "icarus.release": (0.4, 2.5), "icarus.sustain": (0.6, 0.92),
+                          "icarus.feedback": (0.1, 0.45), "icarus.lpf": (1800, 10000),
+                          "icarus.resonance": (0.05, 0.4), "icarus.gain": (1.4, 2.8),
+                          "icarus.destruction": (0.0, 2.5), "icarus.sublevel": (0.25, 0.6),
+                          "icarus.pwmwidth": (0.05, 0.3)}),
 }
 
 

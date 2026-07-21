@@ -479,7 +479,7 @@
 		pwmcenter = 0.5, pwmwidth = 0.05, pwmfreq = 10,
 		lpf = 6000, resonance = 0.2, feedback = 0.5, delaytime = 0.25, destruction = 0,
 		attack = 0.02, decay = 1.0, release = 1.5, sustain = 0.8,
-		gain = 1, amp = 0.5, pan = 0|
+		gain = 1, amp = 0.85, pan = 0|
 		var v = vel.clip(0, 2).max(0.03);
 		var hz = note.clip(0, 127).midicps;
 		var life = attack + decay + release + 0.3;
@@ -499,7 +499,7 @@
 		in = Balance2.ar(in[0], in[1], SinOsc.kr(LinLin.kr(LFNoise0.kr(0.1), -1, 1, 0.05, 0.2)) * 0.1);
 		in = in * ender;
 		ampcheck = Amplitude.kr(Mix.ar(in));
-		in = in * (ampcheck > 0.02);                               // noise gate
+		in = in * (ampcheck > 0.006);                              // noise gate (low threshold — don't choke the voice)
 		// feedback delay network
 		local = LocalIn.ar(2);
 		local = OnePole.ar(local, 0.4);
@@ -512,7 +512,7 @@
 		// Dust-gated dropouts ("destruction")
 		local = ((local * (1 - EnvGen.kr(Env([0, 1, 0], [0.1, 0.1], curve: \sine), gate: Dust.kr(destruction)))) + local) / 2;
 		LocalOut.ar(local * Lag.kr(feedback.clip(0, 0.98), 1));
-		snd = Balance2.ar(local[0] * 0.2, local[1] * 0.2, SinOsc.kr(LinLin.kr(LFNoise0.kr(0.1), -1, 1, 0.05, 0.2)) * 0.1);
+		snd = Balance2.ar(local[0] * 0.9, local[1] * 0.9, SinOsc.kr(LinLin.kr(LFNoise0.kr(0.1), -1, 1, 0.05, 0.2)) * 0.1);
 		snd = Mix.ar([Pan2.ar(snd[0], -1 + (2 * pan.clip(-1, 1)), 1), Pan2.ar(snd[1], 1 + (2 * pan.clip(-1, 1)), 1)]);
 		snd = snd * v * amp * gain.max(0.01);
 		Line.kr(0, 1, life, doneAction: 2);

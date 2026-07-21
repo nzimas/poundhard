@@ -486,8 +486,8 @@ ICARUS = VoiceSpec(
         P("icarus.sustain", "Sustain", default=0.8, musical=(0.4, 0.95)),
         P("icarus.release", "Release", unit="s", rmin=0.02, rmax=10.0, default=1.5,
           curve=Curve.EXP, formatter="float2", musical=(0.4, 5.0)),
-        P("icarus.gain", "Drive", rmin=0.1, rmax=6.0, default=1.0, musical=(0.6, 3.0)),
-        *_COMMON_TAIL("icarus", ampd=0.5, ampmus=(0.3, 0.7)),
+        P("icarus.gain", "Drive", rmin=0.1, rmax=6.0, default=1.4, musical=(1.0, 3.0)),
+        *_COMMON_TAIL("icarus", ampd=0.85, ampmus=(0.55, 0.95)),
     ],
 )
 
