@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import signal
 import sys
 import threading
@@ -79,6 +80,11 @@ class Controller:
         # HEAT macro: mass-mark a fraction of sequenced steps as living (live performance)
         self._heat_on = False                    # macro engaged
         self._heat_pct = 0.5                     # fraction of hits to heat (knob-1 adjustable)
+        # SHUFFLE macro: temporarily swap rhythmic structures (pattern/length/rate) BETWEEN
+        # tracks. Pure engine-side overlay — the controller's Track state is never touched, so
+        # it's automatically temporary and never saved. _shuffle_perm: engine track -> source.
+        self._shuffle_on = False
+        self._shuffle_perm: dict[int, int] = {}
         # performance recording
         self._rec_state = "idle"                 # idle | armed | recording
         self._rec_slot = -1                      # armed / recording slot
@@ -142,10 +148,12 @@ class Controller:
 
     # -- push authoritative state to the engine ---------------------------- #
     def _push_all(self) -> None:
-        # a full-machine replacement (pattern/project load) drops the HEAT toggle — the
-        # living flags now come from the freshly-loaded pattern, not the macro (step_heat is
-        # runtime-only and resets on load, so heat_clear stays idempotent afterwards).
+        # a full-machine replacement (pattern/project load) drops the HEAT + SHUFFLE toggles —
+        # the living flags now come from the freshly-loaded pattern, and push_track below sends
+        # each track's OWN (original) rhythm, so any shuffle overlay is naturally undone.
         self._heat_on = False
+        self._shuffle_on = False
+        self._shuffle_perm = {}
         self.bridge.steps(self.state.steps)
         self.bridge.tempo(self.state.tempo)
         for t in range(N_TRACKS):
@@ -196,6 +204,40 @@ class Controller:
         self.bridge.stepmacro(t, c, [])
         self.bridge.stepratchet(t, c, 1)
         self.bridge.stepsend(t, c, 0)
+
+    # -- SHUFFLE macro ----------------------------------------------------- #
+    def _push_track_rhythm(self, engine_track: int, src_track: int) -> None:
+        """Send src_track's rhythmic structure (steps + length + rate) to engine_track —
+        the target keeps its own SOUND but plays the source's rhythm."""
+        src = self.state.tracks[src_track]
+        self.bridge.pattern(engine_track, src.pattern)
+        self.bridge.length(engine_track, src.length)
+        self.bridge.rate(engine_track, src.rate)
+
+    def _apply_shuffle(self) -> None:
+        """Roll a fresh shuffle: a random DERANGEMENT of the sequenced tracks so every
+        participant plays a different track's rhythm. Engine-only overlay (controller state
+        untouched). The more sequenced tracks, the more configurations."""
+        st = self.state
+        parts = [t for t in range(N_TRACKS)
+                 if st.tracks[t].type != "EMPTY" and any(st.tracks[t].pattern)]
+        if len(parts) < 2:
+            self._shuffle_perm = {}
+            return
+        srcs = parts[:]
+        for _ in range(30):                      # random derangement (nobody keeps their own)
+            random.shuffle(srcs)
+            if all(srcs[i] != parts[i] for i in range(len(parts))):
+                break
+        self._shuffle_perm = {parts[i]: srcs[i] for i in range(len(parts))}
+        for t, src in self._shuffle_perm.items():
+            self._push_track_rhythm(t, src)
+
+    def _clear_shuffle(self) -> None:
+        """Restore each shuffled track's OWN rhythm from the (untouched) controller state."""
+        for t in self._shuffle_perm:
+            self._push_track_rhythm(t, t)
+        self._shuffle_perm = {}
 
     # -- patterns & projects ----------------------------------------------- #
     def _on_cycle(self) -> None:
@@ -434,7 +476,7 @@ class Controller:
     # Commands that change no persisted state — they don't mark the project dirty.
     _NO_STATE = frozenset({
         "editenter", "editexit", "audition", "palettegen", "recpad", "run",
-        "patcopy", "patclipclear", "saveproj", "panic",
+        "patcopy", "patclipclear", "saveproj", "panic", "shuffle",
     })
 
     def _dispatch(self, cmd: str, arg, p: dict) -> None:
@@ -504,6 +546,12 @@ class Controller:
                 for (t, c) in st.heat_clear():
                     self._reset_engine_cell(t, c)
                 st.heat_apply(self._heat_pct)
+        elif cmd == "shuffle":                 # Shuffle pad (right of Heat): swap rhythms between tracks
+            on = int(arg) != 0
+            self._clear_shuffle()              # idempotent: undo any current shuffle first
+            if on:
+                self._apply_shuffle()          # roll + apply a fresh configuration
+            self._shuffle_on = on and bool(self._shuffle_perm)
         elif cmd == "mute":
             t = int(arg)
             if 0 <= t < N_TRACKS:
@@ -708,6 +756,7 @@ class Controller:
             "autoSave": self._autosaved,       # a recovery file exists (Shift+Menu restores it)
             "heat": self._heat_on,             # HEAT macro engaged
             "heatPct": round(self._heat_pct, 3),
+            "shuffle": self._shuffle_on,       # SHUFFLE macro engaged
             # performance recorder
             "recSlots": list(self._rec_slots),
             "recSlot": self._rec_slot,

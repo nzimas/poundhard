@@ -69,6 +69,8 @@ const N_FX = 8;
 const FX_CELL0 = 24;                /* FX pads occupy the bottom row (cells 24..31) */
 const HEAT_CELL = 24;               /* default-view bottom-row first pad = the HEAT toggle */
 const HEAT_HOT = 5, HEAT_WARM = 1, HEAT_IDLE = 84;  /* fire pulse (on) / dim ember (off) */
+const SHUF_CELL = 25;               /* pad right of HEAT = the SHUFFLE toggle */
+const SHUF_ON = 14, SHUF_ALT = 20, SHUF_IDLE = 87;  /* cyan pulse (on) / dim teal (off) */
 
 /* Per-generator-type step-button colours [bright, dim] — same hue, two brightnesses.
  * The step buttons are grouped by generator (see kits.py) so each block is one hue:
@@ -146,6 +148,9 @@ let recHeld = false;                             /* Rec button held -> pad marks
 /* HEAT macro (default view, bottom-row first pad): short press toggles; when on, ~heatPct
  * of every sequenced track's hits become living. Hold the pad + knob1 sets heatPct. */
 let heatOn = false, heatPct = 0.5, heatHeld = false, heatAdjusted = false;
+/* SHUFFLE macro (pad right of HEAT): each toggle-on swaps rhythmic structures between tracks
+ * (a fresh random config); toggle-off restores the original. */
+let shufOn = false, shufHeld = false;
 /* step-button pulse: a local beat clock (tempo-driven) drives the per-track pulse so
  * event-tracks blink at their sequence pace. lastStepCol dedups setLED (only send on change). */
 let seqBeats = 0, lastPulseMs = 0, wasRunning = false;
@@ -342,6 +347,8 @@ function renderLEDs() {
                 color = (paletteHeld === c) ? White : (pair ? pair[0] : DIM_COLOR);
             } else if (c === HEAT_CELL) {                          /* HEAT toggle */
                 color = heatOn ? ((phase % 16 < 8) ? HEAT_HOT : HEAT_WARM) : HEAT_IDLE;
+            } else if (c === SHUF_CELL) {                          /* SHUFFLE toggle */
+                color = shufOn ? ((phase % 16 < 8) ? SHUF_ON : SHUF_ALT) : SHUF_IDLE;
             }
             setLED(PAD_NOTES[c], color);
         }
@@ -510,7 +517,7 @@ function drawScreen() {
     if (!ready) { print(0, 12, 'POUNDHARD', 2); print(0, 40, engine ? 'booting engine...' : 'starting...', 1); return; }
     if (editTrack < 0) {
         print(0, 6, 'POUNDHARD', 2);
-        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : ''), 1);
+        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : '') + (shufOn ? '  SHUF' : ''), 1);
         print(0, 44, 'pad=hear  shift+pad=gen', 1);
         print(0, 56, 'k8=chaos  heat=btm-left pad', 1);
     } else {
@@ -539,6 +546,7 @@ function readStatus() {
     if (Array.isArray(s.projFilled)) projFilled = s.projFilled;
     if (s.autoSave != null) autoSave = !!s.autoSave;
     if (s.heat != null && !heatHeld) heatOn = !!s.heat;             /* don't fight a live toggle */
+    if (s.shuffle != null && !shufHeld) shufOn = !!s.shuffle;
     if (s.heatPct != null && knobShow !== 'heat') heatPct = s.heatPct;
     /* don't fight a live turn: only adopt the controller's chaos position when the
      * knob isn't the thing on screen (it re-syncs after a reset / pattern change) */
@@ -684,7 +692,7 @@ globalThis.tick = function () {
     if (running && patView && patPending >= 0) ledDirty = true;   /* animate the queued-slot pulse */
     if (recView && recState !== 'idle') ledDirty = true;          /* animate the rec/armed pad */
     if (editTrack >= 0 && !fxView) { for (var _lv = 0; _lv < N_STEPS; _lv++) if (editLiving[_lv]) { ledDirty = true; break; } }  /* pulse living steps */
-    if (heatOn && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse the HEAT pad */
+    if ((heatOn || shufOn) && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse HEAT / SHUFFLE pads */
     if (ledDirty) renderLEDs();
     if (running) renderStepButtons();   /* keep the pulse animating between full renders */
     if (overlay && phase >= overlayUntil) { overlay = null; screenDirty = true; }
@@ -851,6 +859,10 @@ globalThis.onMidiMessageInternal = function (data) {
             heatHeld = true; heatAdjusted = false; ledDirty = true; screenDirty = true;
             return;
         }
+        if (cell === SHUF_CELL) {                          /* Shuffle pad down: arm the toggle */
+            shufHeld = true; ledDirty = true; screenDirty = true;
+            return;
+        }
         if (cell < N_ENGINES) {
             if (shiftHeld) { sendCmd('palettegen', cell); showAction('GEN ' + ENGINE_TYPES[cell]); }
             else { paletteHeld = cell; paletteHeldStart = Date.now(); paletteConsumed = false; }
@@ -869,6 +881,15 @@ globalThis.onMidiMessageInternal = function (data) {
             heatHeld = false;
             if (knobShow === 'heat') knobShow = null;      /* drop the heat % readout on pad release */
             ledDirty = true; screenDirty = true;
+            return;
+        }
+        if (cell === SHUF_CELL) {                          /* Shuffle pad up: short press = toggle */
+            if (shufHeld) {
+                shufOn = !shufOn;                          /* optimistic; server confirms via status */
+                sendCmd('shuffle', shufOn ? 1 : 0);        /* each toggle-on rolls a fresh config */
+                showAction(shufOn ? 'SHUFFLE' : 'SHUF OFF');
+            }
+            shufHeld = false; ledDirty = true; screenDirty = true;
             return;
         }
         if (paletteHeld === cell) {

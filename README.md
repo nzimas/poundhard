@@ -273,6 +273,7 @@ in its engine colour.
 | **Shift + Track 1** | re-roll the **open** track's sound (within its engine) |
 | **Shift + hold volume knob + Track 3** | **fully randomise** the current pattern (4–10 tracks) |
 | **Bottom-row first pad** | **HEAT** — mass-mark [living steps](#living-steps--the-heat-button) across the whole rig (toggle) |
+| **Bottom-row 2nd pad** | **SHUFFLE** — temporarily swap rhythmic structures between tracks (toggle; each ON rolls a fresh config) |
 | **Hold HEAT pad + Knob 1** | set the HEAT amount (% of hits marked) |
 | **Play** (lit green while running) | start / stop the sequencer |
 | **Knob 1** | master tempo (BPM) |
@@ -611,6 +612,22 @@ configuration. The pad glows a **fire pulse** while engaged, and the tracks-view
 > it leaves any **hand-placed** (Rec+pad) living steps alone — toggling HEAT off clears only
 > what HEAT added. Save a pattern with HEAT blazing and you get back the clean pattern, heat
 > not baked in.
+
+### SHUFFLE
+
+The **second pad of the bottom row** (right of HEAT) is **SHUFFLE** — a live remix of the
+current pattern's *rhythm*. Toggling it **on** swaps the **steps, length and clock rate**
+between the sequenced tracks (a random **derangement** — every track plays a *different*
+track's rhythm, keeping its own sound). Each track becomes someone else's groove: the kick's
+four-on-the-floor lands on a hat, a busy hat pattern drives the bass, and so on. **The more
+tracks you have playing, the more configurations** are possible (N tracks → up to !N
+derangements), and **every toggle-on rolls a fresh one**. Toggling **off** restores the
+original rhythm exactly.
+
+Like HEAT, SHUFFLE is a **temporary, engine-side overlay** — it never touches the stored
+pattern, so it's not saved and can't corrupt your work; switching patterns or loading a
+project drops it. The pad glows a **cyan pulse** while engaged, and the tracks-view screen
+shows `SHUF`.
 
 ### Autosave
 
