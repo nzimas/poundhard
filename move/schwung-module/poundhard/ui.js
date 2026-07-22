@@ -284,6 +284,29 @@ function stepColor(t) {
     if (active[t]) return (running ? (trackPulseOn(t) ? pair[0] : pair[1]) : pair[0]);  /* events */
     return pair[1];                             /* unmuted but empty -> steady dim */
 }
+/* FX-view pad colour for track c (rows 0-1). Shows its FX assignment (or membership of a
+ * held FX pad), AND — like the step buttons — PULSES at the track's tempo when it has note
+ * data and is currently audible (unmuted, not soloed-out). So the performer can see which
+ * tracks are live even in the FX view, with or without FX assigned. */
+function fxTrackColor(c) {
+    var pair = TYPE_COL[types[c]];
+    if (!pair) return OFF_COLOR;                         /* empty / unassigned track -> dark */
+    /* base identity: membership of the held FX, else the track's top FX (bypass shown
+     * distinctly), else DIM (no FX) — exactly what the FX view showed before. */
+    var base;
+    if (fxHeld >= 0) base = (fxOn[c] && fxOn[c].indexOf(fxHeld) >= 0) ? FX_COLORS[fxHeld] : DIM_COLOR;
+    else if (fxTop[c] >= 0) base = fxBypass[c] ? BYPASS_COLOR : FX_COLORS[fxTop[c]];
+    else base = DIM_COLOR;
+    /* live = has note data AND audible AND playing -> pulse it. On-beat shows the identity
+     * colour (or the engine hue when there's no FX, so the blink is always visible); off-beat
+     * dims. Muted / empty / stopped tracks stay steady, so only LIVE tracks blink. */
+    var audible = !muted[c] && (solo < 0 || solo === c);
+    if (running && active[c] && audible) {
+        var onC = (base === DIM_COLOR) ? pair[0] : base;
+        return trackPulseOn(c) ? onC : DIM_COLOR;
+    }
+    return base;
+}
 /* Push the 16 step-button LEDs, only re-sending the ones whose colour changed. */
 function renderStepButtons() {
     for (let t = 0; t < N_TRACKS; t++) {
@@ -319,14 +342,8 @@ function renderLEDs() {
     if (fxView) {
         for (let c = 0; c < 32; c++) {
             let color = Black;
-            if (c < N_TRACKS) {                        /* rows 0-1: tracks (dimly lit by default) */
-                if (fxHeld >= 0) {                     /* holding an FX -> show ITS membership per track */
-                    let has = fxOn[c] && fxOn[c].indexOf(fxHeld) >= 0;
-                    color = has ? FX_COLORS[fxHeld] : DIM_COLOR;
-                } else {
-                    let top = fxTop[c];
-                    color = (top < 0) ? DIM_COLOR : (fxBypass[c] ? BYPASS_COLOR : FX_COLORS[top]);
-                }
+            if (c < N_TRACKS) {                        /* rows 0-1: tracks — FX colour + data pulse */
+                color = fxTrackColor(c);
             } else if (c >= FX_CELL0) {                /* bottom row: 8 FX pads */
                 let k = c - FX_CELL0;
                 color = (fxHeld === k) ? White : FX_COLORS[k];
@@ -696,6 +713,7 @@ globalThis.tick = function () {
     if (recView && recState !== 'idle') ledDirty = true;          /* animate the rec/armed pad */
     if (editTrack >= 0 && !fxView) { for (var _lv = 0; _lv < N_STEPS; _lv++) if (editLiving[_lv]) { ledDirty = true; break; } }  /* pulse living steps */
     if ((heatOn || shufOn) && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse HEAT / SHUFFLE pads */
+    if (fxView && running) ledDirty = true;   /* pulse the FX-view track pads by note-data presence */
     if (ledDirty) renderLEDs();
     if (running) renderStepButtons();   /* keep the pulse animating between full renders */
     if (overlay && phase >= overlayUntil) { overlay = null; screenDirty = true; }
