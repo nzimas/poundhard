@@ -770,6 +770,10 @@ cd move
    engine `.scd` files, and the `run-*.sh` scripts.
 3. **`deploy-module.sh`** — the Schwung overtake module (`module.json` + `ui.js`
    + `exit-hook.sh`) under `/data/UserData/schwung/modules/overtake/poundhard`.
+4. **`disable-updates.sh`** — turns off the Move's **automatic firmware updates**
+   (both `swupdate` and the update check/download service) so an OS update can never
+   silently overwrite the takeover. Idempotent; renames only (nothing deleted), with
+   re-enable instructions left on the device. Re-run after any reflash/manual update.
 
 > After a controller change, do a **full relaunch** (exit and re-enter) so the
 > launcher starts the new controller — an old process from a prior session is
