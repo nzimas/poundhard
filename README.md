@@ -642,9 +642,12 @@ track's hits** become living steps at once, each with a period spread over **2�
 variety inside each track) and **staggered phases** so they don't all mutate on the same bar
 — the performance gradually comes to a boil rather than lurching. **Hold the HEAT pad and
 turn knob 1** to set the amount (giant `HEAT %` readout); raising it re-heats live at the new
-density. **Toggling off removes HEAT's markers and resets**, so the next press rolls a fresh
-configuration. The pad glows a **fire pulse** while engaged, and the tracks-view screen shows
-`HEAT %`.
+density. HEAT is **strictly non-destructive**: engaging it snapshots the exact per-step base
+state, and **toggling off restores the pattern precisely** — every marked cell's note/velocity/
+pan locks, ratchet and send are reverted to their pre-HEAT values and reset in the engine (all
+of them, not just the ones mid-transform), so nothing vestigial survives. The next press rolls
+a fresh configuration. The pad glows a **fire pulse** while engaged, and the tracks-view screen
+shows `HEAT %`.
 
 > HEAT is a **temporary performance overlay**: its marks are never saved with a pattern, and
 > it leaves any **hand-placed** (Rec+pad) living steps alone — toggling HEAT off clears only

@@ -195,6 +195,9 @@ class Project:
         # set by the controller's shuffle overlay). Empty = no shuffle. HEAT and the living
         # steps read it so they operate on the rhythm each engine track ACTUALLY plays.
         self.shuffle_perm: dict[int, int] = {}
+        # HEAT snapshot: the exact per-cell BASE state captured when the HEAT macro engages,
+        # so disengaging restores the pattern EXACTLY (locks, ratchets, sends) with no trace.
+        self._heat_snap: list | None = None
         # ENGINE PALETTE: one freshly-generated candidate sound per assignable engine
         # (top-row pads). Auditioned, re-rolled (Shift+pad) and held-to-assign onto any
         # track. In-memory scratch surface — the assignment lands in the track (which is
@@ -656,25 +659,42 @@ class Project:
             vals[i] = random.choice([p for p in range(2, 7) if p != vals[i]])
         return vals
 
+    def heat_snapshot(self) -> None:
+        """Capture the EXACT base per-cell state of every track (the fields a living transform
+        mutates), so heat_clear can restore the pattern with zero trace — including hand-set
+        step locks that a transform would otherwise overwrite. Taken once, when HEAT engages."""
+        self._heat_snap = [
+            [(tr.step_note[c], tr.step_vel[c], tr.step_pan[c], tr.step_ratchet[c],
+              tr.step_send[c], list(tr.step_xmacro[c]) if tr.step_xmacro[c] else None)
+             for c in range(N_STEPS)]
+            for tr in self.tracks]
+
     def heat_clear(self) -> list:
-        """Remove only the HEAT-owned living marks (step_heat) and revert any mid-transform;
-        hand-placed (Rec+pad) living steps are left untouched. Idempotent — safe to call whether
-        or not heat is on, so toggling OFF always fully resets the overlay. Returns the
-        (track,cell) that were ACTIVE at clear time, so the caller resets exactly those in the
-        engine."""
-        active = []
+        """Drop the HEAT overlay and RESTORE each HEAT-marked cell to its exact pre-HEAT base
+        state from the snapshot (locks, ratchet, send, macro) — not just the currently-active
+        ones, so no transform can leave a trace. Hand-placed (Rec+pad) living steps are never
+        HEAT-marked, so they're left untouched. Idempotent. Returns EVERY (track,cell) that was
+        HEAT-marked, so the caller resets exactly those in the engine."""
+        touched = []
+        snap = self._heat_snap
         for t, tr in enumerate(self.tracks):
             for c in range(N_STEPS):
-                if tr.step_heat[c]:
-                    if tr.step_active[c]:
-                        active.append((t, c))
-                    tr.step_heat[c] = False
-                    tr.step_living[c] = False
-                    tr.step_period[c] = 4
-                    tr.step_cyc[c] = 0
-                    tr.step_active[c] = False
+                if not tr.step_heat[c]:
+                    continue
+                touched.append((t, c))
+                tr.step_heat[c] = False
+                tr.step_living[c] = False
+                tr.step_period[c] = 4
+                tr.step_cyc[c] = 0
+                tr.step_active[c] = False
+                if snap is not None:                    # restore the exact base for this cell
+                    n, v, pa, ra, se, xm = snap[t][c]
+                    tr.step_note[c] = n; tr.step_vel[c] = v; tr.step_pan[c] = pa
+                    tr.step_ratchet[c] = ra; tr.step_send[c] = se
+                    tr.step_xmacro[c] = list(xm) if xm else None
+                else:                                   # no snapshot -> plain defaults
                     self._revert_living_cell(t, c)
-        return active
+        return touched
 
     def heat_apply(self, pct: float) -> None:
         """HEAT: mark ~pct of the SEQUENCED steps (pattern hits) of every non-empty track as

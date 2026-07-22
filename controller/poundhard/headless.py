@@ -536,7 +536,9 @@ class Controller:
                 st.set_step_period(t, cell, int(p.get("x", 4)))
         elif cmd == "heat":                    # Heat pad (default view): toggle the mass-living macro
             on = int(arg) != 0
-            for (t, c) in st.heat_clear():  # idempotent: clear the overlay first (fresh slate / full off)
+            if on and not self._heat_on:       # engaging: snapshot the clean base BEFORE marking
+                st.heat_snapshot()             # so disengaging restores the pattern exactly
+            for (t, c) in st.heat_clear():  # restore + reset the engine for EVERY heated cell
                 self._reset_engine_cell(t, c)
             if on:
                 st.heat_apply(self._heat_pct)
