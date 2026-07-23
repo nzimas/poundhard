@@ -28,7 +28,7 @@ import {
     Black, VividYellow, White, BrightGreen,
     MoveShift, MoveBack, MovePlay, MoveKnob1, MoveKnob1Touch, MoveKnob8Touch,
     MoveMasterTouch, MoveRow1, MoveRow2, MoveRow3, MoveMenu, MoveLeft, MoveRight, MoveMainKnob, MoveMainTouch,
-    MoveDelete, MoveCopy, MoveUndo, MoveRec
+    MoveMainButton, MoveDelete, MoveCopy, MoveUndo, MoveRec
 } from '/data/UserData/move-anything/shared/constants.mjs';
 import { setLED, setButtonLED, decodeDelta } from '/data/UserData/move-anything/shared/input_filter.mjs';
 
@@ -177,6 +177,10 @@ let knobShow = null;                /* 'pitch'|'vel'|'pan'|null (big readout) */
 let rateView = -1, rateViewUntil = 0;   /* transient big clock-rate readout (cursor keys) */
 /* FX view */
 let fxView = false, fxHeld = -1;
+/* exit safeguard: Back ARMS a confirmation ("EXIT YES?"); a jog-wheel push commits it.
+ * Any other input (or a timeout) cancels — so the Back button can't drop the performer
+ * out of PoundHard by accident mid-set. */
+let exitConfirm = false, exitConfirmUntil = -1;
 let fxTop = new Array(N_TRACKS).fill(-1);
 let fxOn = [];                       /* per-track list of assigned fx indices (from status) */
 for (let i = 0; i < N_TRACKS; i++) fxOn.push([]);
@@ -219,7 +223,8 @@ const FONT = {
     'Y': ['# #', '# #', ' # ', ' # ', ' # '], 'Z': ['###', '  #', ' # ', '#  ', '###'],
     '#': ['# #', '###', '# #', '###', '# #'], '-': ['   ', '   ', '###', '   ', '   '],
     '.': ['   ', '   ', '   ', '   ', ' # '], '/': ['  #', '  #', ' # ', '#  ', '#  '],
-    ':': ['   ', ' # ', '   ', ' # ', '   '], ' ': ['   ', '   ', '   ', '   ', '   ']
+    ':': ['   ', ' # ', '   ', ' # ', '   '], ' ': ['   ', '   ', '   ', '   ', '   '],
+    '?': ['###', '  #', ' ##', '   ', ' # ']
 };
 function drawBig(text, yTop, maxScale) {
     if (typeof fill_rect !== 'function') return;
@@ -517,8 +522,15 @@ function drawSlots() {
         print(0, 56, 'X=del copy=cp/pst sh+T3=gen', 1);
     }
 }
+function drawExitConfirm() {
+    clear_screen();
+    drawBig('EXIT', 3, 5);
+    drawBig('YES?', 31, 5);
+    print(0, 58, 'JOG PUSH = EXIT   BACK = STAY', 1);
+}
 function drawScreen() {
     if (typeof clear_screen !== 'function' || typeof print !== 'function') return;
+    if (exitConfirm) { drawExitConfirm(); return; }
     if (recView) { drawRec(); return; }
     /* giant TEMPO readout while knob 1 is touched (tracks view + project view) */
     /* Giant TEMPO readout while knob 1 is touched — tracks, PATTERN and project views.
@@ -717,6 +729,7 @@ globalThis.tick = function () {
     if (ledDirty) renderLEDs();
     if (running) renderStepButtons();   /* keep the pulse animating between full renders */
     if (overlay && phase >= overlayUntil) { overlay = null; screenDirty = true; }
+    if (exitConfirm && phase >= exitConfirmUntil) { exitConfirm = false; screenDirty = true; }
     /* throttle screen redraws to ~10Hz — the block-font screens are heavy on the
      * SPI display; flooding it freezes the Move UI. */
     if (screenDirty && (phase - lastDrawAt >= 3)) { drawScreen(); screenDirty = false; lastDrawAt = phase; }
@@ -731,6 +744,12 @@ globalThis.onMidiMessageInternal = function (data) {
     const status = data[0] & 0xF0;
     const d1 = data[1];
     const d2 = data[2];
+
+    /* while the exit prompt is armed, any input other than Back (re-toggle) or the jog
+     * push (commit) dismisses it — so "EXIT YES?" never lingers over normal play. */
+    if (exitConfirm && d2 > 0 && !(status === 0xB0 && (d1 === MoveBack || d1 === MoveMainButton))) {
+        exitConfirm = false; screenDirty = true;
+    }
 
     /* volume-knob touch = modifier (whole-kit gesture) */
     if (d1 === MoveMasterTouch && (status === 0x90 || status === 0x80)) {
@@ -956,7 +975,17 @@ globalThis.onMidiMessageInternal = function (data) {
     }
 
     if (status === 0xB0) {
+        /* Back ARMS (or, if already armed, cancels) the exit confirmation — it no longer
+         * exits on its own. The commit is a jog-wheel PUSH (MoveMainButton), below. */
         if (d1 === MoveBack && d2 > 0) {
+            exitConfirm = !exitConfirm;
+            exitConfirmUntil = phase + 120;   /* auto-cancel after a few seconds */
+            screenDirty = true;
+            return;
+        }
+        /* jog-wheel push while armed -> commit the exit */
+        if (d1 === MoveMainButton && d2 > 0 && exitConfirm) {
+            exitConfirm = false;
             sys('sh ' + PH + '/stop-stack.sh');
             if (typeof host_exit_module === 'function') host_exit_module();
             return;
