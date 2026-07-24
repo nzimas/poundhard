@@ -53,6 +53,7 @@ buttons, encoders and screen. It runs on the same on-device stack as the
 - [Wire protocols](#wire-protocols)
 - [Repository layout](#repository-layout)
 - [Gotchas](#gotchas)
+- [License & disclaimer](#license--disclaimer)
 
 ---
 
