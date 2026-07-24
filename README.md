@@ -925,7 +925,6 @@ an angular, industrial typeface that suits the hard, percussion-centric aestheti
   which used to crash the load and freeze the instrument.
 - Only one takeover runs at a time; the exit hook kills the whole stack, so there
   is no port conflict with wildrider (shared langPort 57120 / telemetry 57140).
-```
 
 ---
 
