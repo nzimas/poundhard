@@ -926,3 +926,90 @@ an angular, industrial typeface that suits the hard, percussion-centric aestheti
 - Only one takeover runs at a time; the exit hook kills the whole stack, so there
   is no port conflict with wildrider (shared langPort 57120 / telemetry 57140).
 ```
+
+---
+
+## License & disclaimer
+
+> **Plain-language summary:** PoundHard is a free, unofficial, hobbyist project. It is
+> **not** an Ableton product, it comes with **no warranty of any kind**, and running it
+> **modifies your Move at your own risk**. It builds on other people's free software,
+> whose licenses you must also honour. Nothing here is legal advice — where this section
+> and an upstream license disagree, the upstream license governs.
+
+### PoundHard's own code
+
+The original PoundHard material in this repository — the SuperCollider synthdefs
+(`supercollider/*.scd`), the Python controller (`controller/poundhard/`), the Schwung
+overtake module (`move/schwung-module/`), and the deploy/build scripts (`move/*.sh`) —
+is released by its author(s) under the **MIT License** (© the PoundHard contributors).
+You may use, copy, modify and redistribute *that* material under MIT terms.
+
+**However, PoundHard does not run in isolation.** It links against, bundles, and is
+distributed together with third-party software under **copyleft (GPL) licenses** (below).
+When PoundHard is conveyed as a working system — or when any GPL component is
+redistributed with it — the terms of those licenses (including source-availability and
+copyleft obligations) apply to the combined/aggregate work. In practice, treat a
+redistributed PoundHard bundle as **governed by the GPL (v3)**, and keep this notice and
+the upstream license texts intact.
+
+### Third-party components
+
+PoundHard depends on, embeds, or ships the following. Copyrights belong to their
+respective authors; consult each project for authoritative and current license terms.
+To the author's best knowledge:
+
+| Component | Role in PoundHard | License (see upstream) |
+|---|---|---|
+| **SuperCollider** (scsynth / sclang) | the audio engine + language | GPL-3.0-or-later |
+| **sc3-plugins** (incl. FM7, Greyhole, JPverb, Streson, DiodeRingMod, chaos & glitch UGens, DWG, TwoTube…) | many of the synthesis/FX UGens | GPL-2.0-or-later / GPL-3.0 (mixed) |
+| **mi-UGens** — SuperCollider ports of **Mutable Instruments** *Plaits, Rings, Clouds* | the PLAITS / RINGS / CLOUDS engines | Mutable Instruments DSP © Émilie Gillet (**MIT**); SC UGen wrapper **GPL-3.0** |
+| **STK — the Synthesis ToolKit** (Perry R. Cook & Gary P. Scavone) | SHAKER / MEMBRANE / MALLET / BOWED voices (+ bundled `rawwaves/`) | STK permissive free license |
+| **ByteBeat** (github.com/midouest/bytebeat) | the BYTEBEAT engine (prebuilt `.so` shipped) | **GPL-3.0** (see `supercollider/plugins/ByteBeat/LICENSE`) |
+| **python-osc** (vendored under `controller/vendor/`) | OSC transport in the controller | Unlicense / public domain |
+| **Csound** | investigated for a future "Csound edition" — **not shipped** in this repo | LGPL-2.1-or-later |
+| **Schwung** / move-anything (and its `wildrider` SC bundle) | the host takeover framework PoundHard runs *inside* — **not part of this repo** | © its author; separate project & terms |
+
+The prebuilt `ByteBeat.so` is an aarch64 binary of GPL-3.0 source; its corresponding
+source is upstream at github.com/midouest/bytebeat, and `move/build-bytebeat.sh`
+reproduces the build.
+
+### Ableton — no affiliation, trademarks, and device content
+
+PoundHard is an **independent, unofficial** project. It is **not** created, sponsored,
+endorsed by, or affiliated with **Ableton AG** in any way. *"Ableton"*, *"Move"*,
+*"Live"*, *"Wavetable"*, and related names and logos are trademarks of Ableton AG, used
+here **only nominatively** to describe interoperability. No trademark or other rights in
+them are claimed.
+
+PoundHard is a **"takeover"** that runs on Ableton Move hardware alongside Ableton's own
+software. It does **not** contain, copy, or redistribute Ableton's proprietary firmware,
+application binaries, or content. Where it uses on-device Ableton resources — most
+notably the **WTABLE** engine reading the Move's factory **Wavetable sprites** from
+`/opt/move/Dsp/Vector/Sprites/` — it does so **only at runtime, on the end user's own
+device**, reading files that already ship on the hardware you bought. Nothing proprietary
+to Ableton is included in, or distributed by, this repository. Use PoundHard only on a
+Move you own, and only with software you are licensed to run.
+
+### No warranty · use entirely at your own risk
+
+PoundHard is provided **"AS IS", without warranty of any kind**, express or implied,
+including but not limited to the warranties of merchantability, fitness for a particular
+purpose, and non-infringement. **In no event shall the authors or copyright holders be
+liable for any claim, damages, or other liability** arising from, out of, or in
+connection with PoundHard or its use.
+
+Be specifically aware that PoundHard:
+
+- **modifies the runtime behaviour of a commercial device** and rides on top of a
+  reverse-engineered takeover of its software;
+- involves **root access and changes to the device filesystem**, which can render the
+  device unbootable — this project has, in development, temporarily **bricked the boot**
+  (recoverable over SSH; see the git history and the warning against disabling the Move's
+  update services);
+- **may void your warranty**, may be affected or removed by official firmware updates,
+  and may stop working on future device revisions;
+- is an **experimental hobbyist instrument**, not a supported product.
+
+If any of that is not acceptable to you, **do not install or run PoundHard.** By using
+it, you accept full responsibility for what happens to your device and your data.
