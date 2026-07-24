@@ -761,12 +761,13 @@ cd move
 
 `deploy.sh` runs three steps you can also run individually:
 
-1. **`deploy-bundle.sh`** — provisions the scsynth/sclang runtime under
-   `/data/UserData/poundhard`. PoundHard's voices are pure SuperCollider, so it
-   **reuses the wildrider bundle** (`bin/ lib/ plugins/ share/`); deploy
-   wildrider's bundle first if it isn't already on the device. The bundle must
-   include **mi-UGens** (for RINGS / PLAITS / CLDS) and **sc3-plugins** (for many
-   engines and the RESO / GREY effects).
+1. **`deploy-bundle.sh`** — installs PoundHard's **self-contained** scsynth/sclang
+   runtime under `/data/UserData/poundhard`. The whole runtime — scsynth, sclang,
+   every UGen plugin it uses (**mi-UGens** for RINGS/PLAITS/CLDS, **sc3-plugins** for
+   many engines and the RESO/GREY effects, STK, ByteBeat…), the SuperCollider class
+   library + Extensions, and a self-contained `sclang_conf` — is vendored in this repo
+   at `move/bundle/poundhard-sc-runtime.tar.gz` and pointed at PoundHard's own dirs.
+   **No other project (wildrider, etc.) needs to be on the device.**
 2. **`deploy-controller.sh`** — the Python controller, vendored `python-osc`, the
    engine `.scd` files, and the `run-*.sh` scripts.
 3. **`deploy-module.sh`** — the Schwung overtake module (`module.json` + `ui.js`

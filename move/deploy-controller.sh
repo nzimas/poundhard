@@ -27,11 +27,11 @@ ssh "root@$HOST" "mkdir -p $DEST/rawwaves"
 tar -C "$ROOT/supercollider/rawwaves" -czf - . | ssh "root@$HOST" "tar -C $DEST/rawwaves -xzf -"
 
 # BYTEBEAT engine: the prebuilt ByteBeat UGen (.so -> scsynth plugin dir) and its sclang
-# class (-> the SC Extensions dir the engine's sclang_conf points at, alongside the other
-# plugin classes). Rebuild the .so with move/build-bytebeat.sh.
+# class (-> PoundHard's OWN SC Extensions dir, where its self-contained sclang_conf looks,
+# alongside the other plugin classes). Rebuild the .so with move/build-bytebeat.sh.
 echo "-> ByteBeat UGen (plugin .so + sclang class)"
 BB="$ROOT/supercollider/plugins/ByteBeat"
-EXT="/data/UserData/wildrider/share/SuperCollider/Extensions/ByteBeat"
+EXT="$DEST/share/SuperCollider/Extensions/ByteBeat"
 scp "$BB/ByteBeat.so" "root@$HOST:$DEST/plugins/ByteBeat.so"
 ssh "root@$HOST" "mkdir -p $EXT"
 scp "$BB/ByteBeat.sc" "$BB/ByteBeatController.sc" "root@$HOST:$EXT/"
