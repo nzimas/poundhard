@@ -348,8 +348,8 @@ place.
 
 **Track 2** opens the FX view. The top two pad rows are the 16 tracks; the bottom
 row is an 8-effect chain — `OD · AMP · CRSH · RING · CLDS · RESO · GREY · VERB`
-(**GREY** — the diffuse delay/reverb — sits last, giving the chain its space), each a
-distinct colour.
+(the space-makers sit at the end: **GREY**, a diffuse feedback delay, feeds **VERB**, the
+plate reverb that closes the chain), each a distinct colour.
 
 **CLDS** is **MiClouds** — Mutable Instruments **Clouds** (mi-UGens) as a live granular
 texture processor (granular mode): grain size / density / texture / read-position, stereo
