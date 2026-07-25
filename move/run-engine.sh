@@ -3,10 +3,10 @@
 # Run on the device. Leaves jackd + sclang(+scsynth) running in the background;
 # the headless controller (run-controller.sh) then drives it over OSC.
 #
-# PoundHard reuses the same scsynth/sclang bundle layout as the wildrider
-# takeover (bin/ lib/ plugins/ share/ under $PH); DRUM/FM7/BUCHLOID
-# are pure-SC voices, so no mi-UGens are strictly required, but the bundle's
-# sc3-plugins are harmless if present.
+# PoundHard ships its OWN self-contained scsynth/sclang bundle (bin/ lib/ plugins/
+# share/ under $PH, installed by move/deploy-bundle.sh) — no other takeover needs to
+# be on the device. $PH/share/sclang_conf.yaml points at PoundHard's own class
+# library + Extensions.
 set -e
 PH=/data/UserData/poundhard
 RNBO=/data/UserData/rnbo
@@ -53,9 +53,9 @@ echo "[engine] --- log tail ---"; tail -n 12 "$ENGLOG"
 
 # Core pinning: keep the audio thread (scsynth + jackd) on cores 1-2, sclang +
 # the Python controller on core 0, and leave core 3 for the SPI/display driver.
-for p in $(pgrep -f "bin/scsynth") $(pgrep -f "jackd -R"); do taskset -pc 1-2 "$p" >/dev/null 2>&1; done
-for p in $(pgrep -f "bin/sclang"); do taskset -pc 0 "$p" >/dev/null 2>&1; done
+for p in $(pgrep -f "$PH/bin/scsynth") $(pgrep -f "jackd -R"); do taskset -pc 1-2 "$p" >/dev/null 2>&1; done
+for p in $(pgrep -f "$PH/bin/sclang"); do taskset -pc 0 "$p" >/dev/null 2>&1; done
 
-for p in $(pgrep -f "jackd -R") $(pgrep -f "bin/scsynth"); do
+for p in $(pgrep -f "jackd -R") $(pgrep -f "$PH/bin/scsynth"); do
     echo "[engine] $(cat /proc/$p/comm 2>/dev/null) sched: $(chrt -p $p 2>/dev/null | tr '\n' ' ')"
 done

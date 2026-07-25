@@ -925,8 +925,14 @@ an angular, industrial typeface that suits the hard, percussion-centric aestheti
   comes back as a default FM7 to re-roll), and an FX macro reads its direction with
   `.get(arg, 1)` so a project saved before a param was added won't `KeyError` mid-load —
   which used to crash the load and freeze the instrument.
-- Only one takeover runs at a time; the exit hook kills the whole stack, so there
-  is no port conflict with wildrider (shared langPort 57120 / telemetry 57140).
+- **Only one takeover runs at a time**, and the ports are **shared** with the sibling
+  takeovers (57110 scsynth/supernova · 57120 sclang · 57140 controller telemetry). A
+  clean exit tears the stack down, but an **unclean** exit leaves a sibling's engine
+  running — which both holds those ports and (before the fix) matched PoundHard's
+  `pgrep -f "bin/sclang"` start-guard, so the engine silently never started and you got
+  a half-stack (controller up, no sound). `run-stack.sh` now matches its **own** sclang
+  by full path and clears any **foreign** SC engine/controller first (never `jackd` —
+  that's the shared shadow server it reuses).
 
 ---
 
