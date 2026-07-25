@@ -347,7 +347,7 @@ place.
 ### FX view
 
 **Track 2** opens the FX view. The top two pad rows are the 16 tracks; the bottom
-row is an 8-effect chain — `OD · AMP · CRSH · RING · FLNG · CLDS · RESO · GREY`
+row is an 8-effect chain — `OD · AMP · CRSH · RING · CLDS · RESO · GREY · VERB`
 (**GREY** — the diffuse delay/reverb — sits last, giving the chain its space), each a
 distinct colour.
 
@@ -568,7 +568,7 @@ overrun the audio thread. Every engine and effect was **measured on the device**
 |---|---|---|---|---|
 | DRUM | 5.3 | | CRSH | 0.8 |
 | FM7 | ~8.5* | | RING | ~1.5* |
-| BUCHLOID | 6.0 | | FLNG | 1.1 |
+| BUCHLOID | 6.0 | | VERB | ~5.5* |
 | RINGS / SHAKER | 9.6 / ~7* | | AMP | 1.7 |
 | BEN | 9.7 | | GREY | ~4.5* |
 | MOLLY | 11.7 | | OD | 2.5 |

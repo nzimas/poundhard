@@ -63,7 +63,7 @@ const SEL_COLOR = White;            /* playhead / selected edit track */
 const OFF_COLOR = Black;            /* muted track / out-of-length step */
 const LIVE_ON = 23, LIVE_DIM = 109; /* NeonPink / DeepMagenta — a LIVING (self-transforming) step */
 /* 8 distinct FX pad colours (canonical chain order: OD AMP CRSH RING FLNG CLDS RESO GREY) */
-const FX_COLORS = [3, 27, 14, 21, 12, 31, 30, 16];
+const FX_COLORS = [3, 27, 14, 21, 31, 30, 16, 18];   /* …GREY=blue, VERB=violet */
 const BYPASS_COLOR = 118;           /* light grey: a track whose FX are bypassed (visible) */
 const N_FX = 8;
 const FX_CELL0 = 24;                /* FX pads occupy the bottom row (cells 24..31) */
@@ -197,7 +197,7 @@ for (let i = 0; i < N_TRACKS; i++) fxOn.push([]);
 let fxBypass = new Array(N_TRACKS).fill(false);
 let fxMacro = new Array(N_FX).fill(0.5);
 let fxWet = new Array(N_FX).fill(0.5);   /* per-fx dry/wet (Shift + FX macro knob) */
-let fxNames = ['OD', 'AMP', 'CRSH', 'RING', 'FLNG', 'CLDS', 'RESO', 'GREY'];
+let fxNames = ['OD', 'AMP', 'CRSH', 'RING', 'CLDS', 'RESO', 'GREY', 'VERB'];
 let overlay = null, overlayUntil = -1;
 let ledDirty = true, screenDirty = true, lastLedSig = '', lastScreenSig = '', lastDrawAt = -100;
 

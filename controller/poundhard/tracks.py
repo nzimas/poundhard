@@ -156,6 +156,16 @@ class Track:
         return t
 
 
+# FX CHAIN LAYOUT VERSION. v1 was  OD AMP CRSH RING FLNG CLDS RESO GREY.
+# v2 dropped the flanger and appended the plate reverb, keeping 8 slots:
+#     OD AMP CRSH RING CLDS RESO GREY VERB
+# Saved projects store FX by SLOT INDEX, so a v1 snapshot loaded as-is would silently
+# shift every effect (a track's CLDS would come back as RING). Snapshots written from
+# now on carry "fx_layout"; anything without it is v1 and is remapped on load.
+_FX_LAYOUT = 2
+_FX_V1_TO_V2 = {0: 0, 1: 1, 2: 2, 3: 3, 5: 4, 6: 5, 7: 6}   # 4 (FLNG) no longer exists
+
+
 class Project:
     def __init__(self) -> None:
         self.tracks: list[Track] = [Track() for _ in range(N_TRACKS)]
@@ -236,6 +246,7 @@ class Project:
             "tempo": self.tempo,
             "kit_name": self.kit_name,
             "tracks": [t.to_dict() for t in self.tracks],
+            "fx_layout": _FX_LAYOUT,
             "track_fx": [list(s) for s in self.track_fx],
             "fx_bypass": list(self.fx_bypass),
             "fx_macro": list(self.fx_macro),
@@ -256,11 +267,29 @@ class Project:
         self.tracks = [Track.from_dict(td) for td in snap.get("tracks", [])][:N_TRACKS]
         while len(self.tracks) < N_TRACKS:
             self.tracks.append(Track())
-        self.track_fx = [list(s) for s in snap.get("track_fx", self.track_fx)]
+        track_fx = [list(s) for s in snap.get("track_fx", self.track_fx)]
+        fx_macro = list(snap.get("fx_macro", self.fx_macro))
+        fx_wet = list(snap.get("fx_wet", self.fx_wet))
+        fx_dir = [dict(d) for d in snap.get("fx_dir", self.fx_dir)]
+        if int(snap.get("fx_layout", 1)) < _FX_LAYOUT:
+            # pre-VERB project: drop any flanger and slide CLDS/RESO/GREY down one slot,
+            # carrying each effect's own macro/wet/direction with it. VERB (slot 7) starts
+            # at defaults — the project never had one.
+            track_fx = [[_FX_V1_TO_V2[i] for i in stack if i in _FX_V1_TO_V2] for stack in track_fx]
+            m, w, d = list(self.fx_macro), list(self.fx_wet), [dict(x) for x in self.fx_dir]
+            for old_i, new_i in _FX_V1_TO_V2.items():
+                if old_i < len(fx_macro):
+                    m[new_i] = fx_macro[old_i]
+                if old_i < len(fx_wet):
+                    w[new_i] = fx_wet[old_i]
+                if old_i < len(fx_dir):
+                    d[new_i] = dict(fx_dir[old_i])
+            fx_macro, fx_wet, fx_dir = m, w, d
+        self.track_fx = track_fx
         self.fx_bypass = list(snap.get("fx_bypass", self.fx_bypass))
-        self.fx_macro = list(snap.get("fx_macro", self.fx_macro))
-        self.fx_wet = list(snap.get("fx_wet", self.fx_wet))
-        self.fx_dir = [dict(d) for d in snap.get("fx_dir", self.fx_dir)]
+        self.fx_macro = fx_macro
+        self.fx_wet = fx_wet
+        self.fx_dir = fx_dir
         self.voice_macro = list(snap.get("voice_macro", self.voice_macro))
         self.voice_dir = [dict(d) for d in snap.get("voice_dir", self.voice_dir)]
 

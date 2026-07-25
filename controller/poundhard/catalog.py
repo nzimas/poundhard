@@ -900,7 +900,6 @@ FX_SPECS: list[FxSpec] = [
     FxSpec("AMPSIM", "AMP", [("gain", 2.0, 20.0), ("bass", -8.0, 8.0), ("mid", -8.0, 8.0), ("treble", -8.0, 8.0)]),
     FxSpec("BITCRUSHER", "CRSH", [("bits", 3.0, 12.0), ("downsample", 1.0, 24.0)]),
     FxSpec("RINGMOD", "RING", [("freq", 20.0, 2000.0), ("drive", 0.5, 3.5)]),
-    FxSpec("FLANGER", "FLNG", [("rate", 0.05, 2.0), ("depth", 0.3, 1.0), ("feedback", 0.0, 0.8)]),
     # Kept firmly in GRANULAR territory: density stays high (a cloud, not sparse echoes),
     # position near the write head (live, not a long delay tap), feedback low (no echo
     # tail), and NO global pitch shift (that + position was the "pitch-shifted delay"). The
@@ -908,10 +907,18 @@ FX_SPECS: list[FxSpec] = [
     FxSpec("CLOUDS", "CLDS", [("dens", 0.65, 0.98), ("size", 0.25, 0.7), ("tex", 0.3, 0.85),
                               ("pos", 0.0, 0.35), ("spread", 0.5, 1.0), ("rvb", 0.0, 0.4),
                               ("fb", 0.0, 0.2)]),
-    # slot 6: RESO (Streson resonator) — replaces the reverb; slot 7: GREY moved to the end.
+    # slot 5: RESO (Streson resonator); slot 6: GREY (diffuse echo); slot 7: VERB, the
+    # lush plate, LAST so it reverberates everything upstream of it.
     FxSpec("STRESON", "RESO", [("freq", 60.0, 2000.0), ("res", 0.5, 0.96), ("damp", 0.1, 0.8)]),
     FxSpec("GREYHOLE", "GREY", [("dTime", 0.05, 1.2), ("feedback", 0.2, 0.85), ("size", 0.8, 4.0),
                                 ("diff", 0.3, 1.0), ("damp", 0.1, 0.7), ("modDepth", 0.0, 0.5),
                                 ("modFreq", 0.1, 6.0)]),
+    # VERB — Dattorro plate. `decay` is the tail, `size` the plate, `damp` how fast the
+    # highs die, `diff` the density, and mod rate/depth the slow movement that keeps it
+    # from ringing metallic. Bands are set LUSH: long decays, big plates, gentle damping.
+    FxSpec("VERB", "VERB", [("decay", 0.6, 0.85), ("size", 0.7, 1.7), ("damp", 0.12, 0.6),
+                            ("diff", 0.55, 0.88), ("predelay", 0.005, 0.09),
+                            ("bandwidth", 0.55, 0.95), ("modrate", 0.3, 1.6),
+                            ("moddepth", 0.15, 0.6), ("width", 0.7, 1.3)]),
 ]
 N_FX = len(FX_SPECS)

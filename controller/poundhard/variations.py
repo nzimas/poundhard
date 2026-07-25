@@ -388,7 +388,8 @@ _ENGINE_COST = {"DRUM": 5.3, "FM7": 8.5, "BUCHLOID": 6.0, "RINGS": 9.6,
 # Measured per FX INSTANCE (they're per-track inserts, not sends!). Reverb costs as
 # much as a whole ICARUS voice, so a pattern gets at most one. CLDS = MiClouds
 # (granular), GREY = Greyhole, RING = DiodeRingMod are provisional pending device measure.
-_FX_COST = [2.5, 1.7, 0.8, 1.5, 1.1, 6.0, 2.0, 4.5]   # OD AMP CRSH RING FLNG CLDS RESO GREY
+# VERB is a full Dattorro plate (8 allpasses + 4 delays + damping) — the priciest slot.
+_FX_COST = [2.5, 1.7, 0.8, 1.5, 6.0, 2.0, 4.5, 5.5]   # OD AMP CRSH RING CLDS RESO GREY VERB
 _CPU_BUDGET = 52.0                         # leaves ~45% headroom for peaks/jitter on the ARM
 _MAX_TRACKS = 8
 
@@ -489,7 +490,7 @@ def _used_fx(voices: list[dict]) -> list[int]:
 
 
 def _has_verb(voices: list[dict]) -> bool:
-    return 7 in _used_fx(voices)
+    return 7 in _used_fx(voices)      # slot 7 = VERB, the plate at the end of the chain
 
 
 def _scale_k(choices: list[int], dens: float, L: int, rng) -> int:

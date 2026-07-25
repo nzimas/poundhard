@@ -846,15 +846,6 @@
 	}).add;
 
 	// ---- FLANGER: LFO-swept short delay + feedback (stereo) ----
-	SynthDef(\phFlanger, { |out = 0, in = 0, rate = 0.3, depth = 0.6, feedback = 0.4, amp = 1, pan = 0, bypass = 0, wet = 0.5, enable = 1|
-		var dry = In.ar(in, 2), lfo, dt, fb, y;
-		lfo = SinOsc.kr(rate, 0, 0.5, 0.5);
-		dt = (0.0006 + (depth * 0.006 * lfo)).clip(0.0001, 0.02);
-		fb = LocalIn.ar(2);
-		y = DelayC.ar(dry + (fb * feedback.clip(0, 0.95)), 0.02, dt);
-		LocalOut.ar(~killbad.(y));
-		ReplaceOut.ar(out, ~fxOut.(dry, y, amp, enable, wet, bypass));
-	}).add;
 
 	// ---- SDLY: stereo ping-pong delay (true stereo) ----
 	// ---- DLY: Greyhole — diffuse, pitch-modulated feedback delay/reverb (sc3-plugins) ----
@@ -889,6 +880,66 @@
 		var wetL = (mid + side) * amp, wetR = (mid - side) * amp, outSig;
 		outSig = [XFade2.ar(inL, wetL, wet * 2 - 1), XFade2.ar(inR, wetR, wet * 2 - 1)];
 		ReplaceOut.ar(out, ~killbad.(~panOut.((outSig * (1 - bypass)) + (dry * bypass), pan)));
+	}).add;
+
+	// ================= VERB — lush plate reverb (LAST in the chain) ====================
+	// A Dattorro plate (the topology behind high-end studio plates), built from CORE UGens
+	// only: JPverbRaw and GreyholeRaw both REFUSE to register on supernova, so the good
+	// third-party reverbs are unavailable — this is a real algorithm, not a fallback.
+	//
+	//   pre-delay -> bandwidth LPF -> 4 series allpass diffusers  (the input diffusion)
+	//   -> a figure-eight TANK: each half = a MODULATED allpass (the slow movement that
+	//      stops a plate ringing metallic), a long delay, a damping LPF, a second allpass
+	//      and another delay; each half is scaled by `decay` and cross-fed into the other.
+	// The two halves use different (incommensurate) delay lengths, so their outputs are
+	// naturally decorrelated — that's what makes the tail wide and lush instead of a mono
+	// wash. Delay times are Dattorro's, expressed in SECONDS so they're sample-rate safe.
+	SynthDef(\phVerb, { |out = 0, in = 0, predelay = 0.02, bandwidth = 0.75, damp = 0.35,
+		decay = 0.75, diff = 0.7, modrate = 0.9, moddepth = 0.35, size = 1.0, lowcut = 90,
+		width = 1.0, amp = 1, pan = 0, bypass = 0, wet = 0.35, enable = 1|
+		var dry = In.ar(in, 2), inL = dry[0], inR = dry[1];
+		var sz  = size.clip(0.3, 2.0);
+		// Above ~0.85 the figure-eight's loop gain reaches unity: the tank runs away, the
+		// safety clipper mangles it and the tail gets SHORTER, not longer (measured: 0.80 ->
+		// 2.2s tail, 0.99 -> 0.38s). Clamp well inside the stable range.
+		var dcy = decay.clip(0.0, 0.85);
+		var g1  = (diff.clip(0.0, 0.9) * 0.75).clip(0.05, 0.85);   // input/tank diffusion
+		var g2  = (diff.clip(0.0, 0.9) * 0.625).clip(0.05, 0.8);
+		// SC's AllpassC takes a DECAY TIME, not the allpass coefficient g. For a Schroeder
+		// allpass of delay d and coefficient g, -60dB happens after 3/log10(1/g) repeats.
+		var apT = { |d, g| d * 3 / (1 / g).log10 };
+		var fb  = LocalIn.ar(2);
+		var mod = SinOsc.kr([modrate.clip(0.01, 8), modrate.clip(0.01, 8) * 0.93], [0, 0.5pi])
+			* moddepth.clip(0, 1) * 0.0009;                        // +/- ~0.9ms of movement
+		var sig, lx, rx, outL, outR, mid, side;
+		sig = DelayC.ar((inL + inR) * 0.5, 0.25, predelay.clip(0, 0.25));
+		sig = LPF.ar(sig, (300 + (bandwidth.clip(0, 1) * 17000)).clip(300, 18000));
+		sig = HPF.ar(sig, lowcut.clip(20, 600));
+		[0.004771, 0.003595, 0.012735, 0.009307].do { |t, i|
+			var gg = (i < 2).if({ g1 }, { g2 });
+			sig = AllpassC.ar(sig, 0.06, (t * sz).clip(0.0002, 0.05), apT.(t * sz, gg));
+		};
+		// --- tank, left half (cross-fed from the right) ---
+		lx = sig + (fb[1] * dcy);
+		lx = AllpassC.ar(lx, 0.08, ((0.022580 * sz) + mod[0]).clip(0.0002, 0.07), apT.(0.022580 * sz, g1));
+		lx = DelayC.ar(lx, 0.4, (0.149625 * sz).clip(0.001, 0.35));
+		lx = LPF.ar(lx, (18000 * (1 - (damp.clip(0, 1) * 0.95))).clip(400, 18000));
+		lx = AllpassC.ar(lx, 0.2, (0.060482 * sz).clip(0.0005, 0.15), apT.(0.060482 * sz, g2));
+		lx = DelayC.ar(lx, 0.4, (0.125100 * sz).clip(0.001, 0.35));
+		// --- tank, right half (cross-fed from the left) ---
+		rx = sig + (fb[0] * dcy);
+		rx = AllpassC.ar(rx, 0.08, ((0.030510 * sz) + mod[1]).clip(0.0002, 0.07), apT.(0.030510 * sz, g1));
+		rx = DelayC.ar(rx, 0.4, (0.141696 * sz).clip(0.001, 0.35));
+		rx = LPF.ar(rx, (18000 * (1 - (damp.clip(0, 1) * 0.95))).clip(400, 18000));
+		rx = AllpassC.ar(rx, 0.2, (0.089244 * sz).clip(0.0005, 0.15), apT.(0.089244 * sz, g2));
+		rx = DelayC.ar(rx, 0.4, (0.106280 * sz).clip(0.001, 0.35));
+		LocalOut.ar(~killbad.([lx, rx]));      // the tank's own feedback path
+		// stereo: the halves are already decorrelated; `width` sets how far apart they sit
+		mid = (lx + rx) * 0.5; side = (lx - rx) * 0.5 * width.clip(0, 1.5);
+		outL = (mid + side) * amp; outR = (mid - side) * amp;
+		ReplaceOut.ar(out, ~killbad.(~panOut.(
+			([XFade2.ar(inL, outL, wet * 2 - 1), XFade2.ar(inR, outR, wet * 2 - 1)] * enable
+				* (1 - bypass)) + (dry * bypass) + (dry * (1 - enable)), pan)));
 	}).add;
 
 	// ---- RESO: Streson — a tuned string resonator / comb-with-feedback (sc3-plugins) ----

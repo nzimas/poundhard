@@ -93,7 +93,10 @@
 ~maxPoly   = 3;                                      // per-track voice cap (steal oldest)
 ~trackVoices = Array.fill(~nTracks, { List.new });   // live voices per track
 // FX: per-track insert chains. Canonical chain order (verb last); pad index == fx index.
-~fxDefs   = [\phOverdrive, \phAmpsim, \phBitcrusher, \phRingmod, \phFlanger, \phClouds, \phStreson, \phGreyhole];
+// Chain order matters: GREY (diffuse echo) feeds VERB (plate) at the very END, so the
+// reverb hears everything before it. FLNG (flanger) was dropped to make room and keep the
+// chain at 8 slots.
+~fxDefs   = [\phOverdrive, \phAmpsim, \phBitcrusher, \phRingmod, \phClouds, \phStreson, \phGreyhole, \phVerb];
 ~nFx      = 8;
 ~assigned = Array.fill(~nTracks, { Array.fill(8, { 0 }) });   // [track][fx] on/off
 ~fxBypass = Array.fill(~nTracks, { 0 });                      // per-track FX bypass
