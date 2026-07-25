@@ -43,4 +43,7 @@ ssh "root@$HOST" "chmod +x $DEST/run-*.sh $DEST/stop-stack.sh; chown -R ableton:
 # Re-grant scsynth RT caps AFTER chown (chown clears file capabilities). Harmless
 # if the bundle isn't there yet (deploy-bundle.sh sets them too).
 ssh "root@$HOST" "setcap cap_ipc_lock,cap_sys_nice,cap_sys_resource=eip $DEST/bin/scsynth 2>/dev/null; getcap $DEST/bin/scsynth 2>/dev/null || true"
+# supernova needs the SAME caps: its parallel DSP helper threads self-elevate to realtime
+# (AcquireSelfRealTime), which requires cap_sys_nice on the binary. chown above cleared them.
+ssh "root@$HOST" "[ -f $DEST/bin/supernova ] && setcap cap_ipc_lock,cap_sys_nice,cap_sys_resource=eip $DEST/bin/supernova 2>/dev/null; getcap $DEST/bin/supernova 2>/dev/null || true"
 echo "Done."

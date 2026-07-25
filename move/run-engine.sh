@@ -19,6 +19,10 @@ export JACK_DRIVER_DIR=/data/UserData/schwung/lib/jack
 export JACK_NO_AUDIO_RESERVATION=1
 export SC_JACK_DEFAULT_OUTPUTS=system          # scsynth out -> shadow playback
 export SC_PLUGIN_PATH=$PH/plugins              # UGen plugins (backup to ph-boot)
+# SERVER: supernova (multicore) when >0, scsynth when 0. ph-boot.scd reads this and
+# picks the binary + thread count. Supernova needs the *_supernova.so plugin set (shipped)
+# and cap_sys_nice on its binary so its parallel DSP threads can go realtime.
+export PH_THREADS="${PH_THREADS:-0}"
 # Engine config (44.1k = the Move shadow rate; mono-in/stereo-out).
 export PH_SR=44100
 export PH_CHANNELS=2
@@ -45,7 +49,7 @@ echo "[engine] sclang pid=$!  (log: $ENGLOG)"
 echo "[engine] waiting for boot ..."
 i=0
 while [ $i -lt 60 ]; do
-    grep -q "server ready\|SuperCollider 3 server ready" "$ENGLOG" 2>/dev/null && break
+    grep -q "server ready\|SuperCollider 3 server ready\|Supernova ready" "$ENGLOG" 2>/dev/null && break
     grep -qi "ERROR\|FAILURE\|Exception" "$ENGLOG" 2>/dev/null && { echo "[engine] error:"; tail -n 20 "$ENGLOG"; exit 1; }
     i=$((i+1)); sleep 1
 done
@@ -53,9 +57,9 @@ echo "[engine] --- log tail ---"; tail -n 12 "$ENGLOG"
 
 # Core pinning: keep the audio thread (scsynth + jackd) on cores 1-2, sclang +
 # the Python controller on core 0, and leave core 3 for the SPI/display driver.
-for p in $(pgrep -f "$PH/bin/scsynth") $(pgrep -f "jackd -R"); do taskset -pc 1-2 "$p" >/dev/null 2>&1; done
+for p in $(pgrep -f "$PH/bin/scsynth") $(pgrep -f "$PH/bin/supernova") $(pgrep -f "jackd -R"); do taskset -pc 1-2 "$p" >/dev/null 2>&1; done
 for p in $(pgrep -f "$PH/bin/sclang"); do taskset -pc 0 "$p" >/dev/null 2>&1; done
 
-for p in $(pgrep -f "jackd -R") $(pgrep -f "$PH/bin/scsynth"); do
+for p in $(pgrep -f "jackd -R") $(pgrep -f "$PH/bin/scsynth") $(pgrep -f "$PH/bin/supernova"); do
     echo "[engine] $(cat /proc/$p/comm 2>/dev/null) sched: $(chrt -p $p 2>/dev/null | tr '\n' ' ')"
 done

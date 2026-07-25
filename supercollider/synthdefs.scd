@@ -862,8 +862,28 @@
 	// characterful IDM space-maker (after ValhallaDSP's Greyhole).
 	SynthDef(\phGreyhole, { |out = 0, in = 0, dTime = 0.28, damp = 0.4, size = 1.6, diff = 0.7, feedback = 0.4, modDepth = 0.1, modFreq = 2.0, width = 1.0, amp = 1, pan = 0, bypass = 0, wet = 0.5, enable = 1|
 		var dry = In.ar(in, 2), inL = dry[0], inR = dry[1];
-		var g = Greyhole.ar(dry, dTime.clip(0.01, 4), damp.clip(0, 1), size.clip(0.5, 5),
-			diff.clip(0, 1), feedback.clip(0, 1), modDepth.clip(0, 1), modFreq.clip(0, 10)) * enable;
+		// SERVER-CONDITIONAL BODY. GreyholeRaw (sc3-plugins DEIND) will NOT register on
+		// supernova — the _supernova.so contains the symbol but the server refuses it (the
+		// same holdout wildrider hit with JPverb). So under supernova GREY is rebuilt from
+		// CORE UGens on the same knobs: a cross-coupled, modulated feedback delay through an
+		// allpass diffusion chain with damped regeneration — Greyhole's actual character (a
+		// diffuse echo, not a room reverb). Under scsynth the real Greyhole is used, unchanged.
+		var g = (~phSupernova == true).if({
+			var fbk = LocalIn.ar(2);
+			var dt  = (dTime.clip(0.01, 4) * size.clip(0.5, 5)).clip(0.01, 4);
+			var mod = SinOsc.ar(modFreq.clip(0, 10), [0, 0.5pi]) * modDepth.clip(0, 1) * 0.02;
+			var wet = DelayC.ar(dry + (fbk * feedback.clip(0, 0.92)), 4.5, (dt + mod).clip(0.001, 4));
+			[0.0047, 0.0113, 0.0271, 0.0431].do { |t|
+				wet = AllpassC.ar(wet, 0.12, (t * size.clip(0.5, 5)).clip(0.0005, 0.1),
+					(diff.clip(0, 1) * 0.35) + 0.02);
+			};
+			wet = LPF.ar(wet, (18000 * (1 - (damp.clip(0, 1) * 0.97))).clip(300, 18000));
+			LocalOut.ar([wet[1], wet[0]]);          // cross-couple: stereo diffusion
+			wet;
+		}, {
+			Greyhole.ar(dry, dTime.clip(0.01, 4), damp.clip(0, 1), size.clip(0.5, 5),
+				diff.clip(0, 1), feedback.clip(0, 1), modDepth.clip(0, 1), modFreq.clip(0, 10));
+		}) * enable;
 		var wL = g[0], wR = g[1];
 		var mid = (wL + wR) * 0.5, side = (wL - wR) * 0.5 * width;
 		var wetL = (mid + side) * amp, wetR = (mid - side) * amp, outSig;
