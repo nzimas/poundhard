@@ -109,8 +109,22 @@
 	~silentBuf = Buffer.alloc(s, 1024, 1);   // default (silent) buffer for empty samplers
 	// order: clear -> voices -> fx -> send -> master
 	~gClear  = Group.head(s);
-	~gVoices = Group.after(~gClear);
-	~gFx     = Group.after(~gVoices);
+	// MULTICORE TOPOLOGY. supernova only parallelises across ParGroups — a plain Group
+	// stays serial — so the graph decides how much of the CM4 gets used. What is safe to
+	// run in parallel is decided by WHICH BUS a node writes:
+	//   * each track owns a PRIVATE stereo bus, so different tracks are independent
+	//     -> ~gVoices is a ParGroup of one serial group PER TRACK, and ~gFx is a ParGroup
+	//        of the per-track FX chains (each ReplaceOut's only its own track bus).
+	//   * voices WITHIN a track sum into that one bus, so they stay serial (parallel
+	//     additive writes to a shared bus would race) — hence the per-track subgroup.
+	//   * voices writing a SHARED bus (living-step hits from any track -> ~livingBus;
+	//     palette auditions -> ~masterBus) get ONE serial group, ~gSharedVoices.
+	//   * ~gSend / master stay serial: every send sums into the master bus.
+	// On scsynth a ParGroup is just a Group, so that path is bit-identical to before.
+	~gVoices = ParGroup.after(~gClear);
+	~gTrackVoices  = Array.fill(~nTracks, { Group.tail(~gVoices) });
+	~gSharedVoices = Group.tail(~gVoices);
+	~gFx     = ParGroup.after(~gVoices);
 	~gSend   = Group.after(~gFx);
 	~gMaster = Group.after(~gSend);
 	// clears (private buses aren't auto-zeroed; voices Out.ar ADD onto them)
@@ -202,7 +216,11 @@
 				\buf2, ~wtBuf2[t].notNil.if({ ~wtBuf2[t].bufnum }, { ~silentBuf.bufnum })];
 		};
 		lst = ~trackVoices[t];
-		syn = Synth(def, args, ~gVoices);
+		// Parallel-safe placement: a normal hit goes to its TRACK's group (private bus →
+		// runs alongside other tracks); a living-FX hit writes the shared ~livingBus, so it
+		// goes to the serial shared group instead. Mirrors merged[\out] above.
+		syn = Synth(def, args,
+			((~stepSend[t][step] ? 0) > 0).if({ ~gSharedVoices }, { ~gTrackVoices[t] }));
 		// BYTEBEAT: the expression is not a synth arg — push it to this voice's ByteBeat
 		// UGen via the /eval unit command right after /s_new (ordered on the server).
 		(def == \phBytebeat).if {
@@ -350,7 +368,7 @@
 					Synth(def, [\out, ~masterBus.index, \note, nn, \vel, vv,
 						\buf1, ~wtBufPrev[0].notNil.if({ ~wtBufPrev[0].bufnum }, { ~silentBuf.bufnum }),
 						\buf2, ~wtBufPrev[1].notNil.if({ ~wtBufPrev[1].bufnum }, { ~silentBuf.bufnum })]
-						++ clean, ~gVoices);
+						++ clean, ~gSharedVoices);
 					nil;
 				});
 			}, {
@@ -363,11 +381,11 @@
 						(k == \expr).if({ ei = val.asInteger }, { clean = clean ++ [k, val] });
 						j = j + 2;
 					};
-					syn = Synth(def, [\out, ~masterBus.index, \note, nn, \vel, vv] ++ clean, ~gVoices);
+					syn = Synth(def, [\out, ~masterBus.index, \note, nn, \vel, vv] ++ clean, ~gSharedVoices);
 					s.sendMsg('/u_cmd', syn.nodeID, ~bbUgenIndex, '/eval',
 						~bbExprs[ei.clip(0, ~bbExprs.size - 1)]);
 				}, {
-					Synth(def, [\out, ~masterBus.index, \note, nn, \vel, vv] ++ pairs, ~gVoices);
+					Synth(def, [\out, ~masterBus.index, \note, nn, \vel, vv] ++ pairs, ~gSharedVoices);
 				});
 			});
 		};
@@ -470,7 +488,10 @@
 	OSCdef(\phMfilter, { |m|
 		~masterSynth.notNil.if { ~masterSynth.set(\cutoff, m[1].asFloat, \res, m[2].asFloat) };
 	}, '/ph/masterfilter'),
-	OSCdef(\phPanic, { |m| ~stopSeq.value; ~gVoices.notNil.if { ~gVoices.freeAll }; ~trackVoices.do { |l| l.clear }; }, '/ph/panic'),
+	// deepFree (not freeAll): ~gVoices now CONTAINS the per-track subgroups, and freeAll
+	// would delete those groups too — leaving ~gTrackVoices pointing at dead nodes so no
+	// voice could spawn again. deepFree kills every synth but keeps the group structure.
+	OSCdef(\phPanic, { |m| ~stopSeq.value; ~gVoices.notNil.if { ~gVoices.deepFree }; ~trackVoices.do { |l| l.clear }; }, '/ph/panic'),
 	OSCdef(\phRecStart, { |m| ~recStart.value(m[1].asString); }, '/ph/recstart'),
 	OSCdef(\phRecStop,  { |m| ~recStop.value; }, '/ph/recstop'),
 	// master level from \phAmp -> forward to the controller (drives tail-end detection)

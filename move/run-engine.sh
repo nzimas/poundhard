@@ -22,7 +22,7 @@ export SC_PLUGIN_PATH=$PH/plugins              # UGen plugins (backup to ph-boot
 # SERVER: supernova (multicore) when >0, scsynth when 0. ph-boot.scd reads this and
 # picks the binary + thread count. Supernova needs the *_supernova.so plugin set (shipped)
 # and cap_sys_nice on its binary so its parallel DSP threads can go realtime.
-export PH_THREADS="${PH_THREADS:-0}"
+export PH_THREADS="${PH_THREADS:-3}"
 # Engine config (44.1k = the Move shadow rate; mono-in/stereo-out).
 export PH_SR=44100
 export PH_CHANNELS=2
@@ -57,7 +57,11 @@ echo "[engine] --- log tail ---"; tail -n 12 "$ENGLOG"
 
 # Core pinning: keep the audio thread (scsynth + jackd) on cores 1-2, sclang +
 # the Python controller on core 0, and leave core 3 for the SPI/display driver.
-for p in $(pgrep -f "$PH/bin/scsynth") $(pgrep -f "$PH/bin/supernova") $(pgrep -f "jackd -R"); do taskset -pc 1-2 "$p" >/dev/null 2>&1; done
+for p in $(pgrep -f "$PH/bin/scsynth") $(pgrep -f "jackd -R"); do taskset -pc 1-2 "$p" >/dev/null 2>&1; done
+# supernova is NOT pinned here: it self-pins its DSP threads one per core (masks 1/2/4 =
+# cores 0-2), which is already the layout we want — 3 DSP threads on 3 cores, core 3 left
+# to the SPI/display driver. Forcing affinity afterwards does not stick (the threads are
+# inside sclang's inherited 0x7 mask). Measured: 0 XRuns at ~143% CPU on the dense rig.
 for p in $(pgrep -f "$PH/bin/sclang"); do taskset -pc 0 "$p" >/dev/null 2>&1; done
 
 for p in $(pgrep -f "jackd -R") $(pgrep -f "$PH/bin/scsynth") $(pgrep -f "$PH/bin/supernova"); do

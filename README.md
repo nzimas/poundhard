@@ -23,9 +23,10 @@ buttons, encoders and screen. It runs on the same on-device stack as the
         │  ▲
         ▼  │   OSC  /ph/…  →  ← /ph/step /ph/cpu /ph/cycle
    engine  (sclang — 18 engines × 16 tracks + TempoClock step sequencer + FX chains)
+           running on SUPERNOVA (multicore SC server; ParGroups spread tracks over cores)
         │
         ▼
-   scsynth → jackd → Move speaker / output
+   supernova → jackd → Move speaker / output
 ```
 
 ---
@@ -924,6 +925,18 @@ an angular, industrial typeface that suits the hard, percussion-centric aestheti
   buttons use `setButtonLED` (CC). The knob CCs (71–78) and Play CC (85) fall in
   the same numeric range as the pad notes — handlers must match on message type,
   not just number.
+- **The server is supernova, not scsynth.** `PH_THREADS` (run-engine.sh, default **3**)
+  picks it: >0 = supernova with N DSP threads, 0 = scsynth. Supernova loads **only**
+  `*_supernova.so` plugins (both sets ship in the bundle) and needs
+  `cap_ipc_lock,cap_sys_nice,cap_sys_resource` on its binary or its parallel DSP threads
+  can't go realtime — `chown` clears those caps, so `deploy-controller.sh` re-applies them.
+  It also needs its lib path baked in as `DT_RPATH` (a capped binary ignores
+  `LD_LIBRARY_PATH`). **GREY is server-conditional**: `GreyholeRaw` won't register on
+  supernova, so under it GREY is rebuilt from core UGens (same knobs).
+- **Parallelism comes from ParGroups, not from supernova alone.** `~gVoices` is a ParGroup
+  of per-track groups and `~gFx` a ParGroup of per-track chains — safe because each track
+  owns a private bus. Anything writing a SHARED bus stays serial: voices within one track,
+  living-FX hits and palette auditions (`~gSharedVoices`), and the sends/master.
 - **Engine boot needs `HOME=/data/UserData`** (a menu launch has HOME unset);
   scsynth & jackd need RT file-caps (re-applied on every deploy).
 - **sclang OSC string args arrive as Symbols** — the engine uses
