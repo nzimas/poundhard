@@ -67,6 +67,12 @@ const FX_COLORS = [3, 27, 14, 21, 12, 31, 30, 16];
 const BYPASS_COLOR = 118;           /* light grey: a track whose FX are bypassed (visible) */
 const N_FX = 8;
 const FX_CELL0 = 24;                /* FX pads occupy the bottom row (cells 24..31) */
+/* DRUM TYPE PICKER: hold the DRUM palette pad (cell 0) and the 7 pads to its right
+ * become its drum types. Picking one LOCKS the DRUM pad to that type, so Shift+pad
+ * then only generates variations of it. Order must match catalog's drum.mode enum. */
+const DRUM_CELL = 0;
+const DRUM_MODES = ['KICK', 'SNARE', 'HIHAT', 'METAL', 'CLAP', 'TOM', 'NOISE'];
+const DRUM_MODE_COLS = [1, 25, 14, 33, 21, 29, 23];   /* one lit hue per type */
 const HEAT_CELL = 24;               /* default-view bottom-row first pad = the HEAT toggle */
 const HEAT_HOT = 5, HEAT_WARM = 1, HEAT_IDLE = 84;  /* fire pulse (on) / dim ember (off) */
 const SHUF_CELL = 25;               /* pad right of HEAT = the SHUFFLE toggle */
@@ -177,10 +183,11 @@ let knobShow = null;                /* 'pitch'|'vel'|'pan'|null (big readout) */
 let rateView = -1, rateViewUntil = 0;   /* transient big clock-rate readout (cursor keys) */
 /* FX view */
 let fxView = false, fxHeld = -1;
-/* exit safeguard: Back ARMS a confirmation ("EXIT YES?"); a jog-wheel push commits it.
- * Any other input (or a timeout) cancels — so the Back button can't drop the performer
- * out of PoundHard by accident mid-set. */
-let exitConfirm = false, exitConfirmUntil = -1;
+let drumMode = -1;                   /* locked DRUM type (-1 = any); mirrors the controller */
+/* exit safeguard: Back ARMS a confirmation ("EXIT YES?"); a jog-wheel push commits it,
+ * Back cancels. The prompt is modal and stays up until one of those two — so the Back
+ * button can't drop the performer out of PoundHard by accident mid-set. */
+let exitConfirm = false;
 let fxTop = new Array(N_TRACKS).fill(-1);
 let fxOn = [];                       /* per-track list of assigned fx indices (from status) */
 for (let i = 0; i < N_TRACKS; i++) fxOn.push([]);
@@ -293,22 +300,34 @@ function stepColor(t) {
  * held FX pad), AND — like the step buttons — PULSES at the track's tempo when it has note
  * data and is currently audible (unmuted, not soloed-out). So the performer can see which
  * tracks are live even in the FX view, with or without FX assigned. */
+/* A same-family sibling shade of a LIT palette colour. The Move palette runs in hue
+ * ramps, so the neighbouring index is the same hue a touch different. Pulsing between
+ * the two reads as a soft SHIMMER — it's flashing a bright colour against near-black
+ * that makes a harsh strobe. (Same trick the HEAT / SHUFFLE pads use: 5<->1, 14<->20.) */
+function softAlt(col) { return col > 1 ? col - 1 : col + 1; }
+/* Gentle tempo-synced shimmer for the FX-view track pads. More assigned FX = livelier
+ * pad, but the rate is CAPPED and the duty symmetric, so it never becomes a strobe. */
+function fxPulseOn(c, nfx) {
+    var ph = seqBeats * (trackRate[c] || 1) * (1 + Math.min(nfx, 6) * 0.25);
+    return (ph - Math.floor(ph)) < 0.5;
+}
 function fxTrackColor(c) {
     var pair = TYPE_COL[types[c]];
     if (!pair) return OFF_COLOR;                         /* empty / unassigned track -> dark */
     /* base identity: membership of the held FX, else the track's top FX (bypass shown
      * distinctly), else DIM (no FX) — exactly what the FX view showed before. */
+    var nfx = (fxOn[c] && fxOn[c].length) || 0;
     var base;
     if (fxHeld >= 0) base = (fxOn[c] && fxOn[c].indexOf(fxHeld) >= 0) ? FX_COLORS[fxHeld] : DIM_COLOR;
     else if (fxTop[c] >= 0) base = fxBypass[c] ? BYPASS_COLOR : FX_COLORS[fxTop[c]];
     else base = DIM_COLOR;
-    /* live = has note data AND audible AND playing -> pulse it. On-beat shows the identity
-     * colour (or the engine hue when there's no FX, so the blink is always visible); off-beat
-     * dims. Muted / empty / stopped tracks stay steady, so only LIVE tracks blink. */
+    /* live = has note data AND audible AND playing -> shimmer between the identity colour
+     * and its sibling shade (both lit = soft). Muted / empty / stopped tracks stay steady,
+     * so only LIVE tracks move. The more FX on the track, the faster it breathes. */
     var audible = !muted[c] && (solo < 0 || solo === c);
     if (running && active[c] && audible) {
-        var onC = (base === DIM_COLOR) ? pair[0] : base;
-        return trackPulseOn(c) ? onC : DIM_COLOR;
+        var lit = (base === DIM_COLOR) ? pair[0] : base;  /* always pulse a LIT colour */
+        return fxPulseOn(c, nfx) ? lit : softAlt(lit);
     }
     return base;
 }
@@ -338,7 +357,7 @@ function renderLEDs() {
             setLED(PAD_NOTES[c], color);
         }
         renderStepButtons();
-        btnLED(MoveRow1, TRACK_COLOR); btnLED(MoveRow2, Black);
+        btnLED(MoveRow1, Black); btnLED(MoveRow2, Black);   /* Row1 lights only in the tracks view */
         btnLED(MoveRow3, recView ? 1 : (patView ? White : Black)); btnLED(MoveMenu, projView ? White : Black);
         btnLED(MovePlay, running ? BrightGreen : Black);
         ledDirty = false;
@@ -356,7 +375,7 @@ function renderLEDs() {
             setLED(PAD_NOTES[c], color);
         }
         renderStepButtons();
-        btnLED(MoveRow1, TRACK_COLOR); btnLED(MoveRow2, White);   /* Row2 lit = FX view active */
+        btnLED(MoveRow1, Black); btnLED(MoveRow2, White);   /* Row2 lit = FX view active */
         btnLED(MoveRow3, Black); btnLED(MoveMenu, Black);
         btnLED(MovePlay, running ? BrightGreen : Black);
         ledDirty = false;
@@ -367,7 +386,12 @@ function renderLEDs() {
          * A held engine pad shows white; the others glow in their engine hue. */
         for (let c = 0; c < 32; c++) {
             let color = OFF_COLOR;
-            if (c < N_ENGINES) {
+            /* Holding the DRUM pad turns the pads to its right into its TYPE PICKER —
+             * the locked type shows white, the rest in their own hue. */
+            if (paletteHeld === DRUM_CELL && c > DRUM_CELL && c <= DRUM_CELL + DRUM_MODES.length) {
+                let m = c - DRUM_CELL - 1;
+                color = (drumMode === m) ? White : DRUM_MODE_COLS[m];
+            } else if (c < N_ENGINES) {
                 let pair = TYPE_COL[ENGINE_TYPES[c]];
                 color = (paletteHeld === c) ? White : (pair ? pair[0] : DIM_COLOR);
             } else if (c === HEAT_CELL) {                          /* HEAT toggle */
@@ -391,7 +415,9 @@ function renderLEDs() {
         }
     }
     renderStepButtons();
-    btnLED(MoveRow1, TRACK_COLOR);
+    /* Track button 1 is lit ONLY in the main / default tracks view (dark in edit + every
+     * other view), so the button itself tells you where you are. */
+    btnLED(MoveRow1, editTrack < 0 ? TRACK_COLOR : Black);
     btnLED(MoveRow2, Black);
     btnLED(MoveRow3, Black); btnLED(MoveMenu, Black);
     btnLED(MovePlay, running ? BrightGreen : Black);
@@ -580,6 +606,7 @@ function readStatus() {
     if (s.heat != null && !heatHeld) heatOn = !!s.heat;             /* don't fight a live toggle */
     if (s.shuffle != null && !shufHeld) shufOn = !!s.shuffle;
     if (s.heatPct != null && knobShow !== 'heat') heatPct = s.heatPct;
+    if (s.drumMode != null && paletteHeld !== DRUM_CELL) drumMode = s.drumMode;   /* locked DRUM type */
     /* don't fight a live turn: only adopt the controller's chaos position when the
      * knob isn't the thing on screen (it re-syncs after a reset / pattern change) */
     if (s.chaos != null && knobShow !== 'chaos') chaosPos = s.chaos;
@@ -729,7 +756,6 @@ globalThis.tick = function () {
     if (ledDirty) renderLEDs();
     if (running) renderStepButtons();   /* keep the pulse animating between full renders */
     if (overlay && phase >= overlayUntil) { overlay = null; screenDirty = true; }
-    if (exitConfirm && phase >= exitConfirmUntil) { exitConfirm = false; screenDirty = true; }
     /* throttle screen redraws to ~10Hz — the block-font screens are heavy on the
      * SPI display; flooding it freezes the Move UI. */
     if (screenDirty && (phase - lastDrawAt >= 3)) { drawScreen(); screenDirty = false; lastDrawAt = phase; }
@@ -745,10 +771,24 @@ globalThis.onMidiMessageInternal = function (data) {
     const d1 = data[1];
     const d2 = data[2];
 
-    /* while the exit prompt is armed, any input other than Back (re-toggle) or the jog
-     * push (commit) dismisses it — so "EXIT YES?" never lingers over normal play. */
-    if (exitConfirm && d2 > 0 && !(status === 0xB0 && (d1 === MoveBack || d1 === MoveMainButton))) {
-        exitConfirm = false; screenDirty = true;
+    /* The exit prompt is MODAL and PERSISTENT: it stays up until the performer actually
+     * decides — jog push = exit, Back = stay — with no timeout and no accidental
+     * dismissal. Everything else is swallowed while it's showing, so a stray pad can
+     * neither cancel the prompt nor trigger an edit behind it. */
+    if (exitConfirm) {
+        /* accept the two deciding controls as either CC or Note (the jog push is a CC on
+         * this firmware, but taking both costs nothing and can't collide — pads are notes
+         * 68..99). Back always cancels, so the prompt can never trap the performer. */
+        if (d2 > 0 && (status === 0xB0 || status === 0x90)) {
+            if (d1 === MoveMainButton) {                   /* jog push = confirm the exit */
+                exitConfirm = false;
+                sys('sh ' + PH + '/stop-stack.sh');
+                if (typeof host_exit_module === 'function') host_exit_module();
+                return;
+            }
+            if (d1 === MoveBack) { exitConfirm = false; screenDirty = true; return; }   /* stay */
+        }
+        return;
     }
 
     /* volume-knob touch = modifier (whole-kit gesture) */
@@ -903,9 +943,22 @@ globalThis.onMidiMessageInternal = function (data) {
             shufHeld = true; ledDirty = true; screenDirty = true;
             return;
         }
+        /* DRUM held + a pad to its right = pick that drum TYPE. Locks the DRUM palette
+         * pad to it, so every later Shift+pad generate rolls variations of that type. */
+        if (paletteHeld === DRUM_CELL && cell > DRUM_CELL && cell <= DRUM_CELL + DRUM_MODES.length) {
+            drumMode = cell - DRUM_CELL - 1;
+            sendCmd('drummode', drumMode);
+            paletteConsumed = true;                /* releasing DRUM must not also audition */
+            showAction(DRUM_MODES[drumMode]);
+            ledDirty = true; screenDirty = true;
+            return;
+        }
         if (cell < N_ENGINES) {
             if (shiftHeld) { sendCmd('palettegen', cell); showAction('GEN ' + ENGINE_TYPES[cell]); }
-            else { paletteHeld = cell; paletteHeldStart = Date.now(); paletteConsumed = false; }
+            else {
+                paletteHeld = cell; paletteHeldStart = Date.now(); paletteConsumed = false;
+                if (cell === DRUM_CELL) showAction('PICK DRUM TYPE');   /* the picker is live */
+            }
             ledDirty = true; screenDirty = true;
         }
         return;
@@ -975,21 +1028,10 @@ globalThis.onMidiMessageInternal = function (data) {
     }
 
     if (status === 0xB0) {
-        /* Back ARMS (or, if already armed, cancels) the exit confirmation — it no longer
-         * exits on its own. The commit is a jog-wheel PUSH (MoveMainButton), below. */
-        if (d1 === MoveBack && d2 > 0) {
-            exitConfirm = !exitConfirm;
-            exitConfirmUntil = phase + 120;   /* auto-cancel after a few seconds */
-            screenDirty = true;
-            return;
-        }
-        /* jog-wheel push while armed -> commit the exit */
-        if (d1 === MoveMainButton && d2 > 0 && exitConfirm) {
-            exitConfirm = false;
-            sys('sh ' + PH + '/stop-stack.sh');
-            if (typeof host_exit_module === 'function') host_exit_module();
-            return;
-        }
+        /* Back ARMS the exit confirmation — it never exits on its own. The prompt then
+         * stays up until the performer decides (handled modally at the top of this
+         * function): jog-wheel PUSH = exit, Back = stay. */
+        if (d1 === MoveBack && d2 > 0) { exitConfirm = true; screenDirty = true; return; }
         if (d1 === MoveShift) { shiftHeld = d2 > 0; return; }
         /* Rec + pad (edit view) = mark/unmark that step as LIVING (self-transforming). */
         if (d1 === MoveRec) { recHeld = d2 > 0; screenDirty = true; return; }

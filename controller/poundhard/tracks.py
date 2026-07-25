@@ -195,6 +195,11 @@ class Project:
         # set by the controller's shuffle overlay). Empty = no shuffle. HEAT and the living
         # steps read it so they operate on the rhythm each engine track ACTUALLY plays.
         self.shuffle_perm: dict[int, int] = {}
+        # DRUM TYPE LOCK: the drum type (0..6 = kick/snare/hihat/metal/clap/tom/noise) the
+        # DRUM palette pad is pinned to, chosen by holding that pad and tapping one of the
+        # pads to its right. -1 = unlocked (roll any type). A performance preference —
+        # runtime only, never saved.
+        self.drum_mode: int = -1
         # HEAT snapshot: the exact per-cell BASE state captured when the HEAT macro engages,
         # so disengaging restores the pattern EXACTLY (locks, ratchets, sends) with no trace.
         self._heat_snap: list | None = None
@@ -754,11 +759,23 @@ class Project:
         return self.palette[idx] if 0 <= idx < len(self.palette) else None
 
     def palette_regen(self, idx: int) -> dict | None:
-        """Generate a fresh candidate sound for engine pad `idx`."""
+        """Generate a fresh candidate sound for engine pad `idx`. A DRUM pad locked to a
+        type (see set_drum_mode) keeps rolling variations of THAT drum."""
         if 0 <= idx < len(self.palette):
-            self.palette[idx] = kits.gen_palette_voice(kits.PALETTE_ENGINES[idx])
+            engine = kits.PALETTE_ENGINES[idx]
+            dm = self.drum_mode if (engine == "DRUM" and self.drum_mode >= 0) else None
+            self.palette[idx] = kits.gen_palette_voice(engine, drum_mode=dm)
             return self.palette[idx]
         return None
+
+    def set_drum_mode(self, mode: int) -> int:
+        """Lock the DRUM palette pad to one drum type (0..6; anything else = unlocked).
+        Re-rolls that pad immediately so the choice is audible right away, and every later
+        generate stays on that type."""
+        self.drum_mode = mode if 0 <= mode <= 6 else -1
+        if "DRUM" in kits.PALETTE_ENGINES:
+            self.palette_regen(kits.PALETTE_ENGINES.index("DRUM"))
+        return self.drum_mode
 
     def palette_assign(self, idx: int, track: int) -> bool:
         """Assign engine pad `idx`'s current sound to `track` (keeps pattern/locks)."""

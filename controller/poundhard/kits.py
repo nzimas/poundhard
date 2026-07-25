@@ -683,8 +683,13 @@ PALETTE_ROLES["BYTEBEAT"] = BYTEBEAT_ROLES["BB GLITCH"]
 _BB_WEIGHTS = {"BB DRONE": 2, "BB GLITCH": 3, "BB BASS": 2, "BB CHIRP": 3}
 
 
-def gen_palette_voice(engine: str, rng: random.Random | None = None) -> dict:
-    """Generate one fresh sound for an engine's palette pad (audition / assign)."""
+def gen_palette_voice(engine: str, rng: random.Random | None = None,
+                      drum_mode: int | None = None) -> dict:
+    """Generate one fresh sound for an engine's palette pad (audition / assign).
+
+    `drum_mode` (0..6 = kick/snare/hihat/metal/clap/tom/noise) LOCKS the DRUM engine to
+    one type, so the pad keeps rolling variations of that drum instead of a random one.
+    None = roll the type freely (the default)."""
     rng = rng or random.Random()
     if engine == "PLAITS":
         # pick a MODEL first, then generate through that model's own targeted role —
@@ -737,6 +742,8 @@ def gen_palette_voice(engine: str, rng: random.Random | None = None) -> dict:
         return gen_voice(BYTEBEAT_ROLES[name], rng)  # gen_voice picks a random expression
     voice = gen_voice(PALETTE_ROLES[engine], rng)
     if engine == "DRUM":                       # put the drum in register for its mode
+        if drum_mode is not None and 0 <= int(drum_mode) <= 6:
+            voice["params"]["drum.mode"] = float(int(drum_mode))   # type locked by the picker
         mode = int(round(voice["params"].get("drum.mode", 0)))
         voice["note"] = _DRUM_MODE_NOTE[max(0, min(6, mode))]
     return voice

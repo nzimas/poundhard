@@ -476,7 +476,7 @@ class Controller:
     })
     # Commands that change no persisted state — they don't mark the project dirty.
     _NO_STATE = frozenset({
-        "editenter", "editexit", "audition", "palettegen", "recpad", "run",
+        "editenter", "editexit", "audition", "palettegen", "drummode", "recpad", "run",
         "patcopy", "patclipclear", "saveproj", "panic", "shuffle",
     })
 
@@ -500,6 +500,8 @@ class Controller:
                 self.bridge.preview(v)                # one-shot preview -> master
         elif cmd == "palettegen":                     # engine palette: Shift+pad = re-roll
             st.palette_regen(int(arg))
+        elif cmd == "drummode":                # hold the DRUM pad + tap a pad to its right
+            st.set_drum_mode(int(arg))         # -> lock that drum type for future generates
         elif cmd == "assign":                         # hold pad + tap track = assign sound
             idx = int(p.get("engine", -1)); t = int(p.get("track", -1))
             if st.palette_assign(idx, t):
@@ -764,6 +766,7 @@ class Controller:
             "autoSave": self._autosaved,       # a recovery file exists (Shift+Menu restores it)
             "heat": self._heat_on,             # HEAT macro engaged
             "heatPct": round(self._heat_pct, 3),
+            "drumMode": st.drum_mode,          # DRUM palette pad locked to a type (-1 = any)
             "shuffle": self._shuffle_on,       # SHUFFLE macro engaged
             # performance recorder
             "recSlots": list(self._rec_slots),

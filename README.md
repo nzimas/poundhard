@@ -295,6 +295,7 @@ in its engine colour.
 | **Engine pad — short-press** | audition that engine's current sound (one hit) |
 | **Engine pad — Shift + press** | regenerate that engine's sound |
 | **Hold engine pad + tap a step button** | **assign** that engine + sound to the track |
+| **Hold the DRUM pad + tap a pad to its right** | pick the **drum type** (kick · snare · hihat · metal · clap · tom · noise) — the DRUM pad then only generates variations of that type |
 | **Step button — tap** | mute / unmute that track |
 | **Step button — double-tap** | **solo** that track (double-tap again to un-solo) |
 | **Step button — long-press** | open that track in the [Edit view](#edit-view-per-track) |
@@ -491,6 +492,10 @@ aesthetic dial.
 - **Short-press an engine pad** — audition its current sound.
 - **Shift + engine pad** — regenerate that engine's sound.
 - **Hold engine pad + tap a track** — assign the engine + sound to that track.
+- **Hold the DRUM pad + tap a pad to its right** — pick the **drum type**. The seven
+  pads become kick · snare · hihat · metal · clap · tom · noise (the locked one shows
+  white); from then on the DRUM pad generates only variations of that type, in its own
+  register. Useful when you want another hat rather than whatever the dice give you.
 - **Shift + Track 1** (while a track is open) — re-roll that track's sound within
   its assigned engine.
 
