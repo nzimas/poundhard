@@ -295,7 +295,7 @@ in its engine colour.
 | **Engine pad — short-press** | audition that engine's current sound (one hit) |
 | **Engine pad — Shift + press** | regenerate that engine's sound |
 | **Hold engine pad + tap a step button** | **assign** that engine + sound to the track |
-| **Hold the DRUM pad + tap a pad to its right** | **audition + pick** the drum type (kick · snare · hihat · metal · clap · tom · noise, in DRUM's own colour). Lifting your hand keeps it as the DRUM pad's sound |
+| **Hold the DRUM pad + tap a pad to its right** | **audition** that pad's fixed drum type (kick · snare · hihat · metal · clap · tom · noise, in DRUM's own colour); **lift to commit** it to the engine |
 | **Step button — tap** | mute / unmute that track |
 | **Step button — double-tap** | **solo** that track (double-tap again to un-solo) |
 | **Step button — long-press** | open that track in the [Edit view](#edit-view-per-track) |
@@ -494,12 +494,13 @@ aesthetic dial.
 - **Hold engine pad + tap a track** — assign the engine + sound to that track.
 - **Hold the DRUM pad + tap a pad to its right** — **audition and pick the drum type**.
   The seven pads to its right light in DRUM's own colour (they belong to that engine) and
-  are, left to right, kick · snare · hihat · metal · clap · tom · noise; the picked one
-  shows white and the screen names it in big type. Each press **rolls and auditions** a
-  sound of that type, so you choose by ear. **Lift your hand and that sound is what the
-  DRUM pad holds** — ready to assign to a track. From then on **Shift + DRUM pad**
-  generates fresh variations *of that type*. Useful when you want another hat rather
-  than whatever the dice give you.
+  each holds one fixed type — left to right: kick · snare · hihat · metal · clap · tom ·
+  noise. Tapping one **auditions that type** (the same reference sound every press, so a
+  pad reads as "hihat" rather than a new random drum each time); the picked one shows
+  white and the screen names it in big type. **Lifting your hand commits the choice** to
+  the engine, and the pad is rolled as that drum — ready to assign to a track. From then
+  on **Shift + DRUM pad** generates fresh variations *of that type*. Useful when you want
+  another hat rather than whatever the dice give you.
 - **Shift + Track 1** (while a track is open) — re-roll that track's sound within
   its assigned engine.
 

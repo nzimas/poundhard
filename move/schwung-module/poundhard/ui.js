@@ -185,7 +185,8 @@ let knobShow = null;                /* 'pitch'|'vel'|'pan'|null (big readout) */
 let rateView = -1, rateViewUntil = 0;   /* transient big clock-rate readout (cursor keys) */
 /* FX view */
 let fxView = false, fxHeld = -1;
-let drumMode = -1;                   /* locked DRUM type (-1 = any); mirrors the controller */
+let drumMode = -1;                   /* committed DRUM type (-1 = any); mirrors the controller */
+let drumPick = -1;                   /* type picked while the DRUM pad is held, committed on release */
 /* exit safeguard: Back ARMS a confirmation ("EXIT YES?"); a jog-wheel push commits it,
  * Back cancels. The prompt is modal and stays up until one of those two — so the Back
  * button can't drop the performer out of PoundHard by accident mid-set. */
@@ -393,7 +394,8 @@ function renderLEDs() {
             if (paletteHeld === DRUM_CELL && c > DRUM_CELL && c <= DRUM_CELL + DRUM_MODES.length) {
                 let m = c - DRUM_CELL - 1;
                 let dpair = TYPE_COL[ENGINE_TYPES[DRUM_CELL]];
-                color = (drumMode === m) ? White : (dpair ? dpair[0] : DIM_COLOR);
+                let sel = (drumPick >= 0) ? drumPick : drumMode;   /* pending pick wins */
+                color = (sel === m) ? White : (dpair ? dpair[0] : DIM_COLOR);
             } else if (c < N_ENGINES) {
                 let pair = TYPE_COL[ENGINE_TYPES[c]];
                 color = (paletteHeld === c) ? White : (pair ? pair[0] : DIM_COLOR);
@@ -558,10 +560,11 @@ function drawExitConfirm() {
     print(0, 58, 'JOG PUSH = EXIT   BACK = STAY', 1);
 }
 function drawDrumPick() {
+    var sel = (drumPick >= 0) ? drumPick : drumMode;
     clear_screen();
-    drawBig(drumMode >= 0 ? DRUM_MODES[drumMode] : 'ANY', 4, 7);
+    drawBig(sel >= 0 ? DRUM_MODES[sel] : 'ANY', 4, 7);
     print(0, 46, 'DRUM TYPE - tap a pad right', 1);
-    print(0, 57, 'lift=keep   shift+pad=vary', 1);
+    print(0, 57, drumPick >= 0 ? 'lift to commit' : 'lift=keep  shift+pad=vary', 1);
 }
 function drawScreen() {
     if (typeof clear_screen !== 'function' || typeof print !== 'function') return;
@@ -956,13 +959,14 @@ globalThis.onMidiMessageInternal = function (data) {
             shufHeld = true; ledDirty = true; screenDirty = true;
             return;
         }
-        /* DRUM held + a pad to its right = pick that drum TYPE. Locks the DRUM palette
-         * pad to it, so every later Shift+pad generate rolls variations of that type. */
+        /* DRUM held + a pad to its right = that pad's fixed drum TYPE. Tapping it only
+         * AUDITIONS the type (a stable reference sound, identical every press, so the pad
+         * reads as "hihat" rather than a new random drum each time). The pick is committed
+         * to the engine when the DRUM pad is RELEASED — see the pad-up handler. */
         if (paletteHeld === DRUM_CELL && cell > DRUM_CELL && cell <= DRUM_CELL + DRUM_MODES.length) {
-            drumMode = cell - DRUM_CELL - 1;
-            sendCmd('drummode', drumMode);
+            drumPick = cell - DRUM_CELL - 1;
+            sendCmd('drumaudition', drumPick);     /* hear the type; no state change yet */
             paletteConsumed = true;                /* releasing DRUM must not also audition */
-            showAction(DRUM_MODES[drumMode]);
             ledDirty = true; screenDirty = true;
             return;
         }
@@ -999,7 +1003,14 @@ globalThis.onMidiMessageInternal = function (data) {
             return;
         }
         if (paletteHeld === cell) {
-            if (!paletteConsumed) { sendCmd('audition', cell); showAction('HEAR ' + ENGINE_TYPES[cell]); }
+            /* lifting the DRUM pad COMMITS a type picked during the hold: the engine locks
+             * to it and the pad is rolled as that drum, ready to assign / vary. */
+            if (cell === DRUM_CELL && drumPick >= 0) {
+                drumMode = drumPick;
+                sendCmd('drummode', drumMode);
+                showAction(DRUM_MODES[drumMode]);
+            } else if (!paletteConsumed) { sendCmd('audition', cell); showAction('HEAR ' + ENGINE_TYPES[cell]); }
+            drumPick = -1;
             paletteHeld = -1; paletteConsumed = false; ledDirty = true; screenDirty = true;
         }
         return;

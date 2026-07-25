@@ -768,6 +768,14 @@ class Project:
             return self.palette[idx]
         return None
 
+    def drum_type_example(self, mode: int) -> dict | None:
+        """A STABLE, representative DRUM voice for one type — deterministic, so tapping a
+        type pad auditions *that type* (the same reference sound every press) instead of a
+        fresh random variation each time. Pure preview: changes no state."""
+        if not (0 <= mode <= 6):
+            return None
+        return kits.gen_palette_voice("DRUM", random.Random(9000 + mode), drum_mode=mode)
+
     def set_drum_mode(self, mode: int) -> dict | None:
         """Lock the DRUM palette pad to one drum type (0..6; anything else = unlocked) and
         re-roll that pad as the chosen type — so the picked type IS the engine's sound the
