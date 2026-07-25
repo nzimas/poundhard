@@ -362,13 +362,33 @@ pitch-shifted delay.
 **RESO** is **Streson** (sc3-plugins) — a **tuned string resonator** (a comb with feedback)
 that rings the input at a set frequency, imposing a pitched, metallic/wooden resonant **body**
 on anything: a kick becomes a tone, noise becomes a pitched wash. Its macro sweeps the resonant
-`freq`, `res` (sharpness/decay) and a damping top-cut. It **replaces the reverb** — a
-transforming resonance rather than more space (the last slot, GREY, already provides that).
+`freq`, `res` (sharpness/decay) and a damping top-cut — a transforming resonance rather
+than more space (GREY and VERB, after it, supply that).
 
-**GREY** is **Greyhole** (sc3-plugins), now the **last** effect in the chain — a diffuse,
-pitch-modulated feedback delay that blurs toward reverb as its diffusion and size rise (after
-ValhallaDSP's Greyhole). Its macro sweeps delay time, feedback, size, diffusion, damping and
-modulation together — the dark, smeary IDM space-maker that gives the chain its tail.
+**GREY** is a diffuse, pitch-modulated **feedback delay** (after ValhallaDSP's Greyhole) —
+the dark, smeary IDM space-maker, sitting second-to-last so it feeds the reverb. Its macro
+sweeps delay time, feedback, size, diffusion, damping and modulation together.
+
+> GREY is **server-conditional**. Under scsynth it is the real `Greyhole` UGen (sc3-plugins).
+> Under **supernova** — the default server — `GreyholeRaw` refuses to register, so GREY is
+> rebuilt from core UGens on the same knobs: a cross-coupled, modulated feedback delay through
+> an allpass diffusion chain with damped regeneration. It is drier than the plugin (Greyhole's
+> reverb-ish blur is gone) — which is why the chain now ends in a dedicated reverb.
+
+**VERB** is the **plate reverb** that closes the chain, so it reverberates everything upstream
+of it. It's a **Dattorro plate** built from core UGens: pre-delay → a bandwidth filter → four
+series allpass diffusers → a figure-eight *tank* whose two halves each run a **modulated**
+allpass (the slow movement that stops a plate ringing metallic), a long delay, a damping
+low-pass, a second allpass and another delay — each half cross-fed into the other and scaled
+by `decay`. The halves use incommensurate delay lengths, so the tail decorrelates by itself:
+measured **3.5 s** at maximum decay with the two channels essentially uncorrelated — long and
+wide. Its macro sweeps decay, plate size, damping, diffusion, pre-delay, bandwidth, the
+modulation and stereo width.
+
+> Core UGens are not a compromise here: **both** `JPverbRaw` and `GreyholeRaw` refuse to
+> register on supernova, so SC's third-party reverbs are unavailable on the server PoundHard
+> runs. `decay` is clamped at **0.85** — past that the tank reaches unity gain, runs away and
+> the safety clipper mangles it, making the tail *shorter* (0.80 → 2.2 s, but 0.99 → 0.38 s).
 
 **RING** is **DiodeRingMod** (sc3-plugins) — an analog-style diode ring modulator, gnarlier
 and more metallic than a clean multiply (asymmetric diode shaping adds extra sidebands). Its
@@ -947,7 +967,11 @@ an angular, industrial typeface that suits the hard, percussion-centric aestheti
   track is remapped to **FM7** at load (the old 2-op params don't map onto 6-op, so it
   comes back as a default FM7 to re-roll), and an FX macro reads its direction with
   `.get(arg, 1)` so a project saved before a param was added won't `KeyError` mid-load —
-  which used to crash the load and freeze the instrument.
+  which used to crash the load and freeze the instrument. **FX are saved by SLOT INDEX**, so
+  the chain can't be reordered silently: snapshots carry an `fx_layout` version, and a
+  pre-VERB (v1) project is remapped on load — the flanger is dropped and CLDS/RESO/GREY
+  slide down one slot, each carrying its own macro / wet / direction. Without that, a
+  track's CLDS would have come back as RING.
 - **Only one takeover runs at a time**, and the ports are **shared** with the sibling
   takeovers (57110 scsynth/supernova · 57120 sclang · 57140 controller telemetry). A
   clean exit tears the stack down, but an **unclean** exit leaves a sibling's engine
