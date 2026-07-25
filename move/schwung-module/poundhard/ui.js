@@ -68,11 +68,13 @@ const BYPASS_COLOR = 118;           /* light grey: a track whose FX are bypassed
 const N_FX = 8;
 const FX_CELL0 = 24;                /* FX pads occupy the bottom row (cells 24..31) */
 /* DRUM TYPE PICKER: hold the DRUM palette pad (cell 0) and the 7 pads to its right
- * become its drum types. Picking one LOCKS the DRUM pad to that type, so Shift+pad
- * then only generates variations of it. Order must match catalog's drum.mode enum. */
+ * become its drum types, glowing in DRUM's OWN hue (they all belong to that engine —
+ * position tells you which type, and pressing one AUDITIONS it). The picked type
+ * becomes the DRUM engine's sound: lift your hand and it's what the pad now holds, so
+ * hold+tap-a-track assigns it and Shift+pad rolls fresh variations OF THAT TYPE.
+ * Order must match catalog's drum.mode enum. */
 const DRUM_CELL = 0;
 const DRUM_MODES = ['KICK', 'SNARE', 'HIHAT', 'METAL', 'CLAP', 'TOM', 'NOISE'];
-const DRUM_MODE_COLS = [1, 25, 14, 33, 21, 29, 23];   /* one lit hue per type */
 const HEAT_CELL = 24;               /* default-view bottom-row first pad = the HEAT toggle */
 const HEAT_HOT = 5, HEAT_WARM = 1, HEAT_IDLE = 84;  /* fire pulse (on) / dim ember (off) */
 const SHUF_CELL = 25;               /* pad right of HEAT = the SHUFFLE toggle */
@@ -387,10 +389,11 @@ function renderLEDs() {
         for (let c = 0; c < 32; c++) {
             let color = OFF_COLOR;
             /* Holding the DRUM pad turns the pads to its right into its TYPE PICKER —
-             * the locked type shows white, the rest in their own hue. */
+             * all in DRUM's own hue (same engine, same paint); the picked type shows white. */
             if (paletteHeld === DRUM_CELL && c > DRUM_CELL && c <= DRUM_CELL + DRUM_MODES.length) {
                 let m = c - DRUM_CELL - 1;
-                color = (drumMode === m) ? White : DRUM_MODE_COLS[m];
+                let dpair = TYPE_COL[ENGINE_TYPES[DRUM_CELL]];
+                color = (drumMode === m) ? White : (dpair ? dpair[0] : DIM_COLOR);
             } else if (c < N_ENGINES) {
                 let pair = TYPE_COL[ENGINE_TYPES[c]];
                 color = (paletteHeld === c) ? White : (pair ? pair[0] : DIM_COLOR);
@@ -554,10 +557,20 @@ function drawExitConfirm() {
     drawBig('YES?', 31, 5);
     print(0, 58, 'JOG PUSH = EXIT   BACK = STAY', 1);
 }
+function drawDrumPick() {
+    clear_screen();
+    drawBig(drumMode >= 0 ? DRUM_MODES[drumMode] : 'ANY', 4, 7);
+    print(0, 46, 'DRUM TYPE - tap a pad right', 1);
+    print(0, 57, 'lift=keep   shift+pad=vary', 1);
+}
 function drawScreen() {
     if (typeof clear_screen !== 'function' || typeof print !== 'function') return;
     if (exitConfirm) { drawExitConfirm(); return; }
     if (recView) { drawRec(); return; }
+    /* holding the DRUM pad: show the chosen drum type BIG while the picker is live */
+    if (paletteHeld === DRUM_CELL && !fxView && !patView && !projView && editTrack < 0) {
+        drawDrumPick(); return;
+    }
     /* giant TEMPO readout while knob 1 is touched (tracks view + project view) */
     /* Giant TEMPO readout while knob 1 is touched — tracks, PATTERN and project views.
      * Tempo is per-pattern, so in the pattern view this is the selected pattern's BPM. */

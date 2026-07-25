@@ -501,7 +501,9 @@ class Controller:
         elif cmd == "palettegen":                     # engine palette: Shift+pad = re-roll
             st.palette_regen(int(arg))
         elif cmd == "drummode":                # hold the DRUM pad + tap a pad to its right
-            st.set_drum_mode(int(arg))         # -> lock that drum type for future generates
+            v = st.set_drum_mode(int(arg))     # lock the type + re-roll the pad as that drum
+            if v is not None:
+                self.bridge.preview(v)         # AUDITION it, so the choice is audible on press
         elif cmd == "assign":                         # hold pad + tap track = assign sound
             idx = int(p.get("engine", -1)); t = int(p.get("track", -1))
             if st.palette_assign(idx, t):

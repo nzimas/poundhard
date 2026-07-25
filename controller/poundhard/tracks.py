@@ -768,14 +768,15 @@ class Project:
             return self.palette[idx]
         return None
 
-    def set_drum_mode(self, mode: int) -> int:
-        """Lock the DRUM palette pad to one drum type (0..6; anything else = unlocked).
-        Re-rolls that pad immediately so the choice is audible right away, and every later
-        generate stays on that type."""
+    def set_drum_mode(self, mode: int) -> dict | None:
+        """Lock the DRUM palette pad to one drum type (0..6; anything else = unlocked) and
+        re-roll that pad as the chosen type — so the picked type IS the engine's sound the
+        moment you lift your hand (ready to assign), and every later generate stays on it.
+        Returns the fresh voice so the caller can audition it."""
         self.drum_mode = mode if 0 <= mode <= 6 else -1
-        if "DRUM" in kits.PALETTE_ENGINES:
-            self.palette_regen(kits.PALETTE_ENGINES.index("DRUM"))
-        return self.drum_mode
+        if "DRUM" not in kits.PALETTE_ENGINES:
+            return None
+        return self.palette_regen(kits.PALETTE_ENGINES.index("DRUM"))
 
     def palette_assign(self, idx: int, track: int) -> bool:
         """Assign engine pad `idx`'s current sound to `track` (keeps pattern/locks)."""
