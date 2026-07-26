@@ -100,7 +100,8 @@ class VoiceSpec:
 TYPE_INDEX = {"EMPTY": -1, "DRUM": 0, "FM7": 1, "BUCHLOID": 2, "MOLLY": 3,
               "RINGS": 4, "BEN": 5, "NOIZEOP": 6, "ICARUS": 7, "PLAITS": 8,
               "SHAKER": 9, "MEMBRANE": 10, "MALLET": 11, "BOWED": 12,
-              "PLUCK": 13, "TUBE": 14, "CHAOS": 15, "WTABLE": 16, "BYTEBEAT": 17}
+              "PLUCK": 13, "TUBE": 14, "CHAOS": 15, "WTABLE": 16, "BYTEBEAT": 17,
+              "SAMPLE": 18}
 
 
 def _wt_sprite_count() -> int:
@@ -835,10 +836,40 @@ BYTEBEAT = VoiceSpec(
     ],
 )
 
+# --------------------------------------------------------------------------- #
+# SAMPLE — the capture engine. Holding its palette pad and tapping another engine's pad
+# threshold-records that engine's output, runs the take through a freshly assembled Csound
+# opcode graph (csoundfx), and the result becomes this pad's sound: auditionable like any
+# other engine and assignable to a track — which RELEASES the pad for the next capture.
+# These params shape PLAYBACK of the captured buffer; the buffer itself is engine state.
+# --------------------------------------------------------------------------- #
+SAMPLE = VoiceSpec(
+    type="SAMPLE",
+    role="Capture engine: records another engine, mangles it through a Csound opcode graph.",
+    synthdef="phSampleVoice",
+    params=[
+        P("sample.start", "Start", default=0.0, musical=(0.0, 0.35)),
+        P("sample.rate", "Rate", rmin=0.25, rmax=4.0, default=1.0, curve=Curve.EXP,
+          formatter="float2", musical=(0.5, 2.0)),
+        P("sample.cutoff", "Cutoff", unit="Hz", rmin=60.0, rmax=18000.0, default=16000.0,
+          curve=Curve.EXP, formatter="Hz", musical=(800.0, 17000.0)),
+        P("sample.res", "Resonance", default=0.1, musical=(0.0, 0.7), danger=DangerClass.FEEDBACK),
+        P("sample.drive", "Drive", rmin=0.1, rmax=6.0, default=1.0, musical=(0.3, 2.5)),
+        P("sample.attack", "Attack", unit="s", rmin=0.0005, rmax=2.0, default=0.002,
+          curve=Curve.EXP, formatter="float3", musical=(0.001, 0.1)),
+        P("sample.decay", "Decay", unit="s", rmin=0.005, rmax=8.0, default=0.6,
+          curve=Curve.EXP, formatter="float2", musical=(0.08, 2.5)),
+        P("sample.sustain", "Sustain", default=0.85, musical=(0.3, 1.0)),
+        P("sample.release", "Release", unit="s", rmin=0.005, rmax=8.0, default=0.25,
+          curve=Curve.EXP, formatter="float2", musical=(0.02, 1.5)),
+        *_COMMON_TAIL("sample", ampd=0.55, ampmus=(0.4, 0.9)),
+    ],
+)
+
 VOICES: dict[str, VoiceSpec] = {v.type: v for v in
                                 (DRUM, FM7, BUCHLOID, MOLLY, RINGS, BEN, NOIZEOP, ICARUS,
                                  PLAITS, SHAKER, MEMBRANE, MALLET, BOWED, PLUCK, TUBE, CHAOS,
-                                 WTABLE, BYTEBEAT)}
+                                 WTABLE, BYTEBEAT, SAMPLE)}
 
 
 def macro_specs(voice_type: str) -> list[tuple[str, str, float, float]]:

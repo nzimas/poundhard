@@ -22,6 +22,7 @@ import time
 import traceback
 from pathlib import Path
 
+from . import catalog
 from .catalog import FX_SPECS, N_FX
 from .engine_bridge import EngineBridge
 from .tracks import DRUM_TRACKS, N_PATTERNS, N_STEPS, N_TRACKS, Project
@@ -61,6 +62,10 @@ class Controller:
     def __init__(self) -> None:
         self.state = Project()
         self.bridge = EngineBridge(SC_HOST, SC_PORT, "127.0.0.1", TELEMETRY_PORT)
+        self.bridge.on_smprec = self._smp_on_rec
+        self.bridge.on_smpdone = self._smp_on_done
+        self.bridge.on_smpwritten = self._smp_on_written
+        self.bridge.on_smpready = self._smp_on_ready
         self._stop = threading.Event()
         self._built = threading.Event()
         self._last_seq = -1
@@ -77,6 +82,12 @@ class Controller:
         self._proj_slots = [False] * N_PATTERNS  # which project files exist on disk (cached)
         self._dirty = False                      # state changed since the last autosave
         self._autosaved = False                  # a recovery file exists (for the UI)
+        # SAMPLE engine capture lifecycle: idle -> armed -> recording -> processing -> ready.
+        # The pad holds ONE take; assigning it to a track releases the pad for the next one.
+        self._smp_state = "idle"
+        self._smp_src = -1                 # engine pad being sampled (for the readout)
+        self._smp_chain: list[str] = []     # the Csound stages the take went through
+        self._smp_thresh = 0.02
         # HEAT macro: mass-mark a fraction of sequenced steps as living (live performance)
         self._heat_on = False                    # macro engaged
         self._heat_pct = 0.5                     # fraction of hits to heat (knob-1 adjustable)
@@ -205,6 +216,67 @@ class Controller:
         self.bridge.stepmacro(t, c, [])
         self.bridge.stepratchet(t, c, 1)
         self.bridge.stepsend(t, c, 0)
+
+    # -- SAMPLE engine: capture -> Csound mangle -> audition -> assign ------ #
+    def _smp_paths(self):
+        d = RECORDINGS_DIR / "sample"
+        d.mkdir(parents=True, exist_ok=True)
+        return d / "take_raw.wav", d / "take_mangled.wav"
+
+    def _smp_arm(self, src: int) -> None:
+        """Hold SAMPLE + tap engine `src`: arm a threshold capture on that track's bus."""
+        self._smp_state = "armed"
+        self._smp_src = int(src)
+        self._smp_chain = []
+        self._dirty = True
+        self.bridge.smparm(src, self._smp_thresh)
+
+    def _smp_on_rec(self) -> None:
+        if self._smp_state == "armed":
+            self._smp_state = "recording"
+            self._dirty = True
+
+    def _smp_on_done(self) -> None:
+        """Capture synth freed: either the buffer filled or it timed out with nothing."""
+        if self._smp_state == "recording":
+            self._smp_state = "processing"
+            self._dirty = True
+            raw, _ = self._smp_paths()
+            self.bridge.smpwrite(raw)          # flush the take, then mangle it
+        elif self._smp_state == "armed":
+            self._smp_state = "idle"           # nothing ever crossed the threshold
+            self._dirty = True
+
+    def _smp_on_written(self, path: str) -> None:
+        if not path:
+            self._smp_state = "idle"
+            self._dirty = True
+            return
+        threading.Thread(target=self._smp_mangle, args=(path,), daemon=True).start()
+
+    def _smp_mangle(self, raw: str) -> None:
+        """Run the take through a freshly assembled Csound opcode graph. Off-thread: a
+        render takes seconds and must never stall the sequencer or the UI bridge."""
+        _, dst = self._smp_paths()
+        try:
+            from . import csoundfx
+            self._smp_chain = csoundfx.render(raw, str(dst))
+            self.bridge.smpload(dst)           # engine loads it -> on_smpready
+        except Exception as exc:               # a failed mangle must not wedge the engine
+            print(f"[poundhard] sample mangle failed: {exc}")
+            self._smp_state = "idle"
+            self._dirty = True
+
+    def _smp_on_ready(self, dur: float) -> None:
+        self._smp_state = "ready"
+        self._dirty = True
+
+    def _smp_release(self) -> None:
+        """Assigned to a track: the track owns the buffer now, so the pad is free again."""
+        self._smp_state = "idle"
+        self._smp_src = -1
+        self._smp_chain = []
+        self._dirty = True
 
     # -- SHUFFLE macro ----------------------------------------------------- #
     def _push_track_rhythm(self, engine_track: int, src_track: int) -> None:
@@ -477,6 +549,7 @@ class Controller:
     # Commands that change no persisted state — they don't mark the project dirty.
     _NO_STATE = frozenset({
         "editenter", "editexit", "audition", "palettegen", "drummode", "drumaudition",
+        "smparm",
         "recpad", "run",
         "patcopy", "patclipclear", "saveproj", "panic", "shuffle",
     })
@@ -507,8 +580,14 @@ class Controller:
                 self.bridge.preview(v)
         elif cmd == "drummode":                # DRUM pad RELEASED after picking a type ->
             st.set_drum_mode(int(arg))         # commit: lock it + roll the pad as that drum
+        elif cmd == "smparm":                  # hold SAMPLE pad + tap an engine pad
+            self._smp_arm(int(arg))
         elif cmd == "assign":                         # hold pad + tap track = assign sound
             idx = int(p.get("engine", -1)); t = int(p.get("track", -1))
+            if idx == catalog.TYPE_INDEX.get("SAMPLE") and 0 <= t < N_TRACKS:
+                # hand the captured buffer to the track, then RELEASE the pad
+                self.bridge.smpassign(t)
+                self._smp_release()
             if st.palette_assign(idx, t):
                 self.bridge.push_track(t, st.tracks[t])
                 self._push_mutes()                    # keep effective mutes correct (solo)
@@ -771,6 +850,9 @@ class Controller:
             "autoSave": self._autosaved,       # a recovery file exists (Shift+Menu restores it)
             "heat": self._heat_on,             # HEAT macro engaged
             "heatPct": round(self._heat_pct, 3),
+            "smpState": self._smp_state,        # idle/armed/recording/processing/ready
+            "smpSrc": self._smp_src,
+            "smpChain": list(self._smp_chain),
             "drumMode": st.drum_mode,          # DRUM palette pad locked to a type (-1 = any)
             "shuffle": self._shuffle_on,       # SHUFFLE macro engaged
             # performance recorder

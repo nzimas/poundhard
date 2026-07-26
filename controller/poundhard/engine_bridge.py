@@ -49,6 +49,10 @@ class EngineBridge:
         disp.map("/ph/cpu", self._h_cpu)
         disp.map("/ph/cycle", self._h_cycle)
         disp.map("/ph/amp", self._h_amp)
+        disp.map("/ph/smprec", self._h_smprec)        # threshold crossed, recording
+        disp.map("/ph/smpdone", self._h_smpdone)      # capture synth finished
+        disp.map("/ph/smpwritten", self._h_smpwritten)  # take flushed to disk
+        disp.map("/ph/smpready", self._h_smpready)    # mangled sample loaded
         try:
             # Blocking (single-threaded) server: telemetry handlers are trivial and
             # fast, so we avoid spawning a thread per incoming /ph/step datagram.
@@ -141,6 +145,11 @@ class EngineBridge:
     def edittrack(self, t):            self.send("/ph/edittrack", int(t))
     def vel(self, t, v):               self.send("/ph/vel", int(t), float(v))
     def samp(self, t, idx):            self.send("/ph/samp", int(t), int(idx))
+    # --- SAMPLE engine (capture -> mangle -> audition -> assign) ---
+    def smparm(self, src, thresh):     self.send("/ph/smparm", int(src), float(thresh))
+    def smpwrite(self, path):          self.send("/ph/smpwrite", str(path))
+    def smpload(self, path):           self.send("/ph/smpload", str(path))
+    def smpassign(self, t):            self.send("/ph/smpassign", int(t))
     def steplock(self, t, cell, note, vel, pan):
         self.send("/ph/steplock", int(t), int(cell), float(note), float(vel), float(pan))
     def stepmacro(self, t, cell, pairs):
@@ -166,6 +175,22 @@ class EngineBridge:
     def mastergain(self, g):           self.send("/ph/mastergain", float(g))
     def masterfilter(self, cut, res):  self.send("/ph/masterfilter", float(cut), float(res))
     def panic(self):                   self.send("/ph/panic")
+
+    def _h_smprec(self, *a):
+        cb = getattr(self, "on_smprec", None)
+        cb and cb()
+
+    def _h_smpdone(self, *a):
+        cb = getattr(self, "on_smpdone", None)
+        cb and cb()
+
+    def _h_smpwritten(self, addr, *a):
+        cb = getattr(self, "on_smpwritten", None)
+        cb and cb(a[0] if a else "")
+
+    def _h_smpready(self, addr, *a):
+        cb = getattr(self, "on_smpready", None)
+        cb and cb(float(a[0]) if a else 0.0)
 
     def preview(self, voice: dict) -> None:
         """Audition: spawn ONE preview voice of a palette engine straight to master.

@@ -384,7 +384,9 @@ _ENGINE_COST = {"DRUM": 5.3, "FM7": 8.5, "BUCHLOID": 6.0, "RINGS": 9.6,
                 # provisional 9.5 pending device measure.
                 # BYTEBEAT: the ByteBeat UGen only re-evaluates on t change (cheap) +
                 # a filter — provisional 6.0 pending device measure.
-                "PLUCK": 7.0, "TUBE": 7.0, "CHAOS": 8.0, "WTABLE": 9.5, "BYTEBEAT": 6.0}
+                # SAMPLE is a single PlayBuf + filter — the cheapest voice in the fleet.
+                "PLUCK": 7.0, "TUBE": 7.0, "CHAOS": 8.0, "WTABLE": 9.5, "BYTEBEAT": 6.0,
+                "SAMPLE": 3.0}
 # Measured per FX INSTANCE (they're per-track inserts, not sends!). Reverb costs as
 # much as a whole ICARUS voice, so a pattern gets at most one. CLDS = MiClouds
 # (granular), GREY = Greyhole, RING = DiodeRingMod are provisional pending device measure.
@@ -440,6 +442,8 @@ def _role_pool() -> dict:
     pool.update(kits.TUBE_ROLES)                      # two-tube waveguide — tonal/formant
     pool.update(kits.CHAOS_ROLES)                     # chaotic-map oscillator — texture/noise
     pool.update(kits.WTABLE_ROLES)                    # Ableton-sprite wavetable — tonal/bass/pad
+    pool["SAMPLE"] = kits.PALETTE_ROLES["SAMPLE"]   # capture engine — texture
+    _CAT["SAMPLE"] = "texture"
     pool.update(kits.BYTEBEAT_ROLES)                  # ByteBeat UGen — glitch/texture
     for n in kits.SHAKER_ROLES:
         _CAT[n] = "perc"

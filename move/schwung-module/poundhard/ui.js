@@ -104,6 +104,7 @@ const TYPE_COL = {
     CHAOS:    [5, 68],    /* Red / DarkRed — chaotic-map oscillator (glitch/noise) */
     WTABLE:   [45, 91],   /* Violet / DarkViolet — Ableton-sprite wavetable synth */
     BYTEBEAT: [30, 110],  /* BrightGreen / DarkGreen — ByteBeat UGen (8-bit glitch) */
+    SAMPLE:   [24, 111],  /* Rose / DustyRose — the capture engine (records + mangles) */
 };
 /* Engine palette: the 18 assignable engines. Row 1 = cells 0..7 (DRUM..ICARUS),
  * row 2 = cells 8..15 (PLAITS..CHAOS), row 3 = cells 16.. (WTABLE, BYTEBEAT). Same
@@ -111,7 +112,7 @@ const TYPE_COL = {
  * Short-press = audition, Shift+pad = regenerate, hold pad + tap a track = assign. */
 const ENGINE_TYPES = ['DRUM', 'FM7', 'BUCHLOID', 'MOLLY', 'RINGS', 'BEN', 'NOIZEOP',
     'ICARUS', 'PLAITS', 'SHAKER', 'MEMBRANE', 'MALLET', 'BOWED', 'PLUCK', 'TUBE', 'CHAOS',
-    'WTABLE', 'BYTEBEAT'];
+    'WTABLE', 'BYTEBEAT', 'SAMPLE'];
 const N_ENGINES = ENGINE_TYPES.length;
 
 /* ---- runtime state (mirrors status.json) ---- */
@@ -185,6 +186,10 @@ let knobShow = null;                /* 'pitch'|'vel'|'pan'|null (big readout) */
 let rateView = -1, rateViewUntil = 0;   /* transient big clock-rate readout (cursor keys) */
 /* FX view */
 let fxView = false, fxHeld = -1;
+/* SAMPLE capture lifecycle, mirrored from status: idle/armed/recording/processing/ready.
+ * Holding the SAMPLE pad turns the OTHER engine pads into capture sources. */
+let smpState = 'idle', smpSrc = -1, smpChain = [];
+const SAMPLE_CELL = 18;
 let drumMode = -1;                   /* committed DRUM type (-1 = any); mirrors the controller */
 let drumPick = -1;                   /* type picked while the DRUM pad is held, committed on release */
 /* exit safeguard: Back ARMS a confirmation ("EXIT YES?"); a jog-wheel push commits it,
@@ -396,9 +401,20 @@ function renderLEDs() {
                 let dpair = TYPE_COL[ENGINE_TYPES[DRUM_CELL]];
                 let sel = (drumPick >= 0) ? drumPick : drumMode;   /* pending pick wins */
                 color = (sel === m) ? White : (dpair ? dpair[0] : DIM_COLOR);
+            } else if (c === SAMPLE_CELL) {
+                /* the capture engine narrates itself: armed pulses, recording is solid red,
+                 * processing throbs amber, a finished take glows green until assigned. */
+                if (smpState === 'armed') color = (phase % 10 < 5) ? 25 : 111;
+                else if (smpState === 'recording') color = 1;
+                else if (smpState === 'processing') color = (phase % 16 < 8) ? 28 : 111;
+                else if (smpState === 'ready') color = (phase % 24 < 12) ? 8 : 30;
+                else color = (paletteHeld === c) ? White : TYPE_COL.SAMPLE[0];
             } else if (c < N_ENGINES) {
                 let pair = TYPE_COL[ENGINE_TYPES[c]];
-                color = (paletteHeld === c) ? White : (pair ? pair[0] : DIM_COLOR);
+                /* holding SAMPLE: every other engine pad is a CAPTURE SOURCE — tap one and
+                 * whatever it plays is what gets sampled. */
+                if (paletteHeld === SAMPLE_CELL) color = (smpSrc === c) ? White : (pair ? pair[1] : DIM_COLOR);
+                else color = (paletteHeld === c) ? White : (pair ? pair[0] : DIM_COLOR);
             } else if (c === HEAT_CELL) {                          /* HEAT toggle */
                 color = heatOn ? ((phase % 16 < 8) ? HEAT_HOT : HEAT_WARM) : HEAT_IDLE;
             } else if (c === SHUF_CELL) {                          /* SHUFFLE toggle */
@@ -566,10 +582,25 @@ function drawDrumPick() {
     print(0, 46, 'DRUM TYPE - tap a pad right', 1);
     print(0, 57, drumPick >= 0 ? 'lift to commit' : 'lift=keep  shift+pad=vary', 1);
 }
+function drawSample() {
+    clear_screen();
+    if (smpState === 'armed') { drawBig('ARMED', 4, 7); print(0, 46, 'waiting for sound...', 1); }
+    else if (smpState === 'recording') { drawBig('REC', 4, 8); print(0, 46, 'capturing', 1); }
+    else if (smpState === 'processing') { drawBig('CSOUND', 4, 6); print(0, 46, 'mangling the take...', 1); }
+    else if (smpState === 'ready') {
+        drawBig('READY', 4, 7);
+        print(0, 44, (smpChain.length ? smpChain.join('+') : 'sample').slice(0, 30), 1);
+        print(0, 56, 'hold+tap track = assign', 1);
+    } else { drawBig('SAMPLE', 4, 6); print(0, 46, 'hold + tap an engine pad', 1); }
+}
 function drawScreen() {
     if (typeof clear_screen !== 'function' || typeof print !== 'function') return;
     if (exitConfirm) { drawExitConfirm(); return; }
     if (recView) { drawRec(); return; }
+    /* the capture engine narrates its own lifecycle on screen */
+    if ((paletteHeld === SAMPLE_CELL || smpState !== 'idle') && !fxView && !patView && !projView && editTrack < 0) {
+        drawSample(); return;
+    }
     /* holding the DRUM pad: show the chosen drum type BIG while the picker is live */
     if (paletteHeld === DRUM_CELL && !fxView && !patView && !projView && editTrack < 0) {
         drawDrumPick(); return;
@@ -622,7 +653,10 @@ function readStatus() {
     if (s.heat != null && !heatHeld) heatOn = !!s.heat;             /* don't fight a live toggle */
     if (s.shuffle != null && !shufHeld) shufOn = !!s.shuffle;
     if (s.heatPct != null && knobShow !== 'heat') heatPct = s.heatPct;
-    if (s.drumMode != null && paletteHeld !== DRUM_CELL) drumMode = s.drumMode;   /* locked DRUM type */
+    if (s.drumMode != null && paletteHeld !== DRUM_CELL) drumMode = s.drumMode;
+    if (s.smpState != null) smpState = s.smpState;
+    if (s.smpSrc != null) smpSrc = s.smpSrc;
+    if (Array.isArray(s.smpChain)) smpChain = s.smpChain;   /* locked DRUM type */
     /* don't fight a live turn: only adopt the controller's chaos position when the
      * knob isn't the thing on screen (it re-syncs after a reset / pattern change) */
     if (s.chaos != null && knobShow !== 'chaos') chaosPos = s.chaos;
@@ -768,6 +802,7 @@ globalThis.tick = function () {
     if (recView && recState !== 'idle') ledDirty = true;          /* animate the rec/armed pad */
     if (editTrack >= 0 && !fxView) { for (var _lv = 0; _lv < N_STEPS; _lv++) if (editLiving[_lv]) { ledDirty = true; break; } }  /* pulse living steps */
     if ((heatOn || shufOn) && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse HEAT / SHUFFLE pads */
+    if (smpState !== 'idle' || paletteHeld === SAMPLE_CELL) { ledDirty = true; screenDirty = true; }
     if (fxView && running) ledDirty = true;   /* pulse the FX-view track pads by note-data presence */
     if (ledDirty) renderLEDs();
     if (running) renderStepButtons();   /* keep the pulse animating between full renders */
@@ -963,6 +998,16 @@ globalThis.onMidiMessageInternal = function (data) {
          * AUDITIONS the type (a stable reference sound, identical every press, so the pad
          * reads as "hihat" rather than a new random drum each time). The pick is committed
          * to the engine when the DRUM pad is RELEASED — see the pad-up handler. */
+        /* hold SAMPLE + tap another engine pad = capture THAT engine: it auditions (so it
+         * makes the sound) and the engine threshold-records it into the SAMPLE pad. */
+        if (paletteHeld === SAMPLE_CELL && cell < N_ENGINES && cell !== SAMPLE_CELL) {
+            sendCmd('smparm', cell);            /* arm the threshold capture first... */
+            sendCmd('audition', cell);          /* ...then make the source engine sound */
+            paletteConsumed = true;
+            showAction('SAMPLING ' + ENGINE_TYPES[cell]);
+            ledDirty = true; screenDirty = true;
+            return;
+        }
         if (paletteHeld === DRUM_CELL && cell > DRUM_CELL && cell <= DRUM_CELL + DRUM_MODES.length) {
             drumPick = cell - DRUM_CELL - 1;
             sendCmd('drumaudition', drumPick);     /* hear the type; no state change yet */

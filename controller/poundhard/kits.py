@@ -226,7 +226,7 @@ def gen_kit(seed: int | None = None) -> dict:
 # --------------------------------------------------------------------------- #
 PALETTE_ENGINES = ["DRUM", "FM7", "BUCHLOID", "MOLLY", "RINGS", "BEN", "NOIZEOP",
                    "ICARUS", "PLAITS", "SHAKER", "MEMBRANE", "MALLET", "BOWED",
-                   "PLUCK", "TUBE", "CHAOS", "WTABLE", "BYTEBEAT"]
+                   "PLUCK", "TUBE", "CHAOS", "WTABLE", "BYTEBEAT", "SAMPLE"]
 
 # a canonical note per drum mode, so an auditioned/assigned drum sits in register
 # (mode order matches catalog DRUM enum: kick snare hihat metal clap tom noise)
@@ -681,6 +681,17 @@ def _bb_role(spec) -> Role:
 BYTEBEAT_ROLES: dict[str, Role] = {s[0]: _bb_role(s) for s in _BB_SPEC}
 PALETTE_ROLES["BYTEBEAT"] = BYTEBEAT_ROLES["BB GLITCH"]
 _BB_WEIGHTS = {"BB DRONE": 2, "BB GLITCH": 3, "BB BASS": 2, "BB CHIRP": 3}
+
+
+# SAMPLE plays back whatever was just captured + mangled, so its "sound" is playback
+# shaping only — kept gentle so the mangled character comes through rather than being
+# re-processed into mush.
+PALETTE_ROLES["SAMPLE"] = Role("SAMPLE", "SAMPLE", note_choices=(0, 5, 7, 12), octave=0,
+                               bands={"sample.start": (0.0, 0.0), "sample.rate": (0.8, 1.25),
+                                      "sample.cutoff": (2500, 17000), "sample.drive": (0.4, 1.6),
+                                      "sample.decay": (0.3, 2.0), "sample.sustain": (0.6, 1.0),
+                                      "sample.release": (0.05, 0.8)},
+                               vel=(0.85, 1.05))
 
 
 def gen_palette_voice(engine: str, rng: random.Random | None = None,

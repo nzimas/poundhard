@@ -748,6 +748,48 @@
 	// the /eval unit command targets the ByteBeat UGen by its index in the graph; capture it.
 	~bbUgenIndex = ~bbDef.children.detect({ |u| u.class.asSymbol == 'ByteBeat' }).synthIndex;
 
+	// ================= SAMPLE — the capture/mangle engine's player ====================
+	// Plays a buffer holding a CAPTURED, Csound-mangled hit. Buffers are loaded whole (never
+	// streamed — streaming is what froze the box in the retired sampler), and the amp
+	// envelope owns the lifetime + self-free like every other voice.
+	SynthDef(\phSampleVoice, { |out = 16, note = 48, vel = 1, buf = 0, start = 0.0,
+		rate = 1.0, cutoff = 16000, res = 0.1, drive = 1.0,
+		attack = 0.002, decay = 0.6, sustain = 0.85, release = 0.25, amp = 0.5, pan = 0|
+		var v = vel.clip(0, 2).max(0.03);
+		// i-rate framing + an explicit start trigger: the canonical PlayBuf form. (A k-rate
+		// startPos with a constant trigger never actually fires the read.)
+		var frames = BufFrames.ir(buf);
+		// note 48 = the sample's own pitch; every semitone above/below resamples it
+		var rt = rate * (2 ** ((note.clip(0, 127) - 48) / 12)) * BufRateScale.ir(buf);
+		var sig = PlayBuf.ar(1, buf, rt, Impulse.ar(0), start.clip(0, 0.95) * frames, 0);
+		var aEnv = EnvGen.ar(Env.new([0, 1, sustain.clip(0, 1), 0],
+			[attack.clip(0.0005, 2), decay.clip(0.005, 8), release.clip(0.005, 8)], \sin),
+			doneAction: 2);
+		var rq = (1 - res.clip(0, 0.96)).clip(0.05, 1);
+		sig = RLPF.ar(sig, cutoff.clip(60, 18000), rq);
+		sig = (sig * (1 + (drive.clip(0.1, 6) * 1.2))).tanh;
+		sig = LeakDC.ar(sig) * aEnv * v * amp * 1.3;
+		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+	}).add;
+
+	// THRESHOLD CAPTURE: listens on a bus and only starts writing once the signal actually
+	// crosses `thresh` — so the take begins at the transient, not at whatever silence
+	// preceded it. SetResetFF latches on the first crossing and stays latched, so a decaying
+	// tail can't re-gate it. RecordBuf frees itself when the buffer is full (which is what
+	// caps the take length); if the threshold is NEVER crossed the synth abandons itself
+	// after `timeout` so an armed capture can't leak. /tr id 1701 tells the controller it
+	// started, 1702 that it finished.
+	SynthDef(\phCapture, { |in = 16, buf = 0, thresh = 0.02, timeout = 8|
+		var sig = In.ar(in, 2);
+		var mono = (sig[0] + sig[1]) * 0.5;
+		var amp = Amplitude.kr(mono, 0.002, 0.03);
+		var latch = SetResetFF.kr(amp > thresh, 0);
+		SendTrig.kr(Trig1.kr(latch, 0.01), 1701, 1);            // capture began
+		RecordBuf.ar(mono, buf, 0, 1.0, 0.0, latch, 0, latch, 2);
+		SendTrig.kr(Done.kr(Line.kr(0, 1, timeout)) * (1 - latch), 1702, 0);
+		FreeSelf.kr(Done.kr(Line.kr(0, 1, timeout)) * (1 - latch));   // nothing arrived
+	}).add;
+
 	// ================= FX (per-track insert chain) =================
 	// Each FX reads its track bus (`in`), processes, and REPLACES the bus (`out`
 	// == `in`) — so a track's FX run in place, in canonical chain order. Stereo.

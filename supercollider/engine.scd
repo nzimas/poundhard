@@ -17,7 +17,7 @@
 
 ~nTracks = 16;
 ~maxSteps = 32;
-~typeDefs = [\phDrum, \phFm7, \phBuchloid, \phMolly, \phRings, \phBen, \phNoizeop, \phIcarus, \phPlaits, \phShaker, \phMembrane, \phMallet, \phBowed, \phPluck, \phTube, \phChaos, \phWtable, \phBytebeat];  // /ph/track type index (-1 = empty/unassigned)
+~typeDefs = [\phDrum, \phFm7, \phBuchloid, \phMolly, \phRings, \phBen, \phNoizeop, \phIcarus, \phPlaits, \phShaker, \phMembrane, \phMallet, \phBowed, \phPluck, \phTube, \phChaos, \phWtable, \phBytebeat, \phSampleVoice];  // /ph/track type index (-1 = empty/unassigned)
 // DRUM is split into per-mode defs (chosen from the track's `mode` param at spawn).
 ~drumDefs = [\phDrumKick, \phDrumSnare, \phDrumHat, \phDrumMetal, \phDrumClap, \phDrumTom, \phDrumNoise];
 
@@ -87,6 +87,13 @@
 	"t>>4|t*(t>>12|t>>8)&(63&t>>4)",
 	"(t&t>>12)*(t>>4|t>>8)"
 ];
+// SAMPLE engine: one PAD buffer (the capture currently held by the palette pad) plus a
+// per-track buffer, so assigning to a track hands the sound over and RELEASES the pad.
+~smpPad   = nil;                       // buffer held by the SAMPLE palette pad
+~smpBuf   = Array.fill(~nTracks, { nil });   // per-track assigned sample
+~smpCapSy = nil;                       // the live \phCapture synth, if any
+~smpCapBuf = nil;                      // buffer being recorded into
+~smpMaxDur = 2.0;                      // cap a take (buffer length caps RecordBuf)
 ~bbExprIdx = Array.fill(~nTracks, { 0 });   // per-track expression index into ~bbExprs
 ~bbExprPrev = 0;                            // audition expression index
 // ~bbUgenIndex (the ByteBeat UGen's graph index for /eval) is set in synthdefs.scd.
@@ -226,6 +233,10 @@
 			((~stepSend[t][step] ? 0) > 0).if({ ~gSharedVoices }, { ~gTrackVoices[t] }));
 		// BYTEBEAT: the expression is not a synth arg — push it to this voice's ByteBeat
 		// UGen via the /eval unit command right after /s_new (ordered on the server).
+		(def == \phSampleVoice).if {
+			("SMPSPAWN t=" ++ t ++ " buf=" ++ ~smpBuf[t].notNil.if({ ~smpBuf[t].bufnum }, { -1 })).postln;
+			args = args ++ [\buf, ~smpBuf[t].notNil.if({ ~smpBuf[t].bufnum }, { ~silentBuf.bufnum })];
+		};
 		(def == \phBytebeat).if {
 			s.sendMsg('/u_cmd', syn.nodeID, ~bbUgenIndex, '/eval',
 				~bbExprs[~bbExprIdx[t].clip(0, ~bbExprs.size - 1)]);
@@ -388,7 +399,11 @@
 					s.sendMsg('/u_cmd', syn.nodeID, ~bbUgenIndex, '/eval',
 						~bbExprs[ei.clip(0, ~bbExprs.size - 1)]);
 				}, {
-					Synth(def, [\out, ~masterBus.index, \note, nn, \vel, vv] ++ pairs, ~gSharedVoices);
+					// SAMPLE auditions the buffer the PAD holds (nothing captured -> silence)
+					Synth(def, [\out, ~masterBus.index, \note, nn, \vel, vv]
+						++ (def == \phSampleVoice).if(
+							{ [\buf, ~smpPad.notNil.if({ ~smpPad.bufnum }, { ~silentBuf.bufnum })] }, { [] })
+						++ pairs, ~gSharedVoices);
 				});
 			});
 		};
@@ -494,6 +509,57 @@
 	// deepFree (not freeAll): ~gVoices now CONTAINS the per-track subgroups, and freeAll
 	// would delete those groups too — leaving ~gTrackVoices pointing at dead nodes so no
 	// voice could spawn again. deepFree kills every synth but keeps the group structure.
+	// ---- SAMPLE engine: threshold capture + buffer hand-off ----------------------
+	// /ph/smparm <srcTrack> <thresh>: arm a threshold capture on the SOURCE track's bus, so
+	// whatever that engine plays next is what gets recorded. The capture synth latches on the
+	// first crossing and frees itself when the buffer fills (or times out).
+	OSCdef(\phSmpTrig, { |m|            // \phCapture's SendTrig -> tell the controller
+		(m[2].asInteger == 1701).if { ~ctrl.sendMsg("/ph/smprec") };
+	}, '/tr'),
+	OSCdef(\phSmpArm, { |m|
+		var src = m[1].asInteger.clip(0, ~nTracks - 1);
+		var th = (m[2] ? 0.02).asFloat.clip(0.001, 0.5);
+		~smpCapSy.notNil.if { ~smpCapSy.free; ~smpCapSy = nil };
+		~smpCapBuf.notNil.if { ~smpCapBuf.free };
+		// NOTE: an OSC handler is NOT a Routine, so s.sync here fails with _RoutineYield and
+		// silently aborts the handler. Use Buffer.alloc's completion action instead.
+		~smpCapBuf = Buffer.alloc(s, (~smpMaxDur * s.sampleRate).asInteger, 1, { |b|
+			// MUST run AFTER the voices and FX have written the track bus: inside ~gVoices it
+			// would read the bus ~gClear zeroes each block (and could race the writers under
+			// supernova), so it goes at the head of the serial ~gSend stage — exactly where
+			// the fully-processed track signal exists.
+			~smpCapSy = Synth.head(~gSend, \phCapture,
+				[\in, ~trackBus[src].index, \buf, b.bufnum, \thresh, th, \timeout, 8]);
+			~smpCapSy.onFree({ ~smpCapSy = nil; ~ctrl.sendMsg("/ph/smpdone") });
+		});
+	}, '/ph/smparm'),
+	// /ph/smpwrite "<path>": flush the captured buffer to disk for the Csound mangler.
+	OSCdef(\phSmpWrite, { |m|
+		var path = m[1].asString;
+		~smpCapBuf.notNil.if({
+			~smpCapBuf.write(path, "wav", "int16", -1, 0, false,
+				{ ~ctrl.sendMsg("/ph/smpwritten", path) });
+		}, { ~ctrl.sendMsg("/ph/smpwritten", "") });
+	}, '/ph/smpwrite'),
+	// /ph/smpload "<path>": the MANGLED result becomes the pad's sound (auditionable).
+	OSCdef(\phSmpLoad, { |m|
+		var path = m[1].asString;
+		Buffer.readChannel(s, path, channels: [0], action: { |b|
+			var old = ~smpPad; ~smpPad = b; old.notNil.if { old.free };
+			~ctrl.sendMsg("/ph/smpready", b.numFrames / s.sampleRate);
+		});
+	}, '/ph/smpload'),
+	// /ph/smpassign <track>: hand the pad's buffer to a TRACK and RELEASE the pad, so the
+	// engine is immediately free for the next capture. The track owns its buffer from here.
+	OSCdef(\phSmpAssign, { |m|
+		var t = m[1].asInteger.clip(0, ~nTracks - 1);
+		~smpPad.notNil.if {
+			var old = ~smpBuf[t];
+			~smpBuf[t] = ~smpPad;
+			~smpPad = nil;                       // released — not freed, the track has it now
+			old.notNil.if { old.free };
+		};
+	}, '/ph/smpassign'),
 	OSCdef(\phPanic, { |m| ~stopSeq.value; ~gVoices.notNil.if { ~gVoices.deepFree }; ~trackVoices.do { |l| l.clear }; }, '/ph/panic'),
 	OSCdef(\phRecStart, { |m| ~recStart.value(m[1].asString); }, '/ph/recstart'),
 	OSCdef(\phRecStop,  { |m| ~recStop.value; }, '/ph/recstop'),
