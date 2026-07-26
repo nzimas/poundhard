@@ -586,7 +586,7 @@ class Controller:
             idx = int(p.get("engine", -1)); t = int(p.get("track", -1))
             if idx == catalog.TYPE_INDEX.get("SAMPLE") and 0 <= t < N_TRACKS:
                 # hand the captured buffer to the track, then RELEASE the pad
-                self.bridge.smpassign(t)
+                self.bridge.smpassign(t, self._smp_paths()[1])
                 self._smp_release()
             if st.palette_assign(idx, t):
                 self.bridge.push_track(t, st.tracks[t])

@@ -229,12 +229,16 @@
 		// Parallel-safe placement: a normal hit goes to its TRACK's group (private bus →
 		// runs alongside other tracks); a living-FX hit writes the shared ~livingBus, so it
 		// goes to the serial shared group instead. Mirrors merged[\out] above.
+		// SAMPLE voices go in the SERIAL shared group, not the per-track ParGroup child: they
+		// read a shared buffer, and the identical synth+args only sounded from there.
 		syn = Synth(def, args,
-			((~stepSend[t][step] ? 0) > 0).if({ ~gSharedVoices }, { ~gTrackVoices[t] }));
+			(((~stepSend[t][step] ? 0) > 0) || (def == \phSampleVoice)).if(
+				{ ~gSharedVoices }, { ~gTrackVoices[t] }));
 		// BYTEBEAT: the expression is not a synth arg — push it to this voice's ByteBeat
 		// UGen via the /eval unit command right after /s_new (ordered on the server).
 		(def == \phSampleVoice).if {
-			("SMPSPAWN t=" ++ t ++ " buf=" ++ ~smpBuf[t].notNil.if({ ~smpBuf[t].bufnum }, { -1 })).postln;
+			("SMPSPAWN t=" ++ t ++ " buf=" ++ ~smpBuf[t].notNil.if({ ~smpBuf[t].bufnum }, { -1 })
+				++ " args=" ++ args).postln;
 			args = args ++ [\buf, ~smpBuf[t].notNil.if({ ~smpBuf[t].bufnum }, { ~silentBuf.bufnum })];
 		};
 		(def == \phBytebeat).if {
@@ -552,13 +556,22 @@
 	// /ph/smpassign <track>: hand the pad's buffer to a TRACK and RELEASE the pad, so the
 	// engine is immediately free for the next capture. The track owns its buffer from here.
 	OSCdef(\phSmpAssign, { |m|
+		// Assign by FILE, not by handing over the pad's Buffer object: the pad's buffer lives
+		// through capture/alloc/free churn, so sharing it risks the track pointing at a
+		// recycled (zeroed) bufnum. Reading a fresh buffer per track is aliasing-proof, and
+		// the pad is released either way.
 		var t = m[1].asInteger.clip(0, ~nTracks - 1);
-		~smpPad.notNil.if {
-			var old = ~smpBuf[t];
-			~smpBuf[t] = ~smpPad;
-			~smpPad = nil;                       // released — not freed, the track has it now
-			old.notNil.if { old.free };
-		};
+		var path = m[2].asString;
+		("SMPASSIGN t=" ++ t ++ " path=" ++ path).postln;
+		File.exists(path).if({
+			Buffer.readChannel(s, path, channels: [0], action: { |b|
+				var old = ~smpBuf[t];
+				~smpBuf[t] = b;
+				old.notNil.if { old.free };
+				("SMPASSIGNED t=" ++ t ++ " buf=" ++ b.bufnum ++ " frames=" ++ b.numFrames).postln;
+			});
+		});
+		~smpPad.notNil.if { ~smpPad.free; ~smpPad = nil };   // pad released for the next take
 	}, '/ph/smpassign'),
 	OSCdef(\phPanic, { |m| ~stopSeq.value; ~gVoices.notNil.if { ~gVoices.deepFree }; ~trackVoices.do { |l| l.clear }; }, '/ph/panic'),
 	OSCdef(\phRecStart, { |m| ~recStart.value(m[1].asString); }, '/ph/recstart'),
