@@ -936,7 +936,7 @@
 	// The two halves use different (incommensurate) delay lengths, so their outputs are
 	// naturally decorrelated — that's what makes the tail wide and lush instead of a mono
 	// wash. Delay times are Dattorro's, expressed in SECONDS so they're sample-rate safe.
-	SynthDef(\phVerb, { |out = 0, in = 0, predelay = 0.02, bandwidth = 0.75, damp = 0.35,
+	SynthDef(\phVerb, { |out = 0, in = 0, bandwidth = 0.75, damp = 0.35,
 		decay = 0.75, diff = 0.7, modrate = 0.9, moddepth = 0.35, size = 1.0, lowcut = 90,
 		width = 1.0, amp = 1, pan = 0, bypass = 0, wet = 0.35, enable = 1|
 		var dry = In.ar(in, 2), inL = dry[0], inR = dry[1];
@@ -954,7 +954,9 @@
 		var mod = SinOsc.kr([modrate.clip(0.01, 8), modrate.clip(0.01, 8) * 0.93], [0, 0.5pi])
 			* moddepth.clip(0, 1) * 0.0009;                        // +/- ~0.9ms of movement
 		var sig, lx, rx, outL, outR, mid, side;
-		sig = DelayC.ar((inL + inR) * 0.5, 0.25, predelay.clip(0, 0.25));
+		// No pre-delay: the tank sees the hit the instant it happens, so the reverb blooms
+		// WITH the sound instead of arriving after it.
+		sig = (inL + inR) * 0.5;
 		sig = LPF.ar(sig, (300 + (bandwidth.clip(0, 1) * 17000)).clip(300, 18000));
 		sig = HPF.ar(sig, lowcut.clip(20, 600));
 		[0.004771, 0.003595, 0.012735, 0.009307].do { |t, i|

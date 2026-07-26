@@ -948,8 +948,8 @@ FX_SPECS: list[FxSpec] = [
     # highs die, `diff` the density, and mod rate/depth the slow movement that keeps it
     # from ringing metallic. Bands are set LUSH: long decays, big plates, gentle damping.
     FxSpec("VERB", "VERB", [("decay", 0.6, 0.85), ("size", 0.7, 1.7), ("damp", 0.12, 0.6),
-                            ("diff", 0.55, 0.88), ("predelay", 0.005, 0.09),
-                            ("bandwidth", 0.55, 0.95), ("modrate", 0.3, 1.6),
-                            ("moddepth", 0.15, 0.6), ("width", 0.7, 1.3)]),
+                            ("diff", 0.55, 0.88), ("bandwidth", 0.55, 0.95),
+                            ("modrate", 0.3, 1.6), ("moddepth", 0.15, 0.6),
+                            ("width", 0.7, 1.3)]),
 ]
 N_FX = len(FX_SPECS)
