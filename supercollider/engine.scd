@@ -116,6 +116,13 @@
 // meant to be heard, instead of replaying its first moment forever.
 ~bbOrigin     = Array.fill(~nTracks, { nil });   // running position (counts)
 ~bbOriginBase = Array.fill(~nTracks, { nil });   // the track's Origin param, to detect a re-roll
+// THE LIVE BYTEBEAT VOICES. One per track, plus one for the palette audition. They are
+// created when a track takes the engine and live until it gives it up: the UGen parses its
+// expression once, and each step re-triggers the envelope instead of building a new
+// (silent-until-parsed) instance. See the SynthDef header for why.
+~bbVoice = Array.fill(~nTracks, { nil });
+~bbPrevVoice = nil;
+~bbPrevExpr = nil;   // expression currently parsed into the preview voice
 ~bbExprPrev = 0;                            // audition expression index
 // ~bbUgenIndex (the ByteBeat UGen's graph index for /eval) is set in synthdefs.scd.
 ~maxPoly   = 3;                                      // per-track voice cap (steal oldest)
@@ -236,6 +243,32 @@
 	};
 };
 
+// Make sure track `t` has its persistent bytebeat voice, parsed with the track's current
+// expression. Returns the synth (or nil before the graph exists).
+~bbEnsure = { |t|
+	((~ready == true) and: { ~bbVoice[t].isNil }).if {
+		var syn = Synth.tail(~gTrackVoices[t] ? ~gVoices, \phBytebeat,
+			[\out, ~trackBus[t].index] ++ ~pstore[t].getPairs);
+		syn.register;                                // onFree only fires for a REGISTERED node
+		syn.onFree({ ~bbVoice[t] = nil });          // panic/free -> rebuilt on the next hit
+		~bbVoice[t] = syn;
+		// Parse ONCE, here — but NOT in the same instant as the /s_new. A unit command sent
+		// back-to-back with the node's creation is delivered to a node the server has not
+		// instantiated yet and is dropped, leaving the UGen on its silent `Undefined`
+		// expression forever. A few control blocks of daylight is all it needs.
+		SystemClock.sched(0.05, { ~bbEval.(t); nil });
+	};
+	~bbVoice[t];
+};
+~bbFree = { |t| ~bbVoice[t].notNil.if { ~bbVoice[t].free; ~bbVoice[t] = nil } };
+// Push a (possibly new) expression to a track's live voice.
+~bbEval = { |t|
+	~bbVoice[t].notNil.if {
+		s.sendMsg('/u_cmd', ~bbVoice[t].nodeID, ~bbUgenIndex, '/eval',
+			~bbExprs[(~bbExprIdx[t] ? 0).clip(0, ~bbExprs.size - 1)]);
+	};
+};
+
 // ---- step clock ----
 ~applyTempo = { ~clock.tempo = (~bpm / 60) * ~stepsPerBeat; };   // 1 beat == 1 step
 ~clock = TempoClock.new((120 / 60) * 4);
@@ -285,18 +318,16 @@
 		(def == \phSampleVoice).if {
 			merged[\buf] = ~smpBuf[t].notNil.if({ ~smpBuf[t].bufnum }, { ~silentBuf.bufnum });
 		};
-		// BYTEBEAT: hand this hit the track's current stream position, then advance it by
-		// exactly the counts the stream would have run between this step and the next — so
-		// consecutive hits are consecutive slices of one continuous bytebeat, not the same
-		// (usually silent) opening moment over and over. Re-rolling the track's Origin param
-		// restarts the walk from there. Wrapped at 2^22 to keep t an exact float.
+		// BYTEBEAT does not spawn: its voice is PERSISTENT. The UGen parses its expression
+		// per instance and starts out silent, so a fresh instance per hit raced the async
+		// /eval against the note — long notes won and screamed, short ones came out
+		// inaudible, and the "same" sound was unrepeatable. Set this hit's values on the
+		// live voice and re-trigger it; its counter free-runs, which is what bytebeat is.
 		(def == \phBytebeat).if {
-			var base = (merged[\origin] ? 65536).asFloat;
-			var clk = ((merged[\rate] ? 8000) * (2 ** ((nn.clip(0, 127) - 48) / 12))).clip(200, 44100);
-			var stepDur = (60 / ~bpm.max(20)) / ~stepsPerBeat / ~rate[t].max(0.0625);
-			(~bbOriginBase[t] != base).if { ~bbOriginBase[t] = base; ~bbOrigin[t] = base };
-			merged[\origin] = ~bbOrigin[t];
-			~bbOrigin[t] = (~bbOrigin[t] + (clk * stepDur)).wrap(0, 4194304);
+			var voice = ~bbEnsure.(t);
+			voice.notNil.if {
+				voice.set(*([\note, nn, \vel, vv] ++ merged.getPairs ++ [\t_trig, 1]));
+			};
 		};
 		args = [\note, nn, \vel, vv] ++ merged.getPairs;
 		(def == \phSampler).if {
@@ -313,19 +344,15 @@
 		// goes to the serial shared group instead. Mirrors merged[\out] above.
 		// SAMPLE voices go in the SERIAL shared group, not the per-track ParGroup child: they
 		// read a shared buffer, and the identical synth+args only sounded from there.
-		syn = Synth(def, args,
-			(((~stepSend[t][step] ? 0) > 0) || (def == \phSampleVoice)).if(
-				{ ~gSharedVoices }, { ~gTrackVoices[t] }));
-		// BYTEBEAT: the expression is not a synth arg — push it to this voice's ByteBeat
-		// UGen via the /eval unit command right after /s_new (ordered on the server).
-		(def == \phBytebeat).if {
-			s.sendMsg('/u_cmd', syn.nodeID, ~bbUgenIndex, '/eval',
-				~bbExprs[~bbExprIdx[t].clip(0, ~bbExprs.size - 1)]);
+		(def != \phBytebeat).if {          // bytebeat was triggered above; everything else spawns
+			syn = Synth(def, args,
+				(((~stepSend[t][step] ? 0) > 0) || (def == \phSampleVoice)).if(
+					{ ~gSharedVoices }, { ~gTrackVoices[t] }));
+			syn.register;
+			syn.onFree({ lst.remove(syn) });
+			lst.add(syn);
+			while ({ lst.size > ~maxPoly }) { lst.removeAt(0).free };
 		};
-		syn.register;
-		syn.onFree({ lst.remove(syn) });
-		lst.add(syn);
-		while ({ lst.size > ~maxPoly }) { lst.removeAt(0).free };
 	};
 };
 
@@ -475,17 +502,35 @@
 				});
 			}, {
 				(def == \phBytebeat).if({
-					// BYTEBEAT audition: expr is a bank index, not a synth arg. Strip it,
-					// spawn, then push the expression to the voice with /eval.
-					var clean = [], j = 0, ei = ~bbExprPrev, syn;
+					// BYTEBEAT audition: the preview voice is PERSISTENT too, for the same
+					// reason the track voices are — a fresh instance is silent until its
+					// /eval lands, so auditioning built a new one that usually never spoke
+					// (and never twice the same). Keep one, re-parse it, re-trigger it.
+					var clean = [], j = 0, ei = ~bbExprPrev;
 					while { j < pairs.size } {
 						var k = pairs[j], val = pairs[j + 1];
 						(k == \expr).if({ ei = val.asInteger }, { clean = clean ++ [k, val] });
 						j = j + 2;
 					};
-					syn = Synth(def, [\out, ~masterBus.index, \note, nn, \vel, vv] ++ clean, ~gSharedVoices);
-					s.sendMsg('/u_cmd', syn.nodeID, ~bbUgenIndex, '/eval',
-						~bbExprs[ei.clip(0, ~bbExprs.size - 1)]);
+					ei = ei.clip(0, ~bbExprs.size - 1);
+					~bbPrevVoice.isNil.if {
+						~bbPrevVoice = Synth.tail(~gSharedVoices, def, [\out, ~masterBus.index]);
+						~bbPrevVoice.register;       // ditto: without this the ref outlives the node
+						~bbPrevVoice.onFree({ ~bbPrevVoice = nil });
+						~bbPrevExpr = nil;
+					};
+					(~bbPrevExpr != ei).if {          // parse only when the expression changes
+						~bbPrevExpr = ei;
+						// deferred for the same reason as the track voices (see ~bbEnsure)
+						SystemClock.sched(0.05, {
+							~bbPrevVoice.notNil.if {
+								s.sendMsg('/u_cmd', ~bbPrevVoice.nodeID, ~bbUgenIndex, '/eval',
+									~bbExprs[ei]);
+							};
+							nil;
+						});
+					};
+					~bbPrevVoice.set(*([\note, nn, \vel, vv] ++ clean ++ [\t_trig, 1]));
 				}, {
 					// SAMPLE auditions the buffer the PAD holds (nothing captured -> silence)
 					Synth(def, [\out, ~masterBus.index, \note, nn, \vel, vv]
@@ -508,12 +553,11 @@
 			// any currently-ringing bytebeat voices with the /eval unit command.
 			(sym == \expr).if({
 				~bbExprIdx[t] = val.asInteger.clip(0, ~bbExprs.size - 1);
-				~trackVoices[t].do { |v|
-					s.sendMsg('/u_cmd', v.nodeID, ~bbUgenIndex, '/eval', ~bbExprs[~bbExprIdx[t]]);
-				};
+				~bbEval.(t);                                 // re-parse the LIVE voice
 			}, {
 				~pstore[t][sym] = val;                       // default for future strikes
 				~trackVoices[t].do { |v| v.set(sym, val) };  // update currently-ringing voices live
+				~bbVoice[t].notNil.if { ~bbVoice[t].set(sym, val) };   // ...and the bytebeat voice
 			});
 		});
 	}, '/ph/param'),
@@ -667,7 +711,12 @@
 		});
 		~smpPad.notNil.if { ~smpPad.free; ~smpPad = nil };   // pad released for the next take
 	}, '/ph/smpassign'),
-	OSCdef(\phPanic, { |m| ~stopSeq.value; ~gVoices.notNil.if { ~gVoices.deepFree }; ~trackVoices.do { |l| l.clear }; }, '/ph/panic'),
+	// PANIC frees everything under ~gVoices, which includes the persistent bytebeat voices —
+	// forget them here so the next hit rebuilds (and re-parses) them.
+	OSCdef(\phPanic, { |m|
+		~stopSeq.value; ~gVoices.notNil.if { ~gVoices.deepFree }; ~trackVoices.do { |l| l.clear };
+		~nTracks.do { |t| ~bbVoice[t] = nil }; ~bbPrevVoice = nil; ~bbPrevExpr = nil;
+	}, '/ph/panic'),
 	OSCdef(\phRecStart, { |m| ~recStart.value(m[1].asString); }, '/ph/recstart'),
 	OSCdef(\phRecStop,  { |m| ~recStop.value; }, '/ph/recstop'),
 	// master level from \phAmp -> forward to the controller (drives tail-end detection)

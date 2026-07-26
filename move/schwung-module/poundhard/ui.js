@@ -856,6 +856,13 @@ globalThis.tick = function () {
     }
     if (smpState !== 'idle' || smpHold) { ledDirty = true; screenDirty = true; }
     if (fxView && running) ledDirty = true;   /* pulse the FX-view track pads by note-data presence */
+    /* SELF-HEAL: the UI only repaints when its signature changes, so a paint that the host
+     * throws away — the display is cleared when a module is switched in, which can land
+     * AFTER our first draw — would never be reissued, and an idle rig (nothing playing,
+     * nothing changing) stays blank until you touch something. Re-assert everything a
+     * couple of times a second; at 30fps that is ~1/45 of the frames, far below the
+     * SPI-flooding threshold the throttle below guards against. */
+    if (phase - lastDrawAt >= 45) { ledDirty = true; screenDirty = true; }
     if (ledDirty) renderLEDs();
     if (running) renderStepButtons();   /* keep the pulse animating between full renders */
     if (overlay && phase >= overlayUntil) { overlay = null; screenDirty = true; }

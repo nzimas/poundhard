@@ -725,28 +725,31 @@
 	// "sample rate" — the master control of pitch/speed and the lo-fi crunch. The note
 	// scales that clock so different steps play at different pitches. A real amp envelope
 	// (with a release, unlike a bare timer) shapes each hit and self-frees the voice.
+	// PERSISTENT, NOT SPAWNED. The ByteBeat UGen parses its expression per INSTANCE and
+	// starts out `Undefined`, which evaluates to 0 — a fresh instance is SILENT until its
+	// asynchronous /eval unit command lands. Spawning one per hit therefore raced the parse
+	// against the note: long notes won it and screamed, percussive hits were over before it
+	// arrived and came out inaudible, and a re-audition of the "same" sound was a different
+	// instance that often lost the race — the engine sounded broken and unrepeatable.
+	// So the voice LIVES: one per track, parsed once, re-triggered per step, with a
+	// free-running counter (which is also what bytebeat actually is — a continuous stream).
 	~bbDef = SynthDef(\phBytebeat, { |out = 16, note = 48, vel = 1, rate = 8000,
 		origin = 65536, cutoff = 12000, res = 0.1, drive = 1.0,
 		attack = 0.004, decay = 0.5, sustain = 0.7, release = 0.3, ampcurve = -4,
-		amp = 0.5, pan = 0|
+		amp = 0.5, pan = 0, t_trig = 0|
 		var v = vel.clip(0, 2).max(0.03);
 		// bytebeat clock: base `rate` (its sample rate) scaled by the note, an octave per 12.
-		// Floor at 200Hz so a low note can't drop the clock subsonic (which LeakDC would
-		// then strip to silence) — the whole voice stays at least a lo-fi audible rate.
+		// Floor at 200Hz so a low note can't drop the clock subsonic.
 		var clk = (rate * (2 ** ((note.clip(0, 127) - 48) / 12))).clip(200, 44100);
-		// ORIGIN — where in the bytebeat stream this voice starts. A bytebeat expression is
-		// a function of a FREE-RUNNING counter, and most of the bank is silent near t=0:
-		// `t*(42&t>>10)` is zero until t passes 1024, `t&t>>8` until 256. A voice counts from
-		// zero and a percussive hit is over in a few thousand counts, so without an offset
-		// the pattern plays the dead zone of the stream and the engine reads as mostly
-		// silent. Starting each voice deep in the stream also makes `origin` an instrument
-		// control: different regions of one expression are different sounds.
-		// Capped at 2^22 so t stays an exactly-representable float for the voice's life.
+		// `origin` is WHERE IN THE STREAM this voice sits: most expressions are silent near
+		// t=0 (`t*(42&t>>10)` until t passes 1024, `t&t>>8` until 256). Capped at 2^22 so t
+		// stays exactly representable as a float for a long run.
 		var t = PulseCount.ar(Impulse.ar(clk)) + origin.clip(0, 4194304).round;
-		var raw = ByteBeat.ar(t);                       // -1..1, 8-bit; expression set via /eval
+		var raw = ByteBeat.ar(t);                       // expression set via /eval, once
+		// re-triggerable envelope, doneAction 0: the voice is never freed by a note ending.
 		var aEnv = EnvGen.ar(Env.new([0, 1, sustain.clip(0, 1), 0],
 			[attack.clip(0.001, 4), decay.clip(0.005, 8), release.clip(0.005, 8)], \sin),
-			doneAction: 2);
+			gate: t_trig, doneAction: 0);
 		var rq = (1 - res.clip(0, 0.96)).clip(0.05, 1);
 		var sig = RLPF.ar(raw, cutoff.clip(40, 18000), rq);
 		sig = (sig * (1 + (drive.clip(0.1, 6) * 1.5))).tanh;
