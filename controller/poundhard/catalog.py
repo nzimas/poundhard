@@ -944,10 +944,10 @@ FX_SPECS: list[FxSpec] = [
     FxSpec("GREYHOLE", "GREY", [("dTime", 0.05, 1.2), ("feedback", 0.2, 0.85), ("size", 0.8, 4.0),
                                 ("diff", 0.3, 1.0), ("damp", 0.1, 0.7), ("modDepth", 0.0, 0.5),
                                 ("modFreq", 0.1, 6.0)]),
-    # VERB — Dattorro plate. `decay` is the tail, `size` the plate, `damp` how fast the
-    # highs die, `diff` the density, and mod rate/depth the slow movement that keeps it
-    # from ringing metallic. Bands are set LUSH: long decays, big plates, gentle damping.
-    FxSpec("VERB", "VERB", [("decay", 0.6, 0.85), ("size", 0.7, 1.7), ("damp", 0.12, 0.6),
+    # VERB — FDN cathedral. `decay` is the tail (the band spans ~3 s to ~16 s of RT60),
+    # `size` the space, `damp` how fast the highs die, `diff` the early density, and mod
+    # rate/depth the slow movement that keeps it from ringing metallic.
+    FxSpec("VERB", "VERB", [("decay", 0.3, 0.95), ("size", 0.7, 1.7), ("damp", 0.12, 0.6),
                             ("diff", 0.55, 0.88), ("bandwidth", 0.55, 0.95),
                             ("modrate", 0.3, 1.6), ("moddepth", 0.15, 0.6),
                             ("width", 0.7, 1.3)]),

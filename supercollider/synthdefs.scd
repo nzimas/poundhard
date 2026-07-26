@@ -924,66 +924,83 @@
 		ReplaceOut.ar(out, ~killbad.(~panOut.((outSig * (1 - bypass)) + (dry * bypass), pan)));
 	}).add;
 
-	// ================= VERB — lush plate reverb (LAST in the chain) ====================
-	// A Dattorro plate (the topology behind high-end studio plates), built from CORE UGens
-	// only: JPverbRaw and GreyholeRaw both REFUSE to register on supernova, so the good
-	// third-party reverbs are unavailable — this is a real algorithm, not a fallback.
+	// ================= VERB — cathedral reverb (LAST in the chain) ====================
+	// A feedback delay network (FDN), built from CORE UGens only: JPverbRaw and GreyholeRaw
+	// both REFUSE to register on supernova, so the good third-party reverbs are unavailable —
+	// this is a real algorithm, not a fallback.
 	//
-	//   pre-delay -> bandwidth LPF -> 4 series allpass diffusers  (the input diffusion)
-	//   -> a figure-eight TANK: each half = a MODULATED allpass (the slow movement that
-	//      stops a plate ringing metallic), a long delay, a damping LPF, a second allpass
-	//      and another delay; each half is scaled by `decay` and cross-fed into the other.
-	// The two halves use different (incommensurate) delay lengths, so their outputs are
-	// naturally decorrelated — that's what makes the tail wide and lush instead of a mono
-	// wash. Delay times are Dattorro's, expressed in SECONDS so they're sample-rate safe.
+	// The point of the FDN over the Dattorro plate it replaces: the plate took its wet
+	// output from the END of each tank half, ~150ms down the delay chain, so the reverb
+	// arrived as a discrete slap — a pre-delay in everything but name. Here the wet output
+	// is the DIFFUSER output plus the network, and an allpass passes its input through
+	// directly: there is energy in the tail from the first sample, and the network fills in
+	// behind it. Zero pre-delay, zero attack.
+	//
+	//   input -> lowcut/bandwidth shaping -> 5 series allpass diffusers (dense early field)
+	//   -> 8 modulated delay lines, each damped, recirculated through an 8x8 HADAMARD matrix
+	//      (orthogonal: it redistributes energy without adding or losing any, which is what
+	//      makes the tail smooth instead of fluttery) and scaled per-line for the target RT60
+	//   -> wet = early field + the network's two output halves (already decorrelated)
 	SynthDef(\phVerb, { |out = 0, in = 0, bandwidth = 0.75, damp = 0.35,
 		decay = 0.75, diff = 0.7, modrate = 0.9, moddepth = 0.35, size = 1.0, lowcut = 90,
 		width = 1.0, amp = 1, pan = 0, bypass = 0, wet = 0.35, enable = 1|
 		var dry = In.ar(in, 2), inL = dry[0], inR = dry[1];
-		var sz  = size.clip(0.3, 2.0);
-		// Above ~0.85 the figure-eight's loop gain reaches unity: the tank runs away, the
-		// safety clipper mangles it and the tail gets SHORTER, not longer (measured: 0.80 ->
-		// 2.2s tail, 0.99 -> 0.38s). Clamp well inside the stable range.
-		var dcy = decay.clip(0.0, 0.85);
-		var g1  = (diff.clip(0.0, 0.9) * 0.75).clip(0.05, 0.85);   // input/tank diffusion
-		var g2  = (diff.clip(0.0, 0.9) * 0.625).clip(0.05, 0.8);
-		// SC's AllpassC takes a DECAY TIME, not the allpass coefficient g. For a Schroeder
-		// allpass of delay d and coefficient g, -60dB happens after 3/log10(1/g) repeats.
+		var sz = size.clip(0.3, 2.0);
+		// RT60 in SECONDS. The top of the range is cathedral territory — the network is
+		// orthogonal so a long tail is stable, not a runaway (the plate had to be clamped).
+		var rt60 = decay.clip(0, 1).linexp(0, 1, 1.5, 18) * sz.sqrt;
+		var dg = diff.clip(0.05, 0.9);
+		// AllpassC takes a DECAY TIME, not the coefficient g: -60dB after 3/log10(1/g) repeats.
 		var apT = { |d, g| d * 3 / (1 / g).log10 };
-		var fb  = LocalIn.ar(2);
-		var mod = SinOsc.kr([modrate.clip(0.01, 8), modrate.clip(0.01, 8) * 0.93], [0, 0.5pi])
-			* moddepth.clip(0, 1) * 0.0009;                        // +/- ~0.9ms of movement
-		var sig, lx, rx, outL, outR, mid, side;
-		// No pre-delay: the tank sees the hit the instant it happens, so the reverb blooms
-		// WITH the sound instead of arriving after it.
-		sig = (inL + inR) * 0.5;
-		sig = LPF.ar(sig, (300 + (bandwidth.clip(0, 1) * 17000)).clip(300, 18000));
-		sig = HPF.ar(sig, lowcut.clip(20, 600));
-		[0.004771, 0.003595, 0.012735, 0.009307].do { |t, i|
-			var gg = (i < 2).if({ g1 }, { g2 });
-			sig = AllpassC.ar(sig, 0.06, (t * sz).clip(0.0002, 0.05), apT.(t * sz, gg));
+		// mutually incommensurate line lengths — the spread is what sets the modal density
+		var dt = [0.0143, 0.0197, 0.0281, 0.0353, 0.0431, 0.0527, 0.0619, 0.0743] * sz;
+		var hf = (18000 * (1 - (damp.clip(0, 1) * 0.93))).clip(500, 18000);
+		var gains = 10 ** (dt * -3 / rt60.max(0.1));      // per-line gain for the target RT60
+		var mod = SinOsc.kr(
+			[0.71, 0.83, 0.97, 1.13, 1.27, 1.39, 1.51, 1.69] * modrate.clip(0.01, 8),
+			[0, 0.7, 1.4, 2.1, 2.8, 3.5, 4.2, 4.9]) * moddepth.clip(0, 1) * 0.0011;
+		var h4 = { |a|                                    // 4-point Hadamard butterfly
+			var s0 = a[0] + a[1], s1 = a[2] + a[3], d0 = a[0] - a[1], d1 = a[2] - a[3];
+			[s0 + s1, d0 + d1, s0 - s1, d0 - d1];
 		};
-		// --- tank, left half (cross-fed from the right) ---
-		lx = sig + (fb[1] * dcy);
-		lx = AllpassC.ar(lx, 0.08, ((0.022580 * sz) + mod[0]).clip(0.0002, 0.07), apT.(0.022580 * sz, g1));
-		lx = DelayC.ar(lx, 0.4, (0.149625 * sz).clip(0.001, 0.35));
-		lx = LPF.ar(lx, (18000 * (1 - (damp.clip(0, 1) * 0.95))).clip(400, 18000));
-		lx = AllpassC.ar(lx, 0.2, (0.060482 * sz).clip(0.0005, 0.15), apT.(0.060482 * sz, g2));
-		lx = DelayC.ar(lx, 0.4, (0.125100 * sz).clip(0.001, 0.35));
-		// --- tank, right half (cross-fed from the left) ---
-		rx = sig + (fb[0] * dcy);
-		rx = AllpassC.ar(rx, 0.08, ((0.030510 * sz) + mod[1]).clip(0.0002, 0.07), apT.(0.030510 * sz, g1));
-		rx = DelayC.ar(rx, 0.4, (0.141696 * sz).clip(0.001, 0.35));
-		rx = LPF.ar(rx, (18000 * (1 - (damp.clip(0, 1) * 0.95))).clip(400, 18000));
-		rx = AllpassC.ar(rx, 0.2, (0.089244 * sz).clip(0.0005, 0.15), apT.(0.089244 * sz, g2));
-		rx = DelayC.ar(rx, 0.4, (0.106280 * sz).clip(0.001, 0.35));
-		LocalOut.ar(~killbad.([lx, rx]));      // the tank's own feedback path
-		// stereo: the halves are already decorrelated; `width` sets how far apart they sit
-		mid = (lx + rx) * 0.5; side = (lx - rx) * 0.5 * width.clip(0, 1.5);
-		outL = (mid + side) * amp; outR = (mid - side) * amp;
-		ReplaceOut.ar(out, ~killbad.(~panOut.(
-			([XFade2.ar(inL, outL, wet * 2 - 1), XFade2.ar(inR, outR, wet * 2 - 1)] * enable
-				* (1 - bypass)) + (dry * bypass) + (dry * (1 - enable)), pan)));
+		var fb = LocalIn.ar(8);
+		var src, dif, lines, damped, mixed, wetL, wetR, mid, side, outSig;
+		src = (inL + inR) * 0.5;
+		src = HPF.ar(src, lowcut.clip(20, 600));
+		src = LPF.ar(src, (600 + (bandwidth.clip(0, 1) * 16000)).clip(600, 18000));
+		// EARLY FIELD — eight series allpasses spanning 0.7 to 24 ms. This is what you hear
+		// at t=0, and its density is what separates a cathedral from a slapback: each stage
+		// multiplies the echo count, so by the last one the first millisecond is already a
+		// wash rather than a handful of discrete reflections.
+		dif = src;
+		[0.00073, 0.00131, 0.00215, 0.00437, 0.00707, 0.01253, 0.01783, 0.02411].do { |t|
+			dif = AllpassC.ar(dif, 0.05, (t * sz).clip(0.0002, 0.045), apT.(t * sz, dg));
+		};
+		// THE NETWORK — inject the early field into every line (alternating sign decorrelates).
+		// Each line carries its own allpass BEFORE the damping filter: a plain delay line
+		// returns one echo per lap, an allpass-in-the-loop returns a smear, so the density
+		// keeps multiplying as the tail develops instead of staying at eight echoes a lap.
+		lines = DelayC.ar(([1, -1, 1, -1, 1, -1, 1, -1] * dif) + fb, 0.35,
+			(dt + mod).clip(0.001, 0.3));
+		lines = AllpassC.ar(lines, 0.12,
+			([0.00961, 0.01277, 0.00733, 0.01531, 0.00847, 0.01123, 0.01399, 0.00619] * sz)
+				.clip(0.0005, 0.1),
+			apT.([0.00961, 0.01277, 0.00733, 0.01531, 0.00847, 0.01123, 0.01399, 0.00619] * sz, dg));
+		damped = LPF.ar(lines, hf);
+		mixed = ((h4.(damped[0..3]) + h4.(damped[4..7])) ++ (h4.(damped[0..3]) - h4.(damped[4..7])))
+			* 0.35355;                                    // 1/sqrt(8): keeps the matrix unitary
+		LocalOut.ar(~killbad.(mixed * gains));
+		// wet = early field (immediate) + the network's halves, which are already decorrelated
+		// Makeup: eight lines each hold a fraction of the input energy, so the raw taps come
+		// out ~8x below the dry signal — the reverb has to be brought back up to unity or the
+		// wet control does nothing useful in its top half.
+		wetL = (dif * 0.8) + ((damped[0] + damped[2] + damped[4] + damped[6]) * 1.4);
+		wetR = (dif * 0.8) + ((damped[1] + damped[3] + damped[5] + damped[7]) * 1.4);
+		mid = (wetL + wetR) * 0.5; side = (wetL - wetR) * 0.5 * width.clip(0, 1.5);
+		wetL = (mid + side) * amp; wetR = (mid - side) * amp;
+		outSig = [XFade2.ar(inL, wetL, wet * 2 - 1), XFade2.ar(inR, wetR, wet * 2 - 1)];
+		ReplaceOut.ar(out, ~killbad.(~panOut.((outSig * enable * (1 - bypass))
+			+ (dry * bypass) + (dry * (1 - enable)), pan)));
 	}).add;
 
 	// ---- RESO: Streson — a tuned string resonator / comb-with-feedback (sc3-plugins) ----

@@ -434,14 +434,22 @@ sweeps delay time, feedback, size, diffusion, damping and modulation together.
 > reverb-ish blur is gone) — which is why the chain now ends in a dedicated reverb.
 
 **VERB** is the **plate reverb** that closes the chain, so it reverberates everything upstream
-of it. It's a **Dattorro plate** built from core UGens: pre-delay → a bandwidth filter → four
-series allpass diffusers → a figure-eight *tank* whose two halves each run a **modulated**
-allpass (the slow movement that stops a plate ringing metallic), a long delay, a damping
-low-pass, a second allpass and another delay — each half cross-fed into the other and scaled
-by `decay`. The halves use incommensurate delay lengths, so the tail decorrelates by itself:
-measured **3.5 s** at maximum decay with the two channels essentially uncorrelated — long and
-wide. Its macro sweeps decay, plate size, damping, diffusion, pre-delay, bandwidth, the
+of it. It's a **feedback delay network** built from core UGens: a bandwidth filter → **eight
+series allpass diffusers** spanning 0.7-24 ms (the early field) → **eight modulated delay
+lines**, each carrying its own allpass and damping low-pass, recirculated through an 8×8
+**Hadamard** matrix. The matrix is orthogonal — it redistributes energy without adding or
+losing any — which is what lets the tail run long and smooth instead of fluttering.
+
+The wet output is the **diffuser output plus the network**, and an allpass passes its input
+through directly, so there is energy in the tail from the first sample: measured on an
+offline impulse render, **0 ms pre-delay**, every 1 ms bin of the first 30 ms carrying
+energy, and an RT60 of **7.9 s to 17.8 s** across the decay range — cathedral scale, for
+ambient work. Its macro sweeps decay, size, damping, early diffusion, bandwidth, the
 modulation and stereo width.
+
+> This replaced a Dattorro plate that took its wet output from the *end* of each tank half,
+> ~150 ms down the delay chain: the reverb arrived as a discrete slap — a pre-delay in
+> everything but name.
 
 > Core UGens are not a compromise here: **both** `JPverbRaw` and `GreyholeRaw` refuse to
 > register on supernova, so SC's third-party reverbs are unavailable on the server PoundHard
