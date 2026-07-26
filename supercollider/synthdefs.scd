@@ -726,7 +726,7 @@
 	// scales that clock so different steps play at different pitches. A real amp envelope
 	// (with a release, unlike a bare timer) shapes each hit and self-frees the voice.
 	~bbDef = SynthDef(\phBytebeat, { |out = 16, note = 48, vel = 1, rate = 8000,
-		cutoff = 12000, res = 0.1, drive = 1.0,
+		origin = 65536, cutoff = 12000, res = 0.1, drive = 1.0,
 		attack = 0.004, decay = 0.5, sustain = 0.7, release = 0.3, ampcurve = -4,
 		amp = 0.5, pan = 0|
 		var v = vel.clip(0, 2).max(0.03);
@@ -734,7 +734,15 @@
 		// Floor at 200Hz so a low note can't drop the clock subsonic (which LeakDC would
 		// then strip to silence) — the whole voice stays at least a lo-fi audible rate.
 		var clk = (rate * (2 ** ((note.clip(0, 127) - 48) / 12))).clip(200, 44100);
-		var t = PulseCount.ar(Impulse.ar(clk));
+		// ORIGIN — where in the bytebeat stream this voice starts. A bytebeat expression is
+		// a function of a FREE-RUNNING counter, and most of the bank is silent near t=0:
+		// `t*(42&t>>10)` is zero until t passes 1024, `t&t>>8` until 256. A voice counts from
+		// zero and a percussive hit is over in a few thousand counts, so without an offset
+		// the pattern plays the dead zone of the stream and the engine reads as mostly
+		// silent. Starting each voice deep in the stream also makes `origin` an instrument
+		// control: different regions of one expression are different sounds.
+		// Capped at 2^22 so t stays an exactly-representable float for the voice's life.
+		var t = PulseCount.ar(Impulse.ar(clk)) + origin.clip(0, 4194304).round;
 		var raw = ByteBeat.ar(t);                       // -1..1, 8-bit; expression set via /eval
 		var aEnv = EnvGen.ar(Env.new([0, 1, sustain.clip(0, 1), 0],
 			[attack.clip(0.001, 4), decay.clip(0.005, 8), release.clip(0.005, 8)], \sin),

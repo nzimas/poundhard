@@ -82,17 +82,17 @@
 	"t*(t>>5|t>>8)",
 	"t*(((t>>12)|(t>>8))&(63&(t>>4)))",
 	"(t>>6|t|t>>(t>>16))*10+((t>>11)&7)",
-	"t*5&(t>>7)|t*3&(t*4>>10)",
+	"(t&t>>7)*(t>>8&t>>11)|t>>2",
 	"t*9&t>>4|t*5&t>>7|t*3&t/1024",
 	"t>>4|t&(t>>5)|t>>7",
-	"((t<<1)^((t<<1)+(t>>7)&t>>12))|t>>(4-(1^7&(t>>19)))|t>>7",
-	"t&t>>8",
+	"t*(t>>6&t>>9)|t>>3&t*5",
+	"t*(t>>9&t>>13)|t*(t>>7&t>>11)",
 	"t*(42&t>>10)",
-	"(t*5&t>>7)|(t*3&t>>10)",
+	"(t>>2)*(t>>5&t>>9|t>>3)",
 	"t*((t>>9|t>>13)&25&t>>6)",
 	"(t>>7|t|t>>6)*10+4*(t&t>>13|t>>6)",
 	"t*(t>>11&t>>8&123&t>>3)",
-	"(t*(t>>5|t>>8))>>(t>>16)",
+	"(t>>13|t)&(t>>7|t)&(t>>4|t)",
 	"t*(t>>7|t>>10)^(t>>5)",
 	"(t/8)&(t>>10)|(t*4)&(t>>7)|(t*2)&(t>>5)",
 	"t*(((t>>16)|(t>>8))&(63&(t>>4)))",
@@ -107,6 +107,15 @@
 ~smpCapBuf = nil;                      // buffer being recorded into
 ~smpMaxDur = 2.0;                      // cap a take (buffer length caps RecordBuf)
 ~bbExprIdx = Array.fill(~nTracks, { 0 });   // per-track expression index into ~bbExprs
+// BYTEBEAT STREAM POSITION. A bytebeat expression is a function of a FREE-RUNNING counter
+// and most of the bank is silent near t=0 (`t*(42&t>>10)` is zero until t passes 1024,
+// `t&t>>8` until 256). A voice counts from zero and a percussive hit is over in a few
+// thousand counts, so every hit played the dead head of the stream — the engine read as
+// mostly silent. Each track now keeps its own position and every hit continues where the
+// stream would have been, so a pattern walks THROUGH the expression the way bytebeat is
+// meant to be heard, instead of replaying its first moment forever.
+~bbOrigin     = Array.fill(~nTracks, { nil });   // running position (counts)
+~bbOriginBase = Array.fill(~nTracks, { nil });   // the track's Origin param, to detect a re-roll
 ~bbExprPrev = 0;                            // audition expression index
 // ~bbUgenIndex (the ByteBeat UGen's graph index for /eval) is set in synthdefs.scd.
 ~maxPoly   = 3;                                      // per-track voice cap (steal oldest)
@@ -276,6 +285,19 @@
 		(def == \phSampleVoice).if {
 			merged[\buf] = ~smpBuf[t].notNil.if({ ~smpBuf[t].bufnum }, { ~silentBuf.bufnum });
 		};
+		// BYTEBEAT: hand this hit the track's current stream position, then advance it by
+		// exactly the counts the stream would have run between this step and the next — so
+		// consecutive hits are consecutive slices of one continuous bytebeat, not the same
+		// (usually silent) opening moment over and over. Re-rolling the track's Origin param
+		// restarts the walk from there. Wrapped at 2^22 to keep t an exact float.
+		(def == \phBytebeat).if {
+			var base = (merged[\origin] ? 65536).asFloat;
+			var clk = ((merged[\rate] ? 8000) * (2 ** ((nn.clip(0, 127) - 48) / 12))).clip(200, 44100);
+			var stepDur = (60 / ~bpm.max(20)) / ~stepsPerBeat / ~rate[t].max(0.0625);
+			(~bbOriginBase[t] != base).if { ~bbOriginBase[t] = base; ~bbOrigin[t] = base };
+			merged[\origin] = ~bbOrigin[t];
+			~bbOrigin[t] = (~bbOrigin[t] + (clk * stepDur)).wrap(0, 4194304);
+		};
 		args = [\note, nn, \vel, vv] ++ merged.getPairs;
 		(def == \phSampler).if {
 			args = args ++ [\buf, ~sampBuf[t].notNil.if({ ~sampBuf[t].bufnum }, { ~silentBuf.bufnum })];
@@ -296,8 +318,6 @@
 				{ ~gSharedVoices }, { ~gTrackVoices[t] }));
 		// BYTEBEAT: the expression is not a synth arg — push it to this voice's ByteBeat
 		// UGen via the /eval unit command right after /s_new (ordered on the server).
-		(def == \phSampleVoice).if {
-		};
 		(def == \phBytebeat).if {
 			s.sendMsg('/u_cmd', syn.nodeID, ~bbUgenIndex, '/eval',
 				~bbExprs[~bbExprIdx[t].clip(0, ~bbExprs.size - 1)]);
@@ -421,7 +441,12 @@
 	// track, no per-track FX). Used by the engine-palette pad-audition gesture.
 	// Args: typeIdx, note, vel, drumMode, then flat [nameStr, val, nameStr, val, ...].
 	OSCdef(\phPreview, { |m|
-		var typeIdx = m[1].asInteger;
+		// The controller pushes state (and the UI can fire an audition) the moment sclang
+		// answers — long before the server has booted and ~scaffold has run. Touching
+		// ~masterBus then throws inside the OSC dispatcher, and a throw there can take the
+		// boot down with it: the engine never reaches ready and the device sits on
+		// "starting...". Nothing can be auditioned before there is a graph anyway.
+		var typeIdx = (~ready == true).if({ m[1].asInteger }, { -1 });
 		var nn = m[2].asFloat, vv = m[3].asFloat, mode = m[4].asInteger;
 		var pairs = [], i = 5;
 		while { i < (m.size - 1) } { pairs = pairs ++ [m[i].asSymbol, m[i + 1].asFloat]; i = i + 2 };
@@ -589,22 +614,24 @@
 	OSCdef(\phSmpTrig, { |m|            // \phCapture's SendTrig -> tell the controller
 		(m[2].asInteger == 1701).if { ~ctrl.sendMsg("/ph/smprec") };
 	}, '/tr'),
-	OSCdef(\phSmpArm, { |m|
-		var src = m[1].asInteger.clip(0, ~nTracks - 1);
-		var th = (m[2] ? 0.02).asFloat.clip(0.001, 0.5);
-		~smpCapSy.notNil.if { ~smpCapSy.free; ~smpCapSy = nil };
-		~smpCapBuf.notNil.if { ~smpCapBuf.free };
-		// NOTE: an OSC handler is NOT a Routine, so s.sync here fails with _RoutineYield and
-		// silently aborts the handler. Use Buffer.alloc's completion action instead.
-		~smpCapBuf = Buffer.alloc(s, (~smpMaxDur * s.sampleRate).asInteger, 1, { |b|
-			// MUST run AFTER the voices and FX have written the track bus: inside ~gVoices it
-			// would read the bus ~gClear zeroes each block (and could race the writers under
-			// supernova), so it goes at the head of the serial ~gSend stage — exactly where
-			// the fully-processed track signal exists.
-			~smpCapSy = Synth.head(~gSend, \phCapture,
-				[\in, ~masterBus.index, \buf, b.bufnum, \thresh, th, \timeout, 8]);
-			~smpCapSy.onFree({ ~smpCapSy = nil; ~ctrl.sendMsg("/ph/smpdone") });
-		});
+	OSCdef(\phSmpArm, { |m|                        // same pre-scaffold guard as /ph/preview
+		(~ready == true).if {
+			var src = m[1].asInteger.clip(0, ~nTracks - 1);
+			var th = (m[2] ? 0.02).asFloat.clip(0.001, 0.5);
+			~smpCapSy.notNil.if { ~smpCapSy.free; ~smpCapSy = nil };
+			~smpCapBuf.notNil.if { ~smpCapBuf.free };
+			// NOTE: an OSC handler is NOT a Routine, so s.sync here fails with _RoutineYield and
+			// silently aborts the handler. Use Buffer.alloc's completion action instead.
+			~smpCapBuf = Buffer.alloc(s, (~smpMaxDur * s.sampleRate).asInteger, 1, { |b|
+				// MUST run AFTER the voices and FX have written the track bus: inside ~gVoices it
+				// would read the bus ~gClear zeroes each block (and could race the writers under
+				// supernova), so it goes at the head of the serial ~gSend stage — exactly where
+				// the fully-processed track signal exists.
+				~smpCapSy = Synth.head(~gSend, \phCapture,
+					[\in, ~masterBus.index, \buf, b.bufnum, \thresh, th, \timeout, 8]);
+				~smpCapSy.onFree({ ~smpCapSy = nil; ~ctrl.sendMsg("/ph/smpdone") });
+			});
+		};
 	}, '/ph/smparm'),
 	// /ph/smpwrite "<path>": flush the captured buffer to disk for the Csound mangler.
 	OSCdef(\phSmpWrite, { |m|

@@ -253,6 +253,17 @@ All voices are **spawned per hit and self-free** (see [voice model](#voice-model
   lowpass + drive + a real AR envelope shape and free each hit. Glitch/texture, in the
   BEN/NOIZEOP/CHAOS family.
 
+  `origin` is **where in the stream the voice starts**, and it matters more than it sounds like
+  it should. A bytebeat expression is a function of a free-running counter, and most of the bank
+  is *silent* near `t=0`: `t*(42&t>>10)` emits nothing until `t` passes 1024, `t&t>>8` until 256.
+  A voice counts from zero and a percussive hit is over within a few thousand counts, so the
+  engine used to replay the dead head of the stream on every hit — measured offline, **7 of the
+  19 expressions produced not one audible hit in a 16-step bar**. Each track now starts at its
+  own `origin` and every hit **continues where the stream would have been**, so a pattern walks
+  through the expression the way bytebeat is meant to be heard. The bank is also chosen for
+  *duty* — the fraction of stream positions a hit can land on and still be heard — with the
+  three worst expressions (0.67) replaced; the bank's minimum is now 0.92.
+
 - **SAMPLE** — the **capture engine**, and the only one whose sound you *make* rather than
   generate. **Hold its pad and tap another engine's pad**: that engine auditions, a
   **threshold-gated recorder** captures it (recording begins when the signal actually

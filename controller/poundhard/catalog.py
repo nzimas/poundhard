@@ -819,6 +819,10 @@ BYTEBEAT = VoiceSpec(
           musical=(0.0, _bb_hi), modulatable=False, macro=False, randomize=RandomizePolicy.WIDE),
         P("bytebeat.rate", "Clock", unit="Hz", rmin=500.0, rmax=44100.0, default=8000.0,
           curve=Curve.EXP, formatter="Hz", musical=(2000.0, 22050.0)),
+        # WHERE in the stream the voice starts. Most expressions are silent near t=0 and a
+        # percussive hit never gets past it, so the musical band starts deep in the stream.
+        P("bytebeat.origin", "Origin", rmin=256.0, rmax=4194304.0, default=65536.0,
+          curve=Curve.EXP, formatter="float0", musical=(16384.0, 1048576.0)),
         P("bytebeat.cutoff", "Cutoff", unit="Hz", rmin=40.0, rmax=18000.0, default=12000.0,
           curve=Curve.EXP, formatter="Hz", musical=(600.0, 16000.0)),
         P("bytebeat.res", "Resonance", default=0.1, musical=(0.0, 0.7), danger=DangerClass.FEEDBACK),

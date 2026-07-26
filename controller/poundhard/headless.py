@@ -69,6 +69,12 @@ class Controller:
         self._stop = threading.Event()
         self._built = threading.Event()
         self._last_seq = -1
+        # control.json survives a restart, so the queue we first read belongs to the PREVIOUS
+        # session. Replaying it dumped a whole machine's worth of commands onto an engine that
+        # was still booting — which floods the server with messages for nodes that don't exist
+        # yet and can leave the graph wedged (ready, but silent). Adopt the file's high-water
+        # mark on the first read instead of executing it.
+        self._seq_primed = False
         self._last_tempo = None
         self._last_status_key: str | None = None
         self._last_status_write = 0.0
@@ -522,6 +528,22 @@ class Controller:
         # overwrites control.json between polls. Process every entry newer than
         # the last seq we handled (de-dup by seq), in order.
         cmds = doc.get("cmds")
+        if not self._seq_primed:
+            # first read after startup: take the queue's high-water mark, run nothing
+            self._seq_primed = True
+            seqs = [e.get("seq", 0) for e in cmds] if isinstance(cmds, list) else []
+            if isinstance(ui_seq, (int, float)):
+                seqs.append(ui_seq)
+            if seqs:
+                self._last_seq = max(seqs)
+            return
+        # Until the engine answers /ph/ready there is no graph to talk to: a command issued
+        # now would be sent into the void, and pushing state at a half-booted server is what
+        # wedges it. The UI is showing "starting…" at this point anyway.
+        if not self._built.is_set():
+            if isinstance(cmds, list) and cmds:
+                self._last_seq = max([self._last_seq] + [e.get("seq", 0) for e in cmds])
+            return
         if isinstance(cmds, list):
             newest = self._last_seq
             for e in cmds:
