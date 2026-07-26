@@ -14,8 +14,14 @@ RNBO=/data/UserData/rnbo
 # /.local/share/SuperCollider (filesystem root) and fails -> Server.default is
 # nil -> the engine never boots. Point HOME at an ableton-writable dir.
 export HOME=/data/UserData
+# NOTE: this only helps sclang. scsynth/supernova/jackd carry RT file capabilities, and
+# glibc DISCARDS LD_LIBRARY_PATH for a capability-carrying binary — they find their
+# libraries through the RPATH baked into them (patched at bundle time to $PH/lib).
 export LD_LIBRARY_PATH=$PH/lib:$RNBO/lib
-export JACK_DRIVER_DIR=/data/UserData/schwung/lib/jack
+# The shadow driver comes from Schwung (a hard prerequisite); fall back to RNBO's copy.
+JACK_DRIVER_DIR=/data/UserData/schwung/lib/jack
+[ -d "$JACK_DRIVER_DIR" ] || JACK_DRIVER_DIR=$RNBO/lib/jack
+export JACK_DRIVER_DIR
 export JACK_NO_AUDIO_RESERVATION=1
 export SC_JACK_DEFAULT_OUTPUTS=system          # scsynth out -> shadow playback
 export SC_PLUGIN_PATH=$PH/plugins              # UGen plugins (backup to ph-boot)
@@ -39,7 +45,11 @@ echo "[engine] starting jackd -R -d shadow (realtime)"
 # scsynth's audio callback thread to RT too (scsynth has cap_sys_nice). Needs
 # cap_sys_nice+cap_ipc_lock on the jackd binary. Priority 70 stays BELOW the
 # SPI/IRQ kernel threads (chrt 90/91) so the DAC/display path is never starved.
-pgrep -f "jackd -R" >/dev/null 2>&1 || { $RNBO/bin/jackd -R -P 70 -d shadow > "$JACKLOG" 2>&1 & sleep 2; }
+# PoundHard ships its own jackd; RNBO's is only a fallback for older installs. Whichever
+# is already RUNNING wins — the shadow JACK is shared with the rest of the box.
+JACKBIN=$PH/bin/jackd
+[ -x "$JACKBIN" ] || JACKBIN=$RNBO/bin/jackd
+pgrep -f "jackd -R" >/dev/null 2>&1 || { "$JACKBIN" -R -P 70 -d shadow > "$JACKLOG" 2>&1 & sleep 2; }
 grep -q "attached to shared memory" "$JACKLOG" 2>/dev/null && echo "[engine] shadow attached"
 
 echo "[engine] starting sclang (ph-boot.scd) — pinned to cores 0-2"

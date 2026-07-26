@@ -1,15 +1,26 @@
 #!/bin/bash
 # Provision the SELF-CONTAINED scsynth/sclang runtime for PoundHard on the Move.
 #
-# PoundHard ships its own SuperCollider runtime — this installs the vendored bundle
-# (bin/ lib/ plugins/ share/ = scsynth, sclang, every UGen plugin it uses, the SC class
-# library + Extensions, and a self-contained sclang_conf that points at PoundHard's own
-# dirs). NO other project (wildrider, etc.) needs to be on the device.
+# PoundHard ships its own SuperCollider AND JACK runtime — this installs the vendored
+# bundle (bin/ lib/ plugins/ share/ = scsynth, supernova, sclang, jackd, libjack, every
+# UGen plugin it uses, the SC class library + Extensions, and a self-contained sclang_conf
+# that points at PoundHard's own dirs). NO other project (wildrider, RNBO) is needed.
+#
+# The binaries in the bundle have their RPATH patched to PoundHard's own lib. That matters
+# because scsynth/supernova/jackd carry RT file capabilities, and glibc runs a
+# capability-carrying binary in secure-execution mode where LD_LIBRARY_PATH is discarded —
+# so RPATH is the ONLY search path they have. The runtime was originally copied out of a
+# wildrider install and kept ITS RPATH, which is why deploying to a device without
+# wildrider produced "libsndfile.so.1: cannot open shared object file" and a stack stuck
+# on "starting..." (issue #3). An RPATH can be shortened in place but never lengthened,
+# so jackd (whose original path was too short to hold the full install path) points at
+# /data/UserData/phlib, a symlink this script creates.
 #
 # The bundle is move/bundle/poundhard-sc-runtime.tar.gz in this repo. Refresh it from a
 # working device with:
 #   ssh root@<host> 'tar czf - -C /data/UserData/poundhard bin lib plugins share' \
 #     > move/bundle/poundhard-sc-runtime.tar.gz
+# ...and re-patch the RPATHs afterwards, or you will ship whatever paths that device had.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 HOST="${1:-move.local}"
@@ -24,10 +35,40 @@ ssh "root@$HOST" "tar -C $DEST -xzf -" < "$BUNDLE"
 ssh "root@$HOST" "
   set -e
   chown -R ableton:users $DEST/bin $DEST/lib $DEST/plugins $DEST/share
-  # scsynth needs RT capabilities (cleared by chown, so set them AFTER)
+  # The RT binaries carry file capabilities — and glibc runs a capability-carrying binary
+  # in secure-execution mode, where LD_LIBRARY_PATH is DISCARDED. Their baked-in RPATH is
+  # therefore the only library search path that counts, which is why the bundle's binaries
+  # are patched to point at PoundHard's own lib (see the header of this file).
+  # chown clears file caps, so set them AFTER.
   setcap cap_ipc_lock,cap_sys_nice,cap_sys_resource=eip $DEST/bin/scsynth
-  getcap $DEST/bin/scsynth
-  # the shared jackd (from the schwung/rnbo host) wants RT caps too — harmless if absent
-  JK=/data/UserData/rnbo/bin/jackd; [ -f \$JK ] && setcap cap_ipc_lock,cap_sys_nice=eip \$JK || true
+  setcap cap_ipc_lock,cap_sys_nice,cap_sys_resource=eip $DEST/bin/supernova
+  setcap cap_ipc_lock,cap_sys_nice=eip $DEST/bin/jackd
+  # jackd's RPATH had no room for the full install path (an RPATH can be shortened in
+  # place but never lengthened), so it names a short symlink instead.
+  ln -sfn $DEST/lib /data/UserData/phlib
+  getcap $DEST/bin/scsynth $DEST/bin/supernova $DEST/bin/jackd
 "
-echo "Done. Self-contained scsynth + sclang provisioned for PoundHard (no wildrider needed)."
+
+# PREFLIGHT — run each RT binary with an EMPTY environment. That is exactly the situation
+# the loader puts a capped binary in, so if a library is unreachable by RPATH alone it
+# fails HERE, at deploy time, instead of silently leaving the device on 'starting...'.
+echo "Verifying the runtime resolves its libraries with no LD_LIBRARY_PATH ..."
+ssh "root@$HOST" "
+  fail=0
+  for b in scsynth supernova jackd sclang; do
+    case \$b in jackd) arg=--version ;; *) arg=-v ;; esac
+    if env -i $DEST/bin/\$b \$arg >/dev/null 2>/tmp/ph_pre.err; then
+      echo \"  ok   \$b\"
+    else
+      if grep -q 'error while loading shared libraries' /tmp/ph_pre.err; then
+        echo \"  FAIL \$b: \$(cat /tmp/ph_pre.err)\"; fail=1
+      else
+        echo \"  ok   \$b (no version flag, but the loader was happy)\"
+      fi
+    fi
+  done
+  rm -f /tmp/ph_pre.err
+  [ \$fail -eq 0 ] || { echo 'A binary cannot find its libraries — the stack would hang on starting...' >&2; exit 1; }
+"
+
+echo "Done. Self-contained SC + JACK runtime provisioned (no wildrider, no RNBO needed)."

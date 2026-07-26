@@ -857,6 +857,10 @@ configurable via the `PH_WEB_PORT` environment variable.
 
 ## Deploy to the Move
 
+**On the device you need Schwung** (PoundHard is a Schwung *overtake* module, and Schwung
+supplies the shadow JACK driver). Nothing else: the SuperCollider engine **and** the JACK
+server ship in PoundHard's own runtime bundle — no wildrider, no RNBO.
+
 ```bash
 cd move
 ./deploy.sh [move-host]      # default host: move.local
@@ -865,13 +869,31 @@ cd move
 
 `deploy.sh` runs three steps you can also run individually:
 
-1. **`deploy-bundle.sh`** — installs PoundHard's **self-contained** scsynth/sclang
-   runtime under `/data/UserData/poundhard`. The whole runtime — scsynth, sclang,
-   every UGen plugin it uses (**mi-UGens** for RINGS/PLAITS/CLDS, **sc3-plugins** for
-   many engines and the RESO/GREY effects, STK, ByteBeat…), the SuperCollider class
-   library + Extensions, and a self-contained `sclang_conf` — is vendored in this repo
-   at `move/bundle/poundhard-sc-runtime.tar.gz` and pointed at PoundHard's own dirs.
-   **No other project (wildrider, etc.) needs to be on the device.**
+1. **`deploy-bundle.sh`** — installs PoundHard's **self-contained** audio runtime under
+   `/data/UserData/poundhard`. The whole runtime — supernova, scsynth, sclang, **jackd
+   and libjack**, every UGen plugin it uses (**mi-UGens** for RINGS/PLAITS/CLDS,
+   **sc3-plugins** for many engines and the RESO/GREY effects, STK, ByteBeat…), the
+   SuperCollider class library + Extensions, and a self-contained `sclang_conf` — is
+   vendored in this repo at `move/bundle/poundhard-sc-runtime.tar.gz` and pointed at
+   PoundHard's own dirs. **No other project (wildrider, RNBO) needs to be on the
+   device** — only Schwung, which supplies the shadow JACK driver and hosts the module.
+
+   It finishes with a **preflight**: every RT binary is executed once with an *empty*
+   environment. That is exactly the state the loader puts them in at runtime (below), so
+   an unreachable library fails here, at deploy time, instead of leaving the device sitting
+   on "starting…" with the reason buried in a log.
+
+   > **Why RPATH, not `LD_LIBRARY_PATH`.** `scsynth`, `supernova` and `jackd` carry RT file
+   > capabilities, and glibc runs a capability-carrying binary in **secure-execution mode**,
+   > where `LD_LIBRARY_PATH` is **discarded** — the RPATH compiled into the binary is the
+   > only search path they have. The vendored runtime was originally copied out of a
+   > *wildrider* install and kept **its** RPATH, so on a device without wildrider `scsynth`
+   > died with `libsndfile.so.1: cannot open shared object file` even though that library was
+   > sitting in `$PH/lib` (issue #3). The bundle's binaries are now patched to point at
+   > PoundHard's own lib. An RPATH can be **shortened** in place but never lengthened, which
+   > is why `jackd` — whose original path had no room — points at `/data/UserData/phlib`, a
+   > symlink the deploy creates. Regenerating the bundle from a device means re-patching the
+   > RPATHs, or you ship whatever paths that device happened to have.
 2. **`deploy-controller.sh`** — the Python controller, vendored `python-osc`, the
    engine `.scd` files, and the `run-*.sh` scripts.
 3. **`deploy-module.sh`** — the Schwung overtake module (`module.json` + `ui.js`
@@ -1104,6 +1126,7 @@ To the author's best knowledge:
 | **mi-UGens** — SuperCollider ports of **Mutable Instruments** *Plaits, Rings, Clouds* | the PLAITS / RINGS / CLOUDS engines | Mutable Instruments DSP © Émilie Gillet (**MIT**); SC UGen wrapper **GPL-3.0** |
 | **STK — the Synthesis ToolKit** (Perry R. Cook & Gary P. Scavone) | SHAKER / MEMBRANE / MALLET / BOWED voices (+ bundled `rawwaves/`) | STK permissive free license |
 | **ByteBeat** (github.com/midouest/bytebeat) | the BYTEBEAT engine (prebuilt `.so` shipped) | **GPL-3.0** (see `supercollider/plugins/ByteBeat/LICENSE`) |
+| **JACK2** (`jackd`, `libjackserver`, `libjack`) | the audio server the engine runs on — **shipped in the runtime bundle** so no other project has to provide it | server **GPL-2.0-or-later**, client library **LGPL-2.1-or-later** |
 | **python-osc** (vendored under `controller/vendor/`) | OSC transport in the controller | Unlicense / public domain |
 | **Csound** | investigated for a future "Csound edition" — **not shipped** in this repo | LGPL-2.1-or-later |
 | **Schwung** / move-anything (and its `wildrider` SC bundle) | the host takeover framework PoundHard runs *inside* — **not part of this repo** | © its author; separate project & terms |
@@ -1111,6 +1134,12 @@ To the author's best knowledge:
 The prebuilt `ByteBeat.so` is an aarch64 binary of GPL-3.0 source; its corresponding
 source is upstream at github.com/midouest/bytebeat, and `move/build-bytebeat.sh`
 reproduces the build.
+
+The runtime bundle likewise ships prebuilt aarch64 binaries of GPL software —
+SuperCollider (`scsynth`, `supernova`, `sclang`) and JACK2 (`jackd`, `libjackserver`,
+`libjack`), the latter taken from the Move's own JACK build. Their corresponding sources
+are the upstream projects named above; the binaries carry only a patched RPATH (the
+library search path), no code changes.
 
 ### Ableton — no affiliation, trademarks, and device content
 
