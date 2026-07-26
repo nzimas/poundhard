@@ -189,6 +189,10 @@ let fxView = false, fxHeld = -1;
 /* SAMPLE capture lifecycle, mirrored from status: idle/armed/recording/processing/ready.
  * Holding the SAMPLE pad turns the OTHER engine pads into capture sources. */
 let smpState = 'idle', smpSrc = -1, smpChain = [];
+/* A short press of the SAMPLE pad just auditions the take — the UI must not react at
+ * all. Only HOLDING it (past HOLD_MS) arms recording and turns the other engine pads
+ * into capture sources. smpHold marks that the hold has been recognised. */
+let smpHold = false;
 const SAMPLE_CELL = 18;
 let drumMode = -1;                   /* committed DRUM type (-1 = any); mirrors the controller */
 let drumPick = -1;                   /* type picked while the DRUM pad is held, committed on release */
@@ -408,12 +412,12 @@ function renderLEDs() {
                 else if (smpState === 'recording') color = 1;
                 else if (smpState === 'processing') color = (phase % 16 < 8) ? 28 : 111;
                 else if (smpState === 'ready') color = (phase % 24 < 12) ? 8 : 30;
-                else color = (paletteHeld === c) ? White : TYPE_COL.SAMPLE[0];
+                else color = (smpHold && paletteHeld === c) ? White : TYPE_COL.SAMPLE[0];
             } else if (c < N_ENGINES) {
                 let pair = TYPE_COL[ENGINE_TYPES[c]];
                 /* holding SAMPLE: every other engine pad is a CAPTURE SOURCE — tap one and
                  * whatever it plays is what gets sampled. */
-                if (paletteHeld === SAMPLE_CELL) color = (smpSrc === c) ? White : (pair ? pair[1] : DIM_COLOR);
+                if (smpHold) color = (smpSrc === c) ? White : (pair ? pair[1] : DIM_COLOR);
                 else color = (paletteHeld === c) ? White : (pair ? pair[0] : DIM_COLOR);
             } else if (c === HEAT_CELL) {                          /* HEAT toggle */
                 color = heatOn ? ((phase % 16 < 8) ? HEAT_HOT : HEAT_WARM) : HEAT_IDLE;
@@ -598,7 +602,7 @@ function drawScreen() {
     if (exitConfirm) { drawExitConfirm(); return; }
     if (recView) { drawRec(); return; }
     /* the capture engine narrates its own lifecycle on screen */
-    if ((paletteHeld === SAMPLE_CELL || smpState !== 'idle') && !fxView && !patView && !projView && editTrack < 0) {
+    if ((smpHold || smpState !== 'idle') && !fxView && !patView && !projView && editTrack < 0) {
         drawSample(); return;
     }
     /* holding the DRUM pad: show the chosen drum type BIG while the picker is live */
@@ -802,7 +806,11 @@ globalThis.tick = function () {
     if (recView && recState !== 'idle') ledDirty = true;          /* animate the rec/armed pad */
     if (editTrack >= 0 && !fxView) { for (var _lv = 0; _lv < N_STEPS; _lv++) if (editLiving[_lv]) { ledDirty = true; break; } }  /* pulse living steps */
     if ((heatOn || shufOn) && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse HEAT / SHUFFLE pads */
-    if (smpState !== 'idle' || paletteHeld === SAMPLE_CELL) { ledDirty = true; screenDirty = true; }
+    /* promote a sustained press on the SAMPLE pad into a HOLD (record-arm) */
+    if (paletteHeld === SAMPLE_CELL && !smpHold && (Date.now() - paletteHeldStart) >= HOLD_MS) {
+        smpHold = true; ledDirty = true; screenDirty = true;
+    }
+    if (smpState !== 'idle' || smpHold) { ledDirty = true; screenDirty = true; }
     if (fxView && running) ledDirty = true;   /* pulse the FX-view track pads by note-data presence */
     if (ledDirty) renderLEDs();
     if (running) renderStepButtons();   /* keep the pulse animating between full renders */
@@ -1000,7 +1008,7 @@ globalThis.onMidiMessageInternal = function (data) {
          * to the engine when the DRUM pad is RELEASED — see the pad-up handler. */
         /* hold SAMPLE + tap another engine pad = capture THAT engine: it auditions (so it
          * makes the sound) and the engine threshold-records it into the SAMPLE pad. */
-        if (paletteHeld === SAMPLE_CELL && cell < N_ENGINES && cell !== SAMPLE_CELL) {
+        if (smpHold && paletteHeld === SAMPLE_CELL && cell < N_ENGINES && cell !== SAMPLE_CELL) {
             sendCmd('smparm', cell);            /* arm the threshold capture first... */
             sendCmd('audition', cell);          /* ...then make the source engine sound */
             paletteConsumed = true;
@@ -1055,7 +1063,7 @@ globalThis.onMidiMessageInternal = function (data) {
                 sendCmd('drummode', drumMode);
                 showAction(DRUM_MODES[drumMode]);
             } else if (!paletteConsumed) { sendCmd('audition', cell); showAction('HEAR ' + ENGINE_TYPES[cell]); }
-            drumPick = -1;
+            drumPick = -1; smpHold = false;
             paletteHeld = -1; paletteConsumed = false; ledDirty = true; screenDirty = true;
         }
         return;

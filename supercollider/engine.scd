@@ -514,8 +514,9 @@
 	// would delete those groups too — leaving ~gTrackVoices pointing at dead nodes so no
 	// voice could spawn again. deepFree kills every synth but keeps the group structure.
 	// ---- SAMPLE engine: threshold capture + buffer hand-off ----------------------
-	// /ph/smparm <srcTrack> <thresh>: arm a threshold capture on the SOURCE track's bus, so
-	// whatever that engine plays next is what gets recorded. The capture synth latches on the
+	// /ph/smparm <srcEngine> <thresh>: arm a threshold capture on the MASTER bus. The
+	// gesture auditions the tapped engine (/ph/preview -> masterBus), so master is where
+	// that sound actually appears — a track bus would only carry a SEQUENCED track. The capture synth latches on the
 	// first crossing and frees itself when the buffer fills (or times out).
 	OSCdef(\phSmpTrig, { |m|            // \phCapture's SendTrig -> tell the controller
 		(m[2].asInteger == 1701).if { ~ctrl.sendMsg("/ph/smprec") };
@@ -533,7 +534,7 @@
 			// supernova), so it goes at the head of the serial ~gSend stage — exactly where
 			// the fully-processed track signal exists.
 			~smpCapSy = Synth.head(~gSend, \phCapture,
-				[\in, ~trackBus[src].index, \buf, b.bufnum, \thresh, th, \timeout, 8]);
+				[\in, ~masterBus.index, \buf, b.bufnum, \thresh, th, \timeout, 8]);
 			~smpCapSy.onFree({ ~smpCapSy = nil; ~ctrl.sendMsg("/ph/smpdone") });
 		});
 	}, '/ph/smparm'),
