@@ -22,7 +22,7 @@ buttons, encoders and screen. It runs on the same on-device stack as the
    controller  (python — poundhard.headless, authoritative Project state)
         │  ▲
         ▼  │   OSC  /ph/…  →  ← /ph/step /ph/cpu /ph/cycle
-   engine  (sclang — 18 engines × 16 tracks + TempoClock step sequencer + FX chains)
+   engine  (sclang — 19 engines × 16 tracks + TempoClock step sequencer + FX chains)
            running on SUPERNOVA (multicore SC server; ParGroups spread tracks over cores)
         │
         ▼
@@ -64,8 +64,9 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   build your rig by assigning engines from the **engine palette** (see below). Any
   engine can go on any track, and the assignment is **per pattern** — two patterns can
   carry completely different rigs.
-- **18 assignable engines** on the palette pads — the first 16 fill the top two rows (row 1
-  DRUM..ICARUS, row 2 PLAITS..CHAOS) and **WTABLE**/**BYTEBEAT** sit on row 3 (cells 16-17), each in its own colour:
+- **19 assignable engines** on the palette pads — the first 16 fill the top two rows (row 1
+  DRUM..ICARUS, row 2 PLAITS..CHAOS) and **WTABLE**/**BYTEBEAT**/**SAMPLE** sit on row 3
+  (cells 16-18), each in its own colour:
 
   | Pad | Engine | Colour | Character |
   |--------|--------|--------|-----------|
@@ -87,6 +88,7 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   | 16 | **CHAOS** | 🟥 red | chaotic-map oscillator — FBSine / Latoocarfian / Henon / Standard / Cusp (glitch/noise) |
   | 17 | **WTABLE** | 🟪 violet | Ableton Wavetable rebuild — two morphing wavetable oscillators over the Move's own factory sprites |
   | 18 | **BYTEBEAT** | 🟢 green | ByteBeat UGen — 8-bit algorithmic expressions (`t*(t>>5\|t>>8)` …) evaluated at audio rate |
+  | 19 | **SAMPLE** | 🌹 rose | capture engine — records another engine, mangles it through a **Csound** opcode graph, plays it back |
 
 - **Engine palette** (top row of pads, default view): **short-press** a pad to
   audition its current sound; **Shift + pad** to regenerate it; **hold a pad and
@@ -251,6 +253,39 @@ All voices are **spawned per hit and self-free** (see [voice model](#voice-model
   lowpass + drive + a real AR envelope shape and free each hit. Glitch/texture, in the
   BEN/NOIZEOP/CHAOS family.
 
+- **SAMPLE** — the **capture engine**, and the only one whose sound you *make* rather than
+  generate. **Hold its pad and tap another engine's pad**: that engine auditions, a
+  **threshold-gated recorder** captures it (recording begins when the signal actually
+  crosses the threshold, so the take starts at the transient, not in the silence before
+  it), and the take is then rendered through **Csound** — offline, on the device. The
+  result becomes the pad's sound: audition it like any engine, and **hold + tap a track**
+  to assign it. Assigning gives that track **its own** copy of the buffer and **releases
+  the pad**, so you can immediately capture the next one and build up several tracks each
+  playing a different mangled sample. Playback is note-resampled, with filter, drive and
+  an AR envelope. A **short press** of the pad just triggers the take — only a **hold**
+  arms recording.
+
+> **The Csound mangling is a modular opcode graph, not a preset chain.** Every take is
+> rendered through a freshly assembled signal path: each stage is a typed module (audio or
+> spectral) tagged with a domain, and the builder wires a random chain of 2-4 of them,
+> inserting the `pvsanal`/`pvsynth` bridges automatically whenever the chain crosses into
+> or out of the spectral domain. Following the reference manual's central rule — *the most
+> characteristic results come from chaining unlike domains* — **two consecutive stages
+> never share a domain**. 22 stages over five domains: **spectral** (`pvsblur`,
+> `pvsfreeze`, `pvscale`, `pvswarp`, `pvshift`, `pvstrace`, `pvsmooth`), **granular**
+> (`syncgrain`, `mincer`), **resonant** (inharmonic `mode` banks, `resonx`, `streson`),
+> **nonlinear** (`powershape`, `distort1`, `chebyshevpoly`, `fold`, stacked `clip`) and
+> **delay/recursion** (`comb`, `alpass`, `vcomb`, `multitap`, `flanger`). Real chains from
+> the device: `syncgrain+pvsfreeze+alpass+powershape`, `pvshift+vcomb`,
+> `modebank+pvstrace+vcomb`. Renders are normalised toward a target RMS (peak-capped) —
+> resonators and spectral freezes vary wildly in level — and a silent render is an error,
+> not a dead sample. See `controller/poundhard/csoundfx.py`.
+
+> Csound ships as a **self-contained offline renderer** at `$PH/csound` (6.18, aarch64,
+> 19 opcode plugins, ~10 MB). It needs only `OPCODE6DIR64` + `LD_LIBRARY_PATH`, and **no
+> capabilities** — unlike supernova, it never touches the audio thread. Renders run on a
+> background thread: a mangle takes seconds and must never stall the sequencer or the UI.
+
 > **BYTEBEAT** needs a native plugin: `supercollider/plugins/ByteBeat/ByteBeat.so` is a
 > **prebuilt aarch64 UGen** (static libstdc++, needs only GLIBC_2.17 — loads on the CM4's scsynth
 > 3.13). `deploy-controller.sh` ships it to `$PH/plugins` and the `ByteBeat.sc` class to the SC
@@ -296,6 +331,8 @@ in its engine colour.
 | **Engine pad — short-press** | audition that engine's current sound (one hit) |
 | **Engine pad — Shift + press** | regenerate that engine's sound |
 | **Hold engine pad + tap a step button** | **assign** that engine + sound to the track |
+| **Hold the SAMPLE pad + tap an engine pad** | **capture** that engine: it auditions and is threshold-recorded, then mangled through a Csound opcode graph |
+| **Hold the SAMPLE pad + tap a step button** | assign the mangled take to that track (the track gets its own copy; the pad is **released** for the next capture) |
 | **Hold the DRUM pad + tap a pad to its right** | **audition** that pad's fixed drum type (kick · snare · hihat · metal · clap · tom · noise, in DRUM's own colour); **lift to commit** it to the engine |
 | **Step button — tap** | mute / unmute that track |
 | **Step button — double-tap** | **solo** that track (double-tap again to un-solo) |
@@ -522,6 +559,12 @@ aesthetic dial.
   the engine, and the pad is rolled as that drum — ready to assign to a track. From then
   on **Shift + DRUM pad** generates fresh variations *of that type*. Useful when you want
   another hat rather than whatever the dice give you.
+- **Hold the SAMPLE pad + tap an engine pad** — **capture** that engine into the sample
+  engine: it auditions, a threshold-gated recorder grabs it, and the take is mangled
+  through a freshly assembled Csound opcode graph. The screen narrates it (`ARMED` →
+  `REC` → `CSOUND` → `READY`, naming the chain). Then **hold + tap a track** to assign
+  it — the track takes **its own copy** and the pad is **released**, so several tracks can
+  each hold a different mangled sample. A short press of the pad just triggers the take.
 - **Shift + Track 1** (while a track is open) — re-roll that track's sound within
   its assigned engine.
 
@@ -598,6 +641,7 @@ overrun the audio thread. Every engine and effect was **measured on the device**
 | PLUCK / TUBE / CHAOS | ~7 / ~7 / ~8* | | | |
 | WTABLE | ~9.5* | | | |
 | BYTEBEAT | ~6* | | | |
+| SAMPLE | ~3* | | | |
 
 Reverb costs as much as an entire ICARUS voice, and ten expensive tracks with three
 reverbs came to **~160% CPU** — which is exactly what XRuns sound like. The generator
@@ -611,7 +655,7 @@ patterns on the device: **worst sustained 47%, worst peak 50%**.
   **that pattern's own tempo**.
 
 The generated tracks are laid out **contiguously from track 1 and grouped by engine**
-(in palette order — DRUM · FM7 · BUCHLOID · MOLLY · RINGS · BEN · NOIZEOP · ICARUS · PLAITS · SHAKER · MEMBRANE · MALLET · BOWED · PLUCK · TUBE · CHAOS · WTABLE · BYTEBEAT,
+(in palette order — DRUM · FM7 · BUCHLOID · MOLLY · RINGS · BEN · NOIZEOP · ICARUS · PLAITS · SHAKER · MEMBRANE · MALLET · BOWED · PLUCK · TUBE · CHAOS · WTABLE · BYTEBEAT · SAMPLE,
 with roles in musical order inside each block). Since the step buttons are coloured by
 engine, a generated rig reads as **contiguous colour blocks** rather than a scatter.
 
@@ -904,12 +948,15 @@ flag, and the HEAT / SHUFFLE macro state (`heat / heatPct / shuffle`).
 ### OSC (controller → engine, sclang langPort 57120)
 
 `/ph/tempo` · `/ph/run` · `/ph/steps` · `/ph/track t typeIdx` (**-1=empty** 0=DRUM
-1=FM7 2=BUCHLOID 3=MOLLY 4=RINGS 5=BEN 6=NOIZEOP 7=ICARUS 8=PLAITS 9=SHAKER 10=MEMBRANE 11=MALLET 12=BOWED 13=PLUCK 14=TUBE 15=CHAOS 16=WTABLE 17=BYTEBEAT) ·
+1=FM7 2=BUCHLOID 3=MOLLY 4=RINGS 5=BEN 6=NOIZEOP 7=ICARUS 8=PLAITS 9=SHAKER 10=MEMBRANE 11=MALLET 12=BOWED 13=PLUCK 14=TUBE 15=CHAOS 16=WTABLE 17=BYTEBEAT 18=SAMPLE) ·
 `/ph/param t "name" val` (WTABLE's `wt1`/`wt2` are sprite selectors — the engine (re)loads that oscillator's wavetable buffer instead of setting a synth arg; BYTEBEAT's `expr` is a bank index — the engine pushes that expression to the voice's ByteBeat UGen via the plugin's `/eval` unit command) ·
 `/ph/preview typeIdx note vel mode [name val …]` (audition one voice → master) ·
 `/ph/pattern` · `/ph/stepset` · `/ph/steplock` · `/ph/stepmacro` · `/ph/clearlocks` ·
 `/ph/stepratchet t cell k` · `/ph/stepsend t cell on` · `/ph/livingfx dTime dFb dMix vMix vRoom vDamp`
 (living-step ratchet / per-step FX-send routing / send-bus params) ·
+`/ph/smparm t thresh` (arm the threshold capture) · `/ph/smpwrite \"path\"` · `/ph/smpload \"path\"` ·
+`/ph/smpassign t \"path\"` (give the track its OWN buffer, release the pad) · back: `/ph/smprec`
+`/ph/smpdone` `/ph/smpwritten` `/ph/smpready` ·
 `/ph/mute` · `/ph/note` · `/ph/vel` · `/ph/length` · `/ph/rate` · `/ph/edittrack` ·
 `/ph/fxassign` · `/ph/fxbypass` · `/ph/fxset` · `/ph/fxclear` · `/ph/recstart "path"` ·
 `/ph/recstop` · `/ph/mastergain` · `/ph/masterfilter` · `/ph/panic` · `/ph/ping`.
@@ -972,6 +1019,12 @@ an angular, industrial typeface that suits the hard, percussion-centric aestheti
   pre-VERB (v1) project is remapped on load — the flanger is dropped and CLDS/RESO/GREY
   slide down one slot, each carrying its own macro / wet / direction. Without that, a
   track's CLDS would have come back as RING.
+- **A spawned voice's args can be SHADOWED by stale `~pstore` entries.** `~pstore[t]` is
+  never cleared when a track changes engine, so appending an arg *after* `merged.getPairs`
+  in `~spawn` can lose to an older entry of the same name. This made SAMPLE tracks play the
+  1024-frame silent buffer while auditioning worked perfectly (the preview path puts `buf`
+  *before* the params). Set such values **into `merged`** — it's a dictionary, so a key can
+  only hold one value. Symptom to watch for: correct-looking spawn logs but silence.
 - **Only one takeover runs at a time**, and the ports are **shared** with the sibling
   takeovers (57110 scsynth/supernova · 57120 sclang · 57140 controller telemetry). A
   clean exit tears the stack down, but an **unclean** exit leaves a sibling's engine
