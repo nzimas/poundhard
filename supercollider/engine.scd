@@ -216,6 +216,13 @@
 		// a LIVING step whose transform requested a send routes THIS hit to the living-FX
 		// bus (delay/reverb) instead of the track bus — so only the fired hit is affected.
 		merged[\out] = ((~stepSend[t][step] ? 0) > 0).if({ ~livingBus.index }, { ~trackBus[t].index });
+		// SAMPLE's buffer must go through `merged`: appending a second \buf after
+		// merged.getPairs loses to any stale \buf already in ~pstore for this track (pstore
+		// is never cleared on engine change), which silently played the 1024-frame silent
+		// buffer. A dictionary key can only hold one value, so this can't collide.
+		(def == \phSampleVoice).if {
+			merged[\buf] = ~smpBuf[t].notNil.if({ ~smpBuf[t].bufnum }, { ~silentBuf.bufnum });
+		};
 		args = [\note, nn, \vel, vv] ++ merged.getPairs;
 		(def == \phSampler).if {
 			args = args ++ [\buf, ~sampBuf[t].notNil.if({ ~sampBuf[t].bufnum }, { ~silentBuf.bufnum })];
@@ -237,7 +244,6 @@
 		// BYTEBEAT: the expression is not a synth arg — push it to this voice's ByteBeat
 		// UGen via the /eval unit command right after /s_new (ordered on the server).
 		(def == \phSampleVoice).if {
-			args = args ++ [\buf, ~smpBuf[t].notNil.if({ ~smpBuf[t].bufnum }, { ~silentBuf.bufnum })];
 		};
 		(def == \phBytebeat).if {
 			s.sendMsg('/u_cmd', syn.nodeID, ~bbUgenIndex, '/eval',
