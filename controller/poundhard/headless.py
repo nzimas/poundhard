@@ -716,6 +716,16 @@ class Controller:
             if 0 <= t < N_TRACKS:
                 for pid, val in st.set_voice_macro(t, float(p.get("pos", 0.5))):
                     self.bridge.param(t, pid, val)
+        elif cmd == "voiceparam":              # a knob bound to ONE named param of the voice
+            t = int(p.get("track", st.edit_track))
+            name = str(p.get("param", ""))
+            if 0 <= t < N_TRACKS and name:
+                pid = f"{st.tracks[t].type.lower()}.{name}"
+                spec = catalog.param_spec(st.tracks[t].type, pid)
+                if spec is not None:
+                    val = max(spec.rmin, min(spec.rmax, float(p.get("value", 0.0))))
+                    st.tracks[t].params[pid] = val
+                    self.bridge.param(t, pid, val)
         elif cmd == "stepfx":                  # Shift + steps + FX pads: per-step FX lock
             t = int(p.get("track", st.edit_track))
             cell = int(p.get("cell", -1)); mask = int(p.get("mask", -1))
@@ -860,7 +870,10 @@ class Controller:
                            "note": tr.note, "vel": round(tr.vel, 3),
                            "pan": round(tr.default_pan(), 3),
                            "amp": round(tr.params.get(tr.type.lower() + ".amp", 0.8), 3),
-                           "rate": round(tr.rate, 4), "length": tr.length})
+                           "rate": round(tr.rate, 4), "length": tr.length,
+                           # SAMPLE's playable window — knobs 4/5 in the edit view
+                           "start": round(tr.params.get("sample.start", 0.0), 4),
+                           "end": round(tr.params.get("sample.end", 1.0), 4)})
         status = {
             "ready": self._built.is_set(),
             "engine": self.bridge.connected,

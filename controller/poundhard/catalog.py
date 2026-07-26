@@ -853,6 +853,9 @@ SAMPLE = VoiceSpec(
     synthdef="phSampleVoice",
     params=[
         P("sample.start", "Start", default=0.0, musical=(0.0, 0.35)),
+        # END of the playable window. Randomised high so a rolled sample plays (nearly) whole;
+        # knobs 4/5 in the edit view trim the window by hand.
+        P("sample.end", "End", default=1.0, musical=(0.65, 1.0)),
         P("sample.rate", "Rate", rmin=0.25, rmax=4.0, default=1.0, curve=Curve.EXP,
           formatter="float2", musical=(0.5, 2.0)),
         P("sample.cutoff", "Cutoff", unit="Hz", rmin=60.0, rmax=18000.0, default=16000.0,
@@ -874,6 +877,17 @@ VOICES: dict[str, VoiceSpec] = {v.type: v for v in
                                 (DRUM, FM7, BUCHLOID, MOLLY, RINGS, BEN, NOIZEOP, ICARUS,
                                  PLAITS, SHAKER, MEMBRANE, MALLET, BOWED, PLUCK, TUBE, CHAOS,
                                  WTABLE, BYTEBEAT, SAMPLE)}
+
+
+def param_spec(voice_type: str, pid: str):
+    """The ParamMetadata for one param of a voice type, or None if it has no such param."""
+    spec = VOICES.get(voice_type)
+    if spec is None:
+        return None
+    for meta in spec.params:
+        if meta.id == pid:
+            return meta
+    return None
 
 
 def macro_specs(voice_type: str) -> list[tuple[str, str, float, float]]:

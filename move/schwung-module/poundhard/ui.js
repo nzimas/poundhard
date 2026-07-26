@@ -140,7 +140,10 @@ let trackVol = new Array(N_TRACKS).fill(0.8);
 let trackPan = new Array(N_TRACKS).fill(0.0);
 let trackRate = new Array(N_TRACKS).fill(1.0);
 let trackLen = new Array(N_TRACKS).fill(EDIT_STEPS);
-let voiceMacro = new Array(N_TRACKS).fill(0.5);   /* knob-3 voice-macro position per track */
+let voiceMacro = new Array(N_TRACKS).fill(0.5);
+/* SAMPLE's playable window (knobs 4/5 in the edit view), mirrored from status */
+let sampStart = new Array(N_TRACKS).fill(0.0);
+let sampEnd = new Array(N_TRACKS).fill(1.0);
 /* CHAOS macro (knob 8, tracks view): sweeps every param of every assigned engine, each
  * in its own random direction. 0.5 = the safe zone (the stored state). */
 let chaosPos = 0.5;
@@ -521,11 +524,14 @@ function drawTrackParam() {
     else if (knobShow === 'vol') drawParamBig(L + ' VOLUME', '' + velMidi(trackVol[t]), 'uni', clampf(trackVol[t] / 2, 0, 1));
     else if (knobShow === 'pan') drawParamBig(L + ' PAN', panLbl(trackPan[t]), 'bi', clampf(trackPan[t], -1, 1));
     else if (knobShow === 'macro') drawParamBig(L + ' MACRO', '' + Math.round(voiceMacro[t] * 100), 'uni', clampf(voiceMacro[t], 0, 1));
+    /* SAMPLE window: percentages of the buffer, big enough to read at a glance */
+    else if (knobShow === 'start') drawParamBig(L + ' SMP START', '' + Math.round(sampStart[t] * 100), 'uni', clampf(sampStart[t], 0, 1));
+    else if (knobShow === 'end') drawParamBig(L + ' SMP END', '' + Math.round(sampEnd[t] * 100), 'uni', clampf(sampEnd[t], 0, 1));
     else {
         clear_screen();
         print(0, 2, L + ' ' + (names[t] || types[t]), 2);
         print(0, 30, noteName(trackNote[t]) + ' vol' + velMidi(trackVol[t]) + ' ' + panLbl(trackPan[t]), 2);
-        print(0, 54, 'jog pit k1vol k2pan k3macro', 1);
+        print(0, 54, (types[t] === 'SAMPLE') ? 'k3macro k4start k5end' : 'jog pit k1vol k2pan k3macro', 1);
     }
 }
 function drawRateBig(t) {
@@ -675,7 +681,8 @@ function drawScreen() {
         for (var i = 0; i < len; i++) { n += editSteps[i] ? 1 : 0; if (editFx[i] >= 0) nfx++; }
         print(0, 6, 'T' + (editTrack + 1) + ' ' + (editName || editType), 2);
         print(0, 30, n + '/' + len + ' steps' + (nfx ? ('  ' + nfx + 'fx') : '') + '  ' + rateLbl(trackRate[editTrack] || 1), 1);
-        print(0, 44, 'jog pit k1vol k2pan k3macro', 1);
+        print(0, 44, (editType === 'SAMPLE') ? 'jog pit k1vol k2pan k3mac k4/5win'
+                                              : 'jog pit k1vol k2pan k3macro', 1);
         print(0, 56, 'Trk1=back  shift=step fx', 1);
     }
 }
@@ -723,6 +730,8 @@ function readStatus() {
             if (tr.pan != null && !(trackHeld === i || editTrack === i)) trackPan[i] = tr.pan;
             if (tr.rate != null && !(trackHeld === i || editTrack === i)) trackRate[i] = tr.rate;
             if (tr.length != null) trackLen[i] = tr.length;
+            if (tr.start != null && !(knobShow === 'start' && editTrack === i)) sampStart[i] = tr.start;
+            if (tr.end != null && !(knobShow === 'end' && editTrack === i)) sampEnd[i] = tr.end;
         }
     }
     if (Array.isArray(s.types)) types = s.types;
@@ -775,6 +784,7 @@ globalThis.init = function () {
     trackVol = new Array(N_TRACKS).fill(0.8);
     trackPan = new Array(N_TRACKS).fill(0.0); trackRate = new Array(N_TRACKS).fill(1.0);
     voiceMacro = new Array(N_TRACKS).fill(0.5);
+    sampStart = new Array(N_TRACKS).fill(0.0); sampEnd = new Array(N_TRACKS).fill(1.0);
     trackLen = new Array(N_TRACKS).fill(EDIT_STEPS);
     editSteps = new Array(N_STEPS).fill(0); editName = ''; editType = '';
     editLiving = new Array(N_STEPS).fill(false); editPeriod = new Array(N_STEPS).fill(4); recHeld = false;
@@ -926,7 +936,10 @@ globalThis.onMidiMessageInternal = function (data) {
         if (fxView) which = (ki < N_FX) ? ((shiftHeld ? 'fw' : 'fx') + ki) : null;       /* FX macro / dry-wet N */
         else if (projView || patView) which = (ki === 0) ? 'tempo' : null;               /* pattern/project: knob1 = tempo */
         else if (stepEditCell >= 0) which = (ki === 0) ? 'vel' : (ki === 1) ? 'pan' : (ki === 2) ? 'macro' : (ki === 3) ? 'period' : null;
-        else if (editTrack >= 0) which = (ki === 0) ? 'vol' : (ki === 1) ? 'pan' : (ki === 2) ? 'macro' : null;
+        else if (editTrack >= 0) which = (ki === 0) ? 'vol' : (ki === 1) ? 'pan' : (ki === 2) ? 'macro'
+            /* SAMPLE tracks: knob 4 = window start, knob 5 = window end */
+            : ((editType === 'SAMPLE' && ki === 3) ? 'start'
+            : ((editType === 'SAMPLE' && ki === 4) ? 'end' : null));
         else if (!patView && !recView) {                                                 /* tracks view */
             /* Shift + touch knob 8 = jump back to the chaos macro's SAFE ZONE */
             if (ki === 7 && touched && shiftHeld) {
@@ -1342,6 +1355,21 @@ globalThis.onMidiMessageInternal = function (data) {
                 const t = editTrack;
                 if (ki === 0) { trackVol[t] = clampf(trackVol[t] + dn * (2 / 127), 0, 2); knobShow = 'vol'; sendCmd('trackset', t, { p: { track: t, param: 'amp', value: trackVol[t] } }); }
                 else { trackPan[t] = clampf(trackPan[t] + dn * 0.02, -1, 1); knobShow = 'pan'; sendCmd('trackset', t, { p: { track: t, param: 'pan', value: trackPan[t] } }); }
+                screenDirty = true; return;
+            }
+            /* knobs 4 / 5 on a SAMPLE track = the playable window (start / end). They are
+             * bound to that engine only — on any other engine these knobs stay free. */
+            if (editTrack >= 0 && (ki === 3 || ki === 4) && editType === 'SAMPLE') {
+                const t = editTrack;
+                if (ki === 3) {
+                    sampStart[t] = clampf(sampStart[t] + dn * 0.004, 0, Math.max(0, sampEnd[t] - 0.01));
+                    knobShow = 'start';
+                    sendCmd('voiceparam', t, { p: { track: t, param: 'start', value: sampStart[t] } });
+                } else {
+                    sampEnd[t] = clampf(sampEnd[t] + dn * 0.004, Math.min(1, sampStart[t] + 0.01), 1);
+                    knobShow = 'end';
+                    sendCmd('voiceparam', t, { p: { track: t, param: 'end', value: sampEnd[t] } });
+                }
                 screenDirty = true; return;
             }
             if (editTrack >= 0 && ki === 2) {                    /* knob 3 = voice macro: sculpt the whole voice */

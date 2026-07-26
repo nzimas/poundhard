@@ -283,7 +283,10 @@ All voices are **spawned per hit and self-free** (see [voice model](#voice-model
   to assign it. Assigning gives that track **its own** copy of the buffer and **releases
   the pad**, so you can immediately capture the next one and build up several tracks each
   playing a different mangled sample. Playback is note-resampled, with filter, drive and
-  an AR envelope. A **short press** of the pad just triggers the take — only a **hold**
+  an AR envelope, and plays a **window** of the buffer — `start` and `end`, live on
+  **knobs 4 and 5** of that track's edit view (PlayBuf has no end point, so the window is
+  closed by a hold-then-4ms-fade envelope sized to exactly how long it takes to play at the
+  current rate). A **short press** of the pad just triggers the take — only a **hold**
   arms recording.
 
 > **The Csound mangling is a modular opcode graph, not a preset chain.** Every take is
@@ -401,6 +404,7 @@ the jog/knobs/cursors edit that track's settings — all in one place.
 | **Jog wheel** | track pitch (re-pitches ringing voices live) |
 | **Knob 1 / 2** | track volume / pan |
 | **Knob 3** | **voice macro** — one knob sweeps every timbral param of the voice, each in a random direction; the directions re-roll whenever the track's sound is regenerated |
+| **Knob 4 / 5** *(SAMPLE tracks)* | the sample's **playable window**: start / end, as a percentage of the buffer. Both show the giant readout while touched. On every other engine these knobs are still free. |
 | **Left / Right cursor** | clock rate / division: `/8 /4 /2 1 x2 x4 x8` (bipolar readout) |
 | **Track 1 button** | back to Tracks view |
 

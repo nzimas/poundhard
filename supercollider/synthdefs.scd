@@ -763,7 +763,7 @@
 	// Plays a buffer holding a CAPTURED, Csound-mangled hit. Buffers are loaded whole (never
 	// streamed — streaming is what froze the box in the retired sampler), and the amp
 	// envelope owns the lifetime + self-free like every other voice.
-	SynthDef(\phSampleVoice, { |out = 16, note = 48, vel = 1, buf = 0, start = 0.0,
+	SynthDef(\phSampleVoice, { |out = 16, note = 48, vel = 1, buf = 0, start = 0.0, end = 1.0,
 		rate = 1.0, cutoff = 16000, res = 0.1, drive = 1.0,
 		attack = 0.002, decay = 0.6, sustain = 0.85, release = 0.25, amp = 0.5, pan = 0|
 		var v = vel.clip(0, 2).max(0.03);
@@ -772,7 +772,15 @@
 		var frames = BufFrames.ir(buf);
 		// note 48 = the sample's own pitch; every semitone above/below resamples it
 		var rt = rate * (2 ** ((note.clip(0, 127) - 48) / 12)) * BufRateScale.ir(buf);
-		var sig = PlayBuf.ar(1, buf, rt, Impulse.ar(0), start.clip(0, 0.95) * frames, 0);
+		// START / END are the playable window, as fractions of the buffer. PlayBuf has no
+		// end point, so the window is closed by a hold-then-fade envelope whose hold is
+		// exactly how long the window takes to play at this rate — 4ms of fade so cutting
+		// mid-waveform doesn't click.
+		var st = start.clip(0, 0.99);
+		var en = end.clip(0.01, 1.0).max(st + 0.01);
+		var win = ((en - st) * frames / (rt.abs.max(0.01) * SampleRate.ir)).clip(0.004, 30);
+		var sig = PlayBuf.ar(1, buf, rt, Impulse.ar(0), st * frames, 0)
+			* EnvGen.ar(Env.new([1, 1, 0], [win, 0.004], \lin));
 		var aEnv = EnvGen.ar(Env.new([0, 1, sustain.clip(0, 1), 0],
 			[attack.clip(0.0005, 2), decay.clip(0.005, 8), release.clip(0.005, 8)], \sin),
 			doneAction: 2);
