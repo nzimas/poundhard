@@ -53,6 +53,16 @@ for (let i = 0; i < 32; i++) NOTE_TO_CELL[PAD_NOTES[i]] = i;
 const STEP_BASE = 16;
 const N_TRACKS = 16, N_STEPS = 32;
 const HOLD_MS = 350;
+/* EDIT VIEW LAYOUT: the sequencer now shows 16 steps on rows 1-2 (cells 0..15). Row 3
+ * (16..23) is reserved; row 4 (24..31) is the per-step FX row — the same 8 modules as the
+ * FX view. Shift + step(s) selects steps, then (still holding Shift) tapping an FX pad
+ * toggles that effect ON those steps. Anything carrying per-step FX is drawn in the RED
+ * spectrum so the locks read at a glance. */
+const EDIT_STEPS = 16;
+const EDIT_FX0 = 24;
+const STEPFX_ON = 5;        /* red: an FX locked onto the selected step(s) */
+const STEPFX_SEL = 1;       /* bright red: a step currently selected under Shift */
+const STEPFX_MARK = 68;     /* dark red: a step that carries FX but isn't selected */
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const RATES = [0.125, 0.25, 0.5, 1, 2, 4, 8];    /* clock rate ladder: /8 /4 /2 1 x2 x4 x8 */
 const RATE_CENTER = 3;                            /* index of x1 (master clock) */
@@ -129,7 +139,7 @@ let trackVel = new Array(N_TRACKS).fill(1.0);
 let trackVol = new Array(N_TRACKS).fill(0.8);
 let trackPan = new Array(N_TRACKS).fill(0.0);
 let trackRate = new Array(N_TRACKS).fill(1.0);
-let trackLen = new Array(N_TRACKS).fill(N_STEPS);
+let trackLen = new Array(N_TRACKS).fill(EDIT_STEPS);
 let voiceMacro = new Array(N_TRACKS).fill(0.5);   /* knob-3 voice-macro position per track */
 /* CHAOS macro (knob 8, tracks view): sweeps every param of every assigned engine, each
  * in its own random direction. 0.5 = the safe zone (the stored state). */
@@ -193,6 +203,9 @@ let smpState = 'idle', smpSrc = -1, smpChain = [];
  * all. Only HOLDING it (past HOLD_MS) arms recording and turns the other engine pads
  * into capture sources. smpHold marks that the hold has been recognised. */
 let smpHold = false;
+let stepSel = [];            /* steps selected under Shift (per-step FX editing) */
+let editFx = new Array(N_STEPS).fill(-1);   /* per-step FX mask mirrored from status */
+let lenArm = false;          /* Shift + master-knob touch: next pad sets the pattern LENGTH */
 const SAMPLE_CELL = 18;
 let drumMode = -1;                   /* committed DRUM type (-1 = any); mirrors the controller */
 let drumPick = -1;                   /* type picked while the DRUM pad is held, committed on release */
@@ -429,13 +442,24 @@ function renderLEDs() {
     } else {
         const len = editLen();
         for (let c = 0; c < 32; c++) {
-            let color;
-            if (c >= len) color = OFF_COLOR;                       /* past the last step */
-            else if (running && c === step) color = SEL_COLOR;     /* playhead */
-            else if (editLiving[c]) color = LIVE_ON;               /* living step: distinct hue, pulsing */
-            else color = editSteps[c] ? TRACK_COLOR : DIM_COLOR;   /* active / dim idle */
-            /* living steps pulse so you can see they're 'alive' */
-            if (editLiving[c] && !(running && c === step)) color = (phase % 18 < 9) ? LIVE_ON : LIVE_DIM;
+            let color = OFF_COLOR;
+            if (c < EDIT_STEPS) {                                  /* rows 1-2: the 16 steps */
+                if (c >= len) color = OFF_COLOR;                   /* past the last step */
+                else if (stepSel.indexOf(c) >= 0) color = STEPFX_SEL;   /* selected under Shift */
+                else if (running && c === step) color = SEL_COLOR;      /* playhead */
+                else if (editLiving[c]) color = (phase % 18 < 9) ? LIVE_ON : LIVE_DIM;
+                else if (editFx[c] >= 0) color = STEPFX_MARK;      /* carries per-step FX */
+                else color = editSteps[c] ? TRACK_COLOR : DIM_COLOR;
+            } else if (c >= EDIT_FX0) {                            /* row 4: per-step FX */
+                let k = c - EDIT_FX0;
+                /* while steps are selected, show which FX those steps carry (red); the
+                 * selection may be mixed — a pad lights if ANY selected step has it. */
+                let on = false;
+                for (let i = 0; i < stepSel.length; i++) {
+                    if (editFx[stepSel[i]] >= 0 && ((editFx[stepSel[i]] >> k) & 1)) { on = true; break; }
+                }
+                color = on ? STEPFX_ON : (stepSel.length ? DIM_COLOR : FX_COLORS[k]);
+            }
             setLED(PAD_NOTES[c], color);
         }
     }
@@ -629,13 +653,30 @@ function drawScreen() {
         print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : '') + (shufOn ? '  SHUF' : ''), 1);
         print(0, 44, 'pad=hear  shift+pad=gen', 1);
         print(0, 56, 'k8=chaos  heat=btm-left pad', 1);
+    } else if (lenArm) {
+        /* Shift + master touch: the next pad sets the pattern length. */
+        print(0, 6, 'LENGTH?', 2);
+        print(0, 34, 'press the LAST step', 1);
+        print(0, 48, 'now ' + editLen() + ' steps', 1);
+    } else if (shiftHeld) {
+        /* per-step FX editor */
+        print(0, 6, stepSel.length ? ('STEP FX x' + stepSel.length) : 'STEP FX', 2);
+        if (stepSel.length) {
+            var lbl = '', m0 = editFx[stepSel[0]];
+            for (var q = 0; q < 8; q++) if (m0 >= 0 && ((m0 >> q) & 1)) lbl += (lbl ? ' ' : '') + fxNames[q];
+            print(0, 34, lbl || '(none)', 1);
+            print(0, 48, 'btm row = add/remove fx', 1);
+        } else {
+            print(0, 34, 'pick step(s) on rows 1-2', 1);
+            print(0, 48, 'master knob = set length', 1);
+        }
     } else {
-        var n = 0, len = editLen();
-        for (var i = 0; i < len; i++) n += editSteps[i] ? 1 : 0;
+        var n = 0, len = editLen(), nfx = 0;
+        for (var i = 0; i < len; i++) { n += editSteps[i] ? 1 : 0; if (editFx[i] >= 0) nfx++; }
         print(0, 6, 'T' + (editTrack + 1) + ' ' + (editName || editType), 2);
-        print(0, 30, n + '/' + len + ' steps  ' + rateLbl(trackRate[editTrack] || 1), 1);
+        print(0, 30, n + '/' + len + ' steps' + (nfx ? ('  ' + nfx + 'fx') : '') + '  ' + rateLbl(trackRate[editTrack] || 1), 1);
         print(0, 44, 'jog pit k1vol k2pan k3macro', 1);
-        print(0, 56, 'Trk1=back   shift+pad=len', 1);
+        print(0, 56, 'Trk1=back  shift=step fx', 1);
     }
 }
 
@@ -699,12 +740,14 @@ function readStatus() {
         if (s.edit.stepPan) stepPan = s.edit.stepPan;
         if (s.edit.stepMacro) stepMacro = s.edit.stepMacro;
         if (s.edit.living) editLiving = s.edit.living;
+        if (s.edit.fx) editFx = s.edit.fx;
         if (s.edit.period) editPeriod = s.edit.period;
     }
+    var seSig = (editTrack >= 0 && !fxView) ? ('E' + stepSel.join(',') + '|' + editFx.join(',') + (lenArm ? '!' : '')) : '';
     var fxSig = fxView ? ('X' + fxHeld + '|' + fxTop.join('.') + '|' + fxBypass.map(function (b) { return b ? '1' : '0'; }).join('') + '|' + fxOn.map(function (a) { return a.join(','); }).join(';')) : '';
     var base = (ready ? '1' : '0') + (running ? 'R' : 's') + editTrack + '/' + editLen() + (fxView ? 'F' : '') + 'S' + solo + '|' +
         muted.map(function (m) { return m ? '1' : '0'; }).join('') +
-        active.map(function (a) { return a ? '1' : '0'; }).join('') + '|' + Math.round(tempo) + fxSig;
+        active.map(function (a) { return a ? '1' : '0'; }).join('') + '|' + Math.round(tempo) + fxSig + seSig;
     /* LED sig includes the playhead (step) — a cheap 2-pad change. The SCREEN sig
      * does NOT: redrawing the (heavy block-font) screen on every step floods the
      * SPI display and freezes the Move UI. Screen redraws are driven by the input
@@ -732,9 +775,10 @@ globalThis.init = function () {
     trackVol = new Array(N_TRACKS).fill(0.8);
     trackPan = new Array(N_TRACKS).fill(0.0); trackRate = new Array(N_TRACKS).fill(1.0);
     voiceMacro = new Array(N_TRACKS).fill(0.5);
-    trackLen = new Array(N_TRACKS).fill(N_STEPS);
+    trackLen = new Array(N_TRACKS).fill(EDIT_STEPS);
     editSteps = new Array(N_STEPS).fill(0); editName = ''; editType = '';
     editLiving = new Array(N_STEPS).fill(false); editPeriod = new Array(N_STEPS).fill(4); recHeld = false;
+    editFx = new Array(N_STEPS).fill(-1); stepSel = []; lenArm = false;
     stepNote = new Array(N_STEPS).fill(60); stepVel = new Array(N_STEPS).fill(1.0); stepPan = new Array(N_STEPS).fill(0.0);
     shiftHeld = false; masterTouched = false; seq = 0; cmdQueue = [];
     tempoLocal = 120; tempoDirty = false; controlDirty = false;
@@ -852,7 +896,11 @@ globalThis.onMidiMessageInternal = function (data) {
 
     /* volume-knob touch = modifier (whole-kit gesture) */
     if (d1 === MoveMasterTouch && (status === 0x90 || status === 0x80)) {
-        masterTouched = (status === 0x90 && d2 >= 64); return;
+        masterTouched = (status === 0x90 && d2 >= 64);
+        /* Shift + touch the master knob ARMS the length gesture: the next pad you press in
+         * the edit view becomes the last step. */
+        if (masterTouched && shiftHeld && editTrack >= 0) { lenArm = true; screenDirty = true; }
+        return;
     }
     /* jog-wheel touch: show PITCH big (pitch lives on the jog now) */
     if (d1 === MoveMainTouch && (status === 0x90 || status === 0x80)) {
@@ -1080,10 +1128,44 @@ globalThis.onMidiMessageInternal = function (data) {
             ledDirty = true; screenDirty = true;
             return;
         }
-        if (shiftHeld) {
+        /* LENGTH is now Shift + master-knob touch + pad (Shift+pad alone belongs to the
+         * per-step FX editor). The pad pressed becomes the last step. */
+        if (lenArm && cell < EDIT_STEPS) {
             trackLen[editTrack] = cell + 1;                       /* optimistic polymeter length */
             sendCmd('setlen', cell, { p: { track: editTrack, len: cell + 1 } });
+            lenArm = false;                                        /* one pad, one length */
             ledDirty = true; screenDirty = true; showAction('LEN ' + (cell + 1));
+            return;
+        }
+        if (shiftHeld) {
+            /* PER-STEP FX EDITOR. Shift + a STEP toggles it into the selection; Shift + an
+             * FX pad toggles that effect on every selected step. A mixed selection is fine:
+             * the FX pad lights if ANY selected step carries it, and tapping it turns the
+             * effect ON everywhere if it was missing anywhere, else OFF everywhere. */
+            if (cell < EDIT_STEPS) {
+                let i = stepSel.indexOf(cell);
+                if (i >= 0) stepSel.splice(i, 1); else stepSel.push(cell);
+                ledDirty = true; screenDirty = true;
+                return;
+            }
+            if (cell >= EDIT_FX0 && stepSel.length) {
+                let k = cell - EDIT_FX0;
+                let all = true;
+                for (let i = 0; i < stepSel.length; i++) {
+                    let m = editFx[stepSel[i]];
+                    if (m < 0 || !((m >> k) & 1)) { all = false; break; }
+                }
+                for (let i = 0; i < stepSel.length; i++) {
+                    let c2 = stepSel[i];
+                    let m = editFx[c2] < 0 ? 0 : editFx[c2];
+                    m = all ? (m & ~(1 << k)) : (m | (1 << k));
+                    editFx[c2] = (m === 0) ? -1 : m;               /* 0 locks == no lock */
+                    sendCmd('stepfx', c2, { p: { track: editTrack, cell: c2, mask: editFx[c2] } });
+                }
+                showAction((all ? '-' : '+') + fxNames[k]);
+                ledDirty = true; screenDirty = true;
+                return;
+            }
             return;
         }
         heldCell = cell; heldStart = Date.now(); heldStepEdit = false;
@@ -1109,7 +1191,14 @@ globalThis.onMidiMessageInternal = function (data) {
          * stays up until the performer decides (handled modally at the top of this
          * function): jog-wheel PUSH = exit, Back = stay. */
         if (d1 === MoveBack && d2 > 0) { exitConfirm = true; screenDirty = true; return; }
-        if (d1 === MoveShift) { shiftHeld = d2 > 0; return; }
+        if (d1 === MoveShift) {
+            shiftHeld = d2 > 0;
+            if (!shiftHeld && (stepSel.length || lenArm)) {       /* release ends the gesture */
+                stepSel = []; lenArm = false;
+            }
+            if (editTrack >= 0 && !fxView) { ledDirty = true; screenDirty = true; }
+            return;
+        }
         /* Rec + pad (edit view) = mark/unmark that step as LIVING (self-transforming). */
         if (d1 === MoveRec) { recHeld = d2 > 0; screenDirty = true; return; }
         /* X (Delete) + pattern pad = delete that pattern (bank closes the gap). */

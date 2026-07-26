@@ -542,7 +542,7 @@ class Controller:
     # trackset / voicemacro / fxmacro / fxwet / steplock / stepmacro / note / tempo) are
     # deliberately excluded — they'd flood the 20-level stack with sub-gesture noise.
     _UNDOABLE = frozenset({
-        "assign", "randtrack", "mute", "solo", "stepset", "steptoggle", "clearpat",
+        "assign", "randtrack", "mute", "solo", "stepset", "steptoggle", "clearpat", "stepfx",
         "setlen", "savepat", "loadpat", "patdel", "patpaste", "genvar", "randpat",
         "fxassign", "fxbypass", "loadproj", "loadauto", "marklive",
     })
@@ -694,6 +694,12 @@ class Controller:
             if 0 <= t < N_TRACKS:
                 for pid, val in st.set_voice_macro(t, float(p.get("pos", 0.5))):
                     self.bridge.param(t, pid, val)
+        elif cmd == "stepfx":                  # Shift + steps + FX pads: per-step FX lock
+            t = int(p.get("track", st.edit_track))
+            cell = int(p.get("cell", -1)); mask = int(p.get("mask", -1))
+            if 0 <= t < N_TRACKS and 0 <= cell < N_STEPS:
+                st.tracks[t].step_fx[cell] = mask
+                self.bridge.stepfx(t, cell, mask)
         elif cmd == "stepset":                 # absolute (idempotent) — preferred
             t = int(p.get("track", st.edit_track))
             cell = int(p.get("cell", arg))
@@ -712,6 +718,8 @@ class Controller:
             if 0 <= t < N_TRACKS:
                 st.clear_pattern(t)
                 self.bridge.pattern(t, st.tracks[t].pattern)
+                for c in range(N_STEPS):        # drop the per-step FX locks too
+                    self.bridge.stepfx(t, c, -1)
         elif cmd == "run":
             st.running = bool(int(arg))
             self.bridge.run(st.running)
@@ -894,6 +902,7 @@ class Controller:
                 # LIVING STEPS: which cells are marked, their period (cycles), current ratchet,
                 # and which are firing (transformed) this cycle (transient model)
                 "living": list(et.step_living),
+                "fx": list(et.step_fx),        # per-step FX mask (-1 = no lock)
                 "period": list(et.step_period),
                 "ratchet": list(et.step_ratchet),
                 "active": list(et.step_active),

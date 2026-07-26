@@ -51,6 +51,18 @@
 ~stepRatchet = Array.fill(~nTracks, { Array.fill(~maxSteps, { 1 }) });
 // per-step send flag (1 = route this hit through the living-FX delay/reverb bus)
 ~stepSend = Array.fill(~nTracks, { Array.fill(~maxSteps, { 0 }) });
+// PER-STEP FX: a bitmask over the 8 insert slots, or -1 = "no lock, use the track's own
+// assignment". Applied at step time as a parameter lock on each FX's `enable`, so a step
+// can turn effects on or off for its own hit without rebuilding the chain.
+~stepFx = Array.fill(~nTracks, { Array.fill(~maxSteps, { -1 }) });
+// what each insert's \enable is set to right now (avoids re-sending the same value
+// every hit) and which FX a track needs instantiated because SOME step locks it.
+~fxEnable = Array.fill(~nTracks, { Array.fill(8, { 0 }) });
+~stepFxNeed = { |t|                             // OR of every step lock on this track
+	var need = 0;
+	~maxSteps.do { |c| ((~stepFx[t][c] ? -1) > 0).if { need = need | ~stepFx[t][c] } };
+	need;
+};
 ~pstore    = Array.fill(~nTracks, { IdentityDictionary.new });   // param name -> value
 ~sampBuf   = Array.fill(~nTracks, { nil });
 ~sampFiles = [];
@@ -174,14 +186,44 @@
 // order, wired in==out==the track bus (each FX ReplaceOut's the bus in place),
 // restoring the per-fx-type macro params + current bypass.
 ~rebuildFx = { |t|
-	8.do { |k| ~fxSynth[t][k].notNil.if { ~fxSynth[t][k].free; ~fxSynth[t][k] = nil } };
-	8.do { |k|
-		(~assigned[t][k] == 1).if {
-			var syn = Synth.tail(~fxGroup[t], ~fxDefs[k],
-				[\in, ~trackBus[t].index, \out, ~trackBus[t].index, \wet, 0.5, \bypass, ~fxBypass[t]]);
-			~fxStore[k].keysValuesDo { |name, v| syn.set(name, v) };
-			~fxSynth[t][k] = syn;
+	// An insert exists if the track is assigned it OR any step locks it. A step-only
+	// insert sits in the chain with \enable 0 — inaudible until a locked hit opens it.
+	// This is INCREMENTAL: an insert that is still wanted is left running. Tearing the
+	// whole chain down on every edit restarted GREY/CLDS tails mid-performance and raced
+	// the per-step \enable sets (server-side "node not found" spam).
+	var need = ~stepFxNeed.(t);
+	// The controller starts pushing tracks the moment sclang answers — long before the
+	// server has booted and ~scaffold has run. Building an insert then targets a group
+	// that doesn't exist yet (the server answers "node not found: 1" and the synth is
+	// never created, leaving a phantom in ~fxSynth). ~ready is the only safe gate: it is
+	// set after the whole scaffold is up, and everything pushed early is applied there.
+	(~ready == true).if {
+		var added = false;
+		8.do { |k|
+			var on = ~assigned[t][k] == 1;
+			var want = on or: { ((need >> k) & 1) == 1 };
+			(want and: { ~fxSynth[t][k].isNil }).if {
+				// new insert: assigned ones open, step-only ones start closed
+				var syn = Synth.tail(~fxGroup[t], ~fxDefs[k],
+					[\in, ~trackBus[t].index, \out, ~trackBus[t].index, \wet, 0.5,
+						\bypass, ~fxBypass[t], \enable, on.if({ 1 }, { 0 })]);
+				~fxStore[k].keysValuesDo { |name, v| syn.set(name, v) };
+				~fxSynth[t][k] = syn;
+				~fxEnable[t][k] = on.if({ 1 }, { 0 });
+				added = true;
+			};
+			(want.not and: { ~fxSynth[t][k].notNil }).if {
+				~fxSynth[t][k].free; ~fxSynth[t][k] = nil; ~fxEnable[t][k] = 0;
+			};
+			// a still-wanted insert only needs its resting state re-asserted
+			(want and: { ~fxSynth[t][k].notNil and: { ~fxEnable[t][k] != on.if({ 1 }, { 0 }) } }).if {
+				~fxSynth[t][k].set(\enable, on.if({ 1 }, { 0 }));
+				~fxEnable[t][k] = on.if({ 1 }, { 0 });
+			};
 		};
+		// a new insert lands at the tail, so re-assert canonical chain order (VERB last)
+		// by walking the slots in index order — a move, not a rebuild: no tail is lost.
+		added.if { 8.do { |k| ~fxSynth[t][k].notNil.if { ~fxSynth[t][k].moveToTail(~fxGroup[t]) } } };
 	};
 };
 
@@ -220,6 +262,17 @@
 		// merged.getPairs loses to any stale \buf already in ~pstore for this track (pstore
 		// is never cleared on engine change), which silently played the 1024-frame silent
 		// buffer. A dictionary key can only hold one value, so this can't collide.
+		// per-step FX lock: flip the track's insert enables for this hit
+		block { |brk|
+			var lock;
+			lock = ~stepFx[t][step] ? -1;
+			8.do { |k|
+				var want = (lock >= 0).if({ (lock >> k) & 1 }, { ~assigned[t][k] });
+				((~fxEnable[t][k] != want) and: { ~fxSynth[t][k].notNil }).if {
+					~fxSynth[t][k].set(\enable, want); ~fxEnable[t][k] = want;
+				};
+			};
+		};
 		(def == \phSampleVoice).if {
 			merged[\buf] = ~smpBuf[t].notNil.if({ ~smpBuf[t].bufnum }, { ~silentBuf.bufnum });
 		};
@@ -262,7 +315,9 @@
 // polymetrically against the shared master clock. Playhead telemetry reports the
 // UI's edit track's own position.
 ~advance = {
-	~nTracks.do { |t|
+	// the controller restores a running transport the moment sclang answers, which can
+	// beat ~scaffold — spawning before the buses exist is pure error flood, no audio.
+	~ready.if { ~nTracks.do { |t|
 		~acc[t] = ~acc[t] + ~rate[t];
 		while ({ ~acc[t] >= 1.0 }) {
 			~acc[t] = ~acc[t] - 1.0;
@@ -284,7 +339,7 @@
 				};
 			};
 		};
-	};
+	} };
 	~globalTick = ~globalTick + 1;
 	// Fixed 16-step bar grid: fire /ph/cycle on the LAST step of each bar so the
 	// controller can apply a queued pattern switch in time for the next downbeat.
@@ -493,6 +548,15 @@
 		var c = m[2].asInteger.clip(0, ~maxSteps - 1);
 		~stepRatchet[t][c] = m[3].asInteger.clip(1, 8);
 	}, '/ph/stepratchet'),
+	OSCdef(\phStepFx, { |m|                        // per-step FX mask (-1 = no lock)
+		var t = m[1].asInteger.clip(0, ~nTracks - 1);
+		var c = m[2].asInteger.clip(0, ~maxSteps - 1);
+		var before = ~stepFxNeed.(t);
+		~stepFx[t][c] = m[3].asInteger;
+		// a newly-locked FX that isn't in the chain has to be instantiated (and one that
+		// no longer appears anywhere can go away again)
+		(~stepFxNeed.(t) != before).if { ~rebuildFx.(t) };
+	}, '/ph/stepfx'),
 	OSCdef(\phStepSend, { |m|                       // per-step living-FX send flag (0/1)
 		var t = m[1].asInteger.clip(0, ~nTracks - 1);
 		var c = m[2].asInteger.clip(0, ~maxSteps - 1);
@@ -601,6 +665,7 @@
 		s.sync;
 		s.startAliveThread;
 		~ready = true;
+		~nTracks.do { |t| ~rebuildFx.(t) };   // apply everything pushed before the scaffold
 		~ctrl.sendMsg("/ph/ready");
 		("PoundHard engine ready — " ++ ~sampFiles.size ++ " samples").postln;
 		SystemClock.sched(1.0, {

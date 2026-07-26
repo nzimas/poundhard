@@ -94,10 +94,10 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   audition its current sound; **Shift + pad** to regenerate it; **hold a pad and
   tap a track** (step button) to assign that engine + sound to the track. Assigning
   keeps the track's existing sequence — only the sound changes.
-- **32-step sequencer per track**, each with independent length and clock rate
-  (**polymeter** — tracks phase against each other).
-- **Per-step locks** on pitch, velocity, pan, and a **voice macro** — each step
-  can carry its own tone.
+- **16-step sequencer per track** (32 internally), each with independent length and
+  clock rate (**polymeter** — tracks phase against each other).
+- **Per-step locks** on pitch, velocity, pan, a **voice macro** and the **FX chain** —
+  each step can carry its own tone *and its own effects*.
 - **Living steps** — mark steps (or hit **HEAT** for the whole rig) and they
   **transform themselves** as you play: ratchets, timbre lurches, pitch leaps, pan
   throws and per-step delay/reverb. A live-performance engine (see
@@ -364,22 +364,43 @@ own mute flags, so un-soloing restores exactly what was muted before.
 
 ### Edit view (per track)
 
-A **long-press** on a step button opens its editor. The pads become its 32-step
-sequencer, and the jog/knobs/cursors edit that track's settings — all in one
-place.
+A **long-press** on a step button opens its editor. The **first two pad rows are the
+track's 16 steps**; the **bottom row is the 8-effect chain** (per-step FX, below), and
+the jog/knobs/cursors edit that track's settings — all in one place.
 
 | Control | Action |
 |---|---|
-| **Pad — tap** | toggle that step (in-length pads dim, active bright) |
+| **Pad — tap** (rows 1–2) | toggle that step (in-length pads dim, active bright) |
 | **Pad — hold (active step)** | **per-step lock** — jog = pitch, knob 1 = velocity, knob 2 = pan, knob 3 = macro |
 | **Rec + pad** | mark / unmark that step as a **[living step](#living-steps--the-heat-button)** (self-transforming; pulses pink) |
 | **Knob 4** (on a step) | **living period** — cycles between transforms (also marks the step living) |
-| **Shift + pad** | set that pad as the **last step** (polymeter); pads past it go dark |
+| **Shift + step pads** | **select** steps for the per-step FX editor (selected = bright red) |
+| **Shift + bottom row** | add / remove that effect on every selected step |
+| **Shift + master knob touch + pad** | set that pad as the **last step** (polymeter, up to 16) |
 | **Jog wheel** | track pitch (re-pitches ringing voices live) |
 | **Knob 1 / 2** | track volume / pan |
 | **Knob 3** | **voice macro** — one knob sweeps every timbral param of the voice, each in a random direction; the directions re-roll whenever the track's sound is regenerated |
 | **Left / Right cursor** | clock rate / division: `/8 /4 /2 1 x2 x4 x8` (bipolar readout) |
 | **Track 1 button** | back to Tracks view |
+
+#### Per-step FX
+
+The bottom pad row of the edit view carries the same eight effects as the
+[FX view](#fx-view) — `OD · AMP · CRSH · RING · CLDS · RESO · GREY · VERB` — and locks
+them **per step**.
+
+Hold **Shift**, tap the steps you want (they light **bright red**), then — still holding
+Shift — tap effects on the bottom row. An effect lights **red** if *any* selected step
+carries it; tapping it turns it **on everywhere** if it was missing anywhere, else **off
+everywhere**, so mixed selections resolve predictably. Releasing Shift clears the
+selection. Steps that carry FX stay marked in **dark red**.
+
+A step's lock is a mask over the eight insert slots and **overrides the track's own FX
+assignment for that hit only** — a step can switch effects on that the track doesn't have,
+or mute ones it does. An effect that only a step uses is instantiated in the track's chain
+**disabled**, and opened just for the locked hits, so nothing is spent on it otherwise.
+Steps without a lock restore the track's normal chain, so a lock never leaks into the
+following hits.
 
 ### FX view
 
@@ -926,7 +947,7 @@ while a knob is touched.
 A `cmds` queue de-duped by `seq` (a single-slot mailbox lost commands when the UI
 wrote twice between polls). Commands include: `audition` / `palettegen` / `assign`
 (engine palette), `randtrack`, `mute`, `solo`, `editenter` / `editexit`, `stepset`,
-`steplock`, `stepmacro`, `setlen`, `trackset`, `voicemacro`,
+`steplock`, `stepmacro`, `stepfx`, `setlen`, `trackset`, `voicemacro`,
 `fxassign` / `fxbypass` / `fxmacro` / `fxwet`, `marklive` / `liveperiod` (living steps),
 `heat` / `heatpct` (the HEAT macro), `shuffle` (the SHUFFLE macro), `run`, `note`, `savepat` / `loadpat`,
 `patdel` / `patcopy` / `patpaste` / `patclipclear`, `undo`, `chaos` / `chaosreset`
@@ -952,7 +973,9 @@ flag, and the HEAT / SHUFFLE macro state (`heat / heatPct / shuffle`).
 `/ph/param t "name" val` (WTABLE's `wt1`/`wt2` are sprite selectors — the engine (re)loads that oscillator's wavetable buffer instead of setting a synth arg; BYTEBEAT's `expr` is a bank index — the engine pushes that expression to the voice's ByteBeat UGen via the plugin's `/eval` unit command) ·
 `/ph/preview typeIdx note vel mode [name val …]` (audition one voice → master) ·
 `/ph/pattern` · `/ph/stepset` · `/ph/steplock` · `/ph/stepmacro` · `/ph/clearlocks` ·
-`/ph/stepratchet t cell k` · `/ph/stepsend t cell on` · `/ph/livingfx dTime dFb dMix vMix vRoom vDamp`
+`/ph/stepratchet t cell k` · `/ph/stepsend t cell on` · `/ph/stepfx t cell mask`
+(per-step FX: a bitmask over the 8 insert slots, **-1 = no lock**) ·
+`/ph/livingfx dTime dFb dMix vMix vRoom vDamp`
 (living-step ratchet / per-step FX-send routing / send-bus params) ·
 `/ph/smparm t thresh` (arm the threshold capture) · `/ph/smpwrite \"path\"` · `/ph/smpload \"path\"` ·
 `/ph/smpassign t \"path\"` (give the track its OWN buffer, release the pad) · back: `/ph/smprec`

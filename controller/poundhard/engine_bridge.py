@@ -146,6 +146,7 @@ class EngineBridge:
     def vel(self, t, v):               self.send("/ph/vel", int(t), float(v))
     def samp(self, t, idx):            self.send("/ph/samp", int(t), int(idx))
     # --- SAMPLE engine (capture -> mangle -> audition -> assign) ---
+    def stepfx(self, t, cell, mask):   self.send("/ph/stepfx", int(t), int(cell), int(mask))
     def smparm(self, src, thresh):     self.send("/ph/smparm", int(src), float(thresh))
     def smpwrite(self, path):          self.send("/ph/smpwrite", str(path))
     def smpload(self, path):           self.send("/ph/smpload", str(path))
@@ -226,3 +227,5 @@ class EngineBridge:
             if (track.step_note[cell] is not None or track.step_vel[cell] is not None
                     or track.step_pan[cell] is not None):
                 self.steplock(t, cell, track.eff_note(cell), track.eff_vel(cell), track.eff_pan(cell))
+            if track.step_fx[cell] >= 0:
+                self.stepfx(t, cell, track.step_fx[cell])

@@ -17,6 +17,7 @@ from .catalog import FX_SPECS, N_FX
 
 N_TRACKS = 16
 N_STEPS = 32
+DEFAULT_STEPS = 16              # what a fresh track loops over (the editor's step grid)
 N_PATTERNS = 32     # pattern slots per project (and project slots on disk)
 
 
@@ -72,7 +73,8 @@ class Track:
     params: dict[str, float] = field(default_factory=dict)
     pattern: list[int] = field(default_factory=lambda: [0] * N_STEPS)
     muted: bool = False
-    length: int = N_STEPS           # per-track pattern length (polymeter), 1..32
+    length: int = DEFAULT_STEPS     # per-track pattern length (polymeter), 1..32
+                                    # (the editor shows/edits 16; the model still allows 32)
     rate: float = 1.0               # clock rate vs master (steps per master tick)
     # per-step locks (None = inherit the track default). Performance data — kept
     # across kit regeneration, like patterns.
@@ -87,6 +89,9 @@ class Track:
     step_period: list = field(default_factory=lambda: [4] * N_STEPS)     # cycles between transforms
     step_ratchet: list = field(default_factory=lambda: [1] * N_STEPS)    # retriggers per hit
     step_send: list = field(default_factory=lambda: [0] * N_STEPS)       # route hit -> living delay/reverb
+    # PER-STEP FX: bitmask over the 8 insert slots, -1 = no lock (use the track's chain).
+    # Performance data like the other step locks, so it survives kit regeneration.
+    step_fx: list = field(default_factory=lambda: [-1] * N_STEPS)
     step_xmacro: list = field(default_factory=lambda: [None] * N_STEPS)  # transform's param overrides
     step_cyc: list = field(default_factory=lambda: [0] * N_STEPS)        # runtime bar counter
     step_active: list = field(default_factory=lambda: [False] * N_STEPS)  # runtime: transformed last cycle
@@ -129,6 +134,7 @@ class Track:
                 "step_living": [lv and not ht for lv, ht in zip(self.step_living, self.step_heat)],
                 "step_period": list(self.step_period),
                 "step_ratchet": list(self.step_ratchet), "step_send": list(self.step_send),
+                "step_fx": list(self.step_fx),
                 "step_xmacro": [list(x) if x else None for x in self.step_xmacro]}
 
     @classmethod
@@ -151,6 +157,7 @@ class Track:
         t.step_period = ([int(x) for x in d.get("step_period", [])][:N_STEPS] + [4] * N_STEPS)[:N_STEPS]
         t.step_ratchet = ([int(x) for x in d.get("step_ratchet", [])][:N_STEPS] + [1] * N_STEPS)[:N_STEPS]
         t.step_send = ([int(x) for x in d.get("step_send", [])][:N_STEPS] + [0] * N_STEPS)[:N_STEPS]
+        t.step_fx = ([int(x) for x in d.get("step_fx", [])][:N_STEPS] + [-1] * N_STEPS)[:N_STEPS]
         t.step_cyc = [0] * N_STEPS
         t.step_heat = [False] * N_STEPS       # HEAT is never restored from disk (performance-only)
         return t
@@ -840,6 +847,7 @@ class Project:
         tr.step_note = [None] * N_STEPS
         tr.step_vel = [None] * N_STEPS
         tr.step_pan = [None] * N_STEPS
+        tr.step_fx = [-1] * N_STEPS
 
     def set_length(self, track: int, length: int) -> int:
         self.tracks[track].length = max(1, min(N_STEPS, int(length)))
