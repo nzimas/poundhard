@@ -237,8 +237,6 @@
 		// BYTEBEAT: the expression is not a synth arg — push it to this voice's ByteBeat
 		// UGen via the /eval unit command right after /s_new (ordered on the server).
 		(def == \phSampleVoice).if {
-			("SMPSPAWN t=" ++ t ++ " buf=" ++ ~smpBuf[t].notNil.if({ ~smpBuf[t].bufnum }, { -1 })
-				++ " args=" ++ args).postln;
 			args = args ++ [\buf, ~smpBuf[t].notNil.if({ ~smpBuf[t].bufnum }, { ~silentBuf.bufnum })];
 		};
 		(def == \phBytebeat).if {
@@ -563,13 +561,11 @@
 		// the pad is released either way.
 		var t = m[1].asInteger.clip(0, ~nTracks - 1);
 		var path = m[2].asString;
-		("SMPASSIGN t=" ++ t ++ " path=" ++ path).postln;
 		File.exists(path).if({
 			Buffer.readChannel(s, path, channels: [0], action: { |b|
 				var old = ~smpBuf[t];
 				~smpBuf[t] = b;
 				old.notNil.if { old.free };
-				("SMPASSIGNED t=" ++ t ++ " buf=" ++ b.bufnum ++ " frames=" ++ b.numFrames).postln;
 			});
 		});
 		~smpPad.notNil.if { ~smpPad.free; ~smpPad = nil };   // pad released for the next take
