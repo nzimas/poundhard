@@ -398,6 +398,8 @@ the jog/knobs/cursors edit that track's settings — all in one place.
 | **Pad — hold (active step)** | **per-step lock** — jog = pitch, knob 1 = velocity, knob 2 = pan, knob 3 = macro |
 | **Rec + pad** | mark / unmark that step as a **[living step](#living-steps--the-heat-button)** (self-transforming; pulses pink) |
 | **Knob 4** (on a step) | **living period** — cycles between transforms (also marks the step living) |
+| **Copy + step pad** | a step **with data** goes to the clipboard; an **empty** step **receives** it — copy and paste without letting go of Copy. Carries everything: the note/velocity/pan/macro locks, living flag and period, ratchet, send and per-step FX |
+| **Copy + Track 1 / Track 2** | the same for a whole **row** of steps — row 1 is steps 1-8, row 2 is steps 9-16. The first row press of a Copy hold **grabs** that row; every press after it **pastes** onto the row pressed, empty or not. Release Copy to grab again |
 | **Shift + step pads** | **select** steps for the per-step FX editor (selected = bright red) |
 | **Shift + bottom row** | add / remove that effect on every selected step |
 | **Shift + master knob touch + pad** | set that pad as the **last step** (polymeter, up to 16) |

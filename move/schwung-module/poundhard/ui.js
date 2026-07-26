@@ -182,9 +182,13 @@ let seqBeats = 0, lastPulseMs = 0, wasRunning = false;
 let lastStepCol = new Array(N_TRACKS).fill(-1);
 
 let shiftHeld = false, masterTouched = false;
+let ccTrace = [];   /* TEMPORARY: see the Shift+knob diagnostic below */
 /* Pattern-view modifiers: X (Delete) + pad = delete & close the gap; Copy + pad = copy,
  * then further pads paste while Copy stays down. Releasing Copy forgets the clipboard. */
 let deleteHeld = false, copyHeld = false, copyArmed = false;
+/* Copy-button clipboard in the EDIT view: `clipStep` = a step is held, `rowArmed` = the
+ * current Copy hold has already grabbed a row (so the next row press pastes). */
+let clipStep = false, clipRow = false, rowArmed = false;
 let seq = 0, cmdQueue = [];
 let tempoLocal = 120, tempoDirty = false, controlDirty = false;
 /* pad hold -> per-step param lock */
@@ -683,7 +687,8 @@ function drawScreen() {
         print(0, 30, n + '/' + len + ' steps' + (nfx ? ('  ' + nfx + 'fx') : '') + '  ' + rateLbl(trackRate[editTrack] || 1), 1);
         print(0, 44, (editType === 'SAMPLE') ? 'jog pit k1vol k2pan k3mac k4/5win'
                                               : 'jog pit k1vol k2pan k3macro', 1);
-        print(0, 56, 'Trk1=back  shift=step fx', 1);
+        print(0, 56, copyHeld ? (rowArmed ? 'COPY: Trk1/2 pastes a row' : 'COPY: pad/Trk1/Trk2 copies')
+                               : 'Trk1=back  shift=step fx', 1);
     }
 }
 
@@ -706,6 +711,8 @@ function readStatus() {
     if (s.shuffle != null && !shufHeld) shufOn = !!s.shuffle;
     if (s.heatPct != null && knobShow !== 'heat') heatPct = s.heatPct;
     if (s.drumMode != null && paletteHeld !== DRUM_CELL) drumMode = s.drumMode;
+    if (s.clipStep != null) clipStep = !!s.clipStep;
+    if (s.clipRow != null) clipRow = !!s.clipRow;
     if (s.smpState != null) smpState = s.smpState;
     if (s.smpSrc != null) smpSrc = s.smpSrc;
     if (Array.isArray(s.smpChain)) smpChain = s.smpChain;   /* locked DRUM type */
@@ -791,6 +798,7 @@ globalThis.init = function () {
     editFx = new Array(N_STEPS).fill(-1); stepSel = []; lenArm = false;
     stepNote = new Array(N_STEPS).fill(60); stepVel = new Array(N_STEPS).fill(1.0); stepPan = new Array(N_STEPS).fill(0.0);
     shiftHeld = false; masterTouched = false; seq = 0; cmdQueue = [];
+    clipStep = false; clipRow = false; rowArmed = false;
     tempoLocal = 120; tempoDirty = false; controlDirty = false;
     heldCell = -1; heldStart = 0; heldStepEdit = false; stepEditCell = -1;
     trackHeld = -1; trackHeldStart = 0; trackActive = false; knobShow = null;
@@ -1141,6 +1149,22 @@ globalThis.onMidiMessageInternal = function (data) {
     if (status === 0x90 && d2 > 0 && d1 >= 68 && d1 <= 99) {
         if (editTrack < 0) return;
         const cell = NOTE_TO_CELL[d1];
+        /* COPY + step. A step that HAS data goes to the clipboard; an EMPTY step receives
+         * it — so copy-then-paste is two presses without ever letting go of Copy. */
+        if (copyHeld && cell < EDIT_STEPS) {
+            if (editSteps[cell]) {
+                sendCmd('stepcopy', cell, { p: { track: editTrack, cell: cell } });
+                clipStep = true; showAction('COPY S' + (cell + 1));
+            } else if (clipStep) {
+                editSteps[cell] = 1;                              /* optimistic: it now fires */
+                sendCmd('steppaste', cell, { p: { track: editTrack, cell: cell } });
+                showAction('PASTE S' + (cell + 1));
+            } else {
+                showAction('S' + (cell + 1) + ' EMPTY');
+            }
+            ledDirty = true; screenDirty = true;
+            return;
+        }
         if (recHeld) {                                           /* Rec + pad = toggle LIVING step */
             editLiving[cell] = !editLiving[cell];               /* optimistic */
             sendCmd('marklive', -1, { p: { track: editTrack, cell: cell } });
@@ -1228,6 +1252,8 @@ globalThis.onMidiMessageInternal = function (data) {
         if (d1 === MoveCopy) {
             copyHeld = d2 > 0;
             if (!copyHeld && copyArmed) { copyArmed = false; sendCmd('patclipclear', -1); }
+            if (!copyHeld) rowArmed = false;   /* a fresh hold grabs a row again */
+            if (editTrack >= 0) screenDirty = true;
             screenDirty = true;
             return;
         }
@@ -1256,6 +1282,22 @@ globalThis.onMidiMessageInternal = function (data) {
                 sendCmd('trackset', rt, { p: { track: rt, param: 'rate', value: trackRate[rt] } });
                 rateView = rt; rateViewUntil = phase + 45; screenDirty = true;
             }
+            return;
+        }
+        /* COPY + Track 1 / Track 2 (edit view) = copy or paste a whole ROW of steps.
+         * Row 1 is steps 1-8, row 2 is steps 9-16. The first row press of a Copy hold
+         * GRABS that row; every press after it (same hold) PASTES onto the row pressed,
+         * whether or not it already has data. Releasing Copy arms the next grab. */
+        if (copyHeld && editTrack >= 0 && d2 > 0 && (d1 === MoveRow1 || d1 === MoveRow2)) {
+            const row = (d1 === MoveRow1) ? 0 : 1;
+            if (!rowArmed) {
+                sendCmd('rowcopy', row, { p: { track: editTrack, row: row } });
+                rowArmed = true; clipRow = true; showAction('COPY ROW ' + (row + 1));
+            } else {
+                sendCmd('rowpaste', row, { p: { track: editTrack, row: row } });
+                showAction('PASTE ROW ' + (row + 1));
+            }
+            ledDirty = true; screenDirty = true;
             return;
         }
         if (d1 === MoveRow2 && d2 > 0) {                  /* Track 2 = FX view toggle */
@@ -1315,6 +1357,13 @@ globalThis.onMidiMessageInternal = function (data) {
             running = !running; sendCmd('run', running ? 1 : 0);
             showAction(running ? 'PLAY' : 'STOP'); ledDirty = true; screenDirty = true;
             return;
+        }
+        /* TEMPORARY DIAGNOSTIC (remove once the Shift+FX-knob report is settled): record
+         * every CC that arrives while Shift is held, so we can see what the Move actually
+         * sends for a shifted encoder turn. Capped, and only while Shift is down. */
+        if (shiftHeld && ccTrace.length < 40) {
+            ccTrace.push(d1 + ':' + d2 + (fxView ? 'F' : '') );
+            host_write_file(PH + '/ipc/cctrace.txt', ccTrace.join(' '));
         }
         if (d1 >= MoveKnob1 && d1 <= MoveKnob1 + 7) {
             const ki = d1 - MoveKnob1;

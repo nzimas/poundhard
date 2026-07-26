@@ -841,6 +841,52 @@ class Project:
         self.tracks[track].muted = not self.tracks[track].muted
         return self.tracks[track].muted
 
+    # -- step / row clipboard ---------------------------------------------- #
+    # Everything that makes a step what it is: whether it fires, its parameter locks, and
+    # its living-step settings. Copy carries ALL of it — a step pasted elsewhere sounds
+    # exactly like the one it came from.
+    _STEP_FIELDS = ("pattern", "step_note", "step_vel", "step_pan", "step_macro",
+                    "step_living", "step_period", "step_ratchet", "step_send", "step_fx")
+
+    def copy_step(self, track: int, cell: int) -> dict | None:
+        """Snapshot one step (and every lock on it). None if the cell is out of range."""
+        if not (0 <= track < N_TRACKS and 0 <= cell < N_STEPS):
+            return None
+        tr = self.tracks[track]
+        return {f: getattr(tr, f)[cell] for f in self._STEP_FIELDS}
+
+    def paste_step(self, track: int, cell: int, clip: dict) -> bool:
+        """Write a snapshot onto a step, replacing whatever was there."""
+        if not (0 <= track < N_TRACKS and 0 <= cell < N_STEPS) or not clip:
+            return False
+        tr = self.tracks[track]
+        for f in self._STEP_FIELDS:
+            if f in clip:
+                getattr(tr, f)[cell] = clip[f]
+        return True
+
+    def copy_row(self, track: int, row: int, per_row: int = 8) -> list | None:
+        """Snapshot a whole row of steps (row 0 = steps 1-8, row 1 = steps 9-16)."""
+        if not (0 <= track < N_TRACKS) or row < 0:
+            return None
+        base = row * per_row
+        if base + per_row > N_STEPS:
+            return None
+        return [self.copy_step(track, base + i) for i in range(per_row)]
+
+    def paste_row(self, track: int, row: int, clip: list, per_row: int = 8) -> list[int]:
+        """Write a row snapshot onto a row. Returns the cells actually written."""
+        if not (0 <= track < N_TRACKS) or row < 0 or not clip:
+            return []
+        base = row * per_row
+        if base + len(clip) > N_STEPS:
+            return []
+        written = []
+        for i, step in enumerate(clip):
+            if step and self.paste_step(track, base + i, step):
+                written.append(base + i)
+        return written
+
     def clear_pattern(self, track: int) -> None:
         tr = self.tracks[track]
         tr.pattern = [0] * N_STEPS

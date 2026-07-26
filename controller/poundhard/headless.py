@@ -75,6 +75,10 @@ class Controller:
         # yet and can leave the graph wedged (ready, but silent). Adopt the file's high-water
         # mark on the first read instead of executing it.
         self._seq_primed = False
+        # STEP / ROW CLIPBOARD (Copy-button gestures in the edit view). Not persisted: it is
+        # a performance tool, not project state.
+        self._step_clip: dict | None = None
+        self._row_clip: list | None = None
         self._last_tempo = None
         self._last_status_key: str | None = None
         self._last_status_write = 0.0
@@ -195,6 +199,20 @@ class Controller:
         """Push EFFECTIVE mutes (own mute OR 'not the soloed track') for every track."""
         for t in range(N_TRACKS):
             self.bridge.mute(t, self.state.eff_muted(t))
+
+    def _push_step_cell(self, t: int) -> None:
+        """Push one track's whole per-step state after a clipboard paste — the pattern plus
+        every lock — so the engine plays the pasted step exactly like its source."""
+        tr = self.state.tracks[t]
+        self.bridge.pattern(t, tr.pattern)
+        for cell in range(N_STEPS):
+            if (tr.step_note[cell] is not None or tr.step_vel[cell] is not None
+                    or tr.step_pan[cell] is not None):
+                self.bridge.steplock(t, cell, tr.eff_note(cell), tr.eff_vel(cell), tr.eff_pan(cell))
+            self.bridge.stepfx(t, cell, tr.step_fx[cell])
+            self.bridge.stepratchet(t, cell, tr.step_ratchet[cell])
+            self.bridge.stepsend(t, cell, bool(tr.step_send[cell]))
+        self._push_step_macros(t)
 
     def _push_step_macros(self, t: int) -> None:
         for cell in range(N_STEPS):
@@ -567,6 +585,7 @@ class Controller:
         "assign", "randtrack", "mute", "solo", "stepset", "steptoggle", "clearpat", "stepfx",
         "setlen", "savepat", "loadpat", "patdel", "patpaste", "genvar", "randpat",
         "fxassign", "fxbypass", "loadproj", "loadauto", "marklive",
+        "steppaste", "rowpaste",
     })
     # Commands that change no persisted state — they don't mark the project dirty.
     _NO_STATE = frozenset({
@@ -574,6 +593,7 @@ class Controller:
         "smparm",
         "recpad", "run",
         "patcopy", "patclipclear", "saveproj", "panic", "shuffle",
+        "stepcopy", "rowcopy",
     })
 
     def _dispatch(self, cmd: str, arg, p: dict) -> None:
@@ -716,6 +736,24 @@ class Controller:
             if 0 <= t < N_TRACKS:
                 for pid, val in st.set_voice_macro(t, float(p.get("pos", 0.5))):
                     self.bridge.param(t, pid, val)
+        elif cmd == "stepcopy":                # Copy + a step that HAS data: to the clipboard
+            t = int(p.get("track", st.edit_track)); cell = int(p.get("cell", -1))
+            clip = st.copy_step(t, cell)
+            if clip is not None:
+                self._step_clip = clip
+        elif cmd == "steppaste":               # Copy + an EMPTY step: paste onto it
+            t = int(p.get("track", st.edit_track)); cell = int(p.get("cell", -1))
+            if self._step_clip and st.paste_step(t, cell, self._step_clip):
+                self._push_step_cell(t)
+        elif cmd == "rowcopy":                 # Copy + Track 1/2: that row of steps
+            t = int(p.get("track", st.edit_track)); row = int(p.get("row", -1))
+            clip = st.copy_row(t, row)
+            if clip is not None:
+                self._row_clip = clip
+        elif cmd == "rowpaste":                # Copy + Track 1/2 again: paste the row
+            t = int(p.get("track", st.edit_track)); row = int(p.get("row", -1))
+            if self._row_clip and st.paste_row(t, row, self._row_clip):
+                self._push_step_cell(t)
         elif cmd == "voiceparam":              # a knob bound to ONE named param of the voice
             t = int(p.get("track", st.edit_track))
             name = str(p.get("param", ""))
@@ -893,6 +931,8 @@ class Controller:
             "autoSave": self._autosaved,       # a recovery file exists (Shift+Menu restores it)
             "heat": self._heat_on,             # HEAT macro engaged
             "heatPct": round(self._heat_pct, 3),
+            "clipStep": self._step_clip is not None,   # Copy-gesture clipboard state
+            "clipRow": self._row_clip is not None,
             "smpState": self._smp_state,        # idle/armed/recording/processing/ready
             "smpSrc": self._smp_src,
             "smpChain": list(self._smp_chain),
