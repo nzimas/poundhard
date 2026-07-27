@@ -834,17 +834,34 @@
 	//
 	// `res` 0..1 maps exponentially to Q 0.7..14 (rq = 1/Q). At the top the peak is sharp,
 	// so the output is soft-clipped — that bounds the peak without touching the passband.
-	SynthDef(\phTrackFilter, { |in = 16, out = 16, cutoff = 18000, res = 0.0, type = 0|
+	SynthDef(\phTrackFilter, { |in = 16, out = 16, cutoff = 18000, res = 0.0, type = 0,
+		glide = 0.03|
 		var dry = In.ar(in, 2);
-		var fc = cutoff.clip(20, 19000);
-		var rq = 1 / res.clip(0, 1).linexp(0, 1, 0.7, 14);
-		var lp = BLowPass.ar(dry, fc, rq);
-		var hp = BHiPass.ar(dry, fc, rq);
-		var wet = Select.ar(type.clip(0, 1).round, [lp, hp]);
-		// Transparent when it is doing nothing: an open lowpass with no resonance passes
-		// the dry signal untouched rather than a biquad's approximation of it.
-		var open = (cutoff >= 18000) * (res < 0.02) * (type < 0.5);
-		ReplaceOut.ar(out, ~killbad.(Select.ar(open, [(wet * 0.9).tanh / 0.9, dry])));
+		// EVERY control is SLEWED AT AUDIO RATE, because per-step filter locks change these
+		// between steps while the previous note is still ringing. A biquad recomputes its
+		// coefficients per control block and does not interpolate them, so stepping the
+		// cutoff mid-note is a discontinuity in the output — an audible click. Measured on a
+		// sine, the jump was ~4400x the signal's own curvature.
+		//
+		// Two changes kill it. The filter core is a STATE-VARIABLE filter, whose state is
+		// continuous under modulation (unlike a biquad's coefficient snap), and every control
+		// reaches it through an audio-rate Lag, so it moves per sample rather than per block.
+		// LP and HP are separate instances CROSSFADED, never switched. Cutoff glides in LOG
+		// frequency so a sweep moves at a musical rate.
+		//
+		// The SVF also keeps what the biquad was chosen for: its lowpass has unity DC gain at
+		// any resonance, so bass and level hold as resonance rises.
+		var fc = Lag.ar(K2A.ar(cutoff.clip(20, 19000).log), glide).exp;
+		var rs = Lag.ar(K2A.ar(res.clip(0, 1)), glide);
+		var ty = Lag.kr(type.clip(0, 1), glide);
+		var wet = LinXFade2.ar(SVF.ar(dry, fc, rs, 1, 0, 0),      // lowpass
+			SVF.ar(dry, fc, rs, 0, 0, 1),                         // highpass
+			(ty * 2) - 1);                                        // linear: no level bump midway
+		// Transparent when it is doing nothing: an open lowpass with no resonance passes the
+		// dry signal untouched. Faded, not switched, for the same reason as everything else.
+		var open = Lag.kr((cutoff >= 18000) * (res < 0.02) * (type < 0.5), glide);
+		var shaped = (wet * 0.9).tanh / 0.9;
+		ReplaceOut.ar(out, ~killbad.((shaped * (1 - open)) + (dry * open)));
 	}).add;
 
 	// per-track send: track bus -> master bus (summed)

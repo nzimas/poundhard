@@ -66,7 +66,8 @@
 // enable p-lock, this drives ONE shared insert, so an unlocked step has to put the
 // track's own values back or a lock would leak into every hit after it.
 ~stepFilt = Array.fill(~nTracks, { Array.fill(~maxSteps, { nil }) });
-~filtNow  = Array.fill(~nTracks, { nil });   // what the insert is set to right now
+~filtNow  = Array.fill(~nTracks, { nil });   // what the insert has been told to become
+~filtGlide = 0.03;                           // the filter's slew time (see \phTrackFilter)
 ~cycle     = Array.fill(~nTracks, { -1 });   // -1 so the FIRST pass is cycle 0 (fires)
 // what each insert's \enable is set to right now (avoids re-sending the same value
 // every hit) and which FX a track needs instantiated because SOME step locks it.
@@ -329,16 +330,6 @@
 		// merged.getPairs loses to any stale \buf already in ~pstore for this track (pstore
 		// is never cleared on engine change), which silently played the 1024-frame silent
 		// buffer. A dictionary key can only hold one value, so this can't collide.
-		// PER-STEP FILTER: a locked step plays through its own cutoff/res/type; an unlocked
-		// one puts the track's back, or a lock would leak into every hit after it. Sent only
-		// when it actually changes (one insert per track, set at spawn time).
-		block { |brk|
-			var want = ~stepFilt[t][step] ? ~filt[t];
-			((~filtNow[t] != want) and: { ~filtSynth[t].notNil }).if {
-				~filtSynth[t].set(\cutoff, want[0], \res, want[1], \type, want[2]);
-				~filtNow[t] = want;
-			};
-		};
 		// per-step FX lock: flip the track's insert enables for this hit
 		block { |brk|
 			var lock;
@@ -409,6 +400,28 @@
 			~pos[t] = (~pos[t] + 1) % ~length[t].max(1);
 			// a wrap to 0 is one more repetition of this track's pattern
 			(~pos[t] == 0).if { ~cycle[t] = ~cycle[t] + 1 };
+			// PER-STEP FILTER, HANDED OVER EARLY. The filter is one insert per track, so a
+			// locked step has to set it — but setting it AT the hit means the glide that
+			// stops it clicking also smears that hit's own attack. Instead the NEXT step's
+			// values are scheduled one glide-time before it arrives: the change happens
+			// during the previous note's tail (where a glide is what you want) and the new
+			// hit starts with its filter already in place. An unlocked step hands back the
+			// track's own values, so a lock can never leak forward.
+			~filtSynth[t].notNil.if {
+				var nxt = (~pos[t] + 1) % ~length[t].max(1);
+				var want = ~stepFilt[t][nxt] ? ~filt[t];
+				(~filtNow[t] != want).if {
+					var stepDur = (60 / ~bpm.max(20)) / ~stepsPerBeat / ~rate[t].max(0.0625);
+					~filtNow[t] = want;
+					// ~clock runs one beat per step, so this is a fraction of a step
+					~clock.sched((1 - (~filtGlide / stepDur)).clip(0, 1), {
+						~filtSynth[t].notNil.if {
+							~filtSynth[t].set(\cutoff, want[0], \res, want[1], \type, want[2]);
+						};
+						nil;
+					});
+				};
+			};
 			((~pattern[t][~pos[t]] == 1) and: { ~mute[t] == 0 }
 				// CYCLE FREQUENCY: only fire on every Nth repetition of the pattern
 				and: { (~cycle[t] % (~stepCycle[t][~pos[t]] ? 1).max(1)) == 0 }).if {

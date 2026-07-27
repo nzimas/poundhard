@@ -458,20 +458,40 @@ and it filters the *track*, not the reverb tails, because it sits before the ins
 The UGen choice is the whole point. Ask a ladder (`MoogFF`) or a Butterworth `RLPF` for
 resonance and you get 1970s behaviour: the passband is attenuated as Q rises, so a lowpass
 drains its own bass and the level sags — you cannot sweep it without riding the volume
-afterwards. PoundHard uses **RBJ biquads** (`BLowPass` / `BHiPass`), whose passband stays
-at unity for any Q: resonance adds a peak at the corner without taking anything away below
+afterwards. PoundHard uses a **state-variable filter** (`SVF`), whose lowpass has unity DC
+gain at any resonance: the peak appears at the corner without taking anything away below
 it (LP) or above it (HP).
 
 Measured on the device, 1 kHz lowpass, resonance 0 → maximum, with a 60 Hz probe:
 
 | filter | bass at 60 Hz | output level |
 |---|---|---|
-| **RBJ biquad** (what PoundHard uses) | **+0.0 dB** | **+0.2 dB** |
+| **State-variable** (what PoundHard uses) | **±0.1 dB** | **±0.3 dB** |
 | MoogFF ladder (for comparison) | −13.8 dB | −12.5 dB |
 
 The peak itself is bounded by a soft clip on the way out, so a full-resonance sweep cannot
 run away — and with the filter open and no resonance the dry signal is passed through
-untouched rather than through a biquad's approximation of it.
+untouched rather than through the filter's approximation of it.
+
+**Nothing about it is allowed to step**, because per-step locks change these values between
+steps while the previous note is still ringing. A biquad recomputes its coefficients per
+control block and does not interpolate them, so stepping a cutoff mid-note is a
+discontinuity in the output — measured on a sine, a jump **4400×** the signal's own
+curvature, which is exactly the click you hear. Three things fix it:
+
+- the **state-variable** core, whose state stays continuous under modulation (a biquad's
+  coefficient snap does not);
+- every control reaching it through an **audio-rate** slew (~30 ms), so it moves per sample
+  rather than per block, with cutoff gliding in *log* frequency so a sweep is musical;
+- **LP and HP crossfaded**, never switched — both always run, so this costs nothing.
+
+And the change is handed over **early**: the next step's values are scheduled one glide
+before that step arrives, so the transition happens during the previous note's tail (where a
+glide is what you want) and the new hit starts with its filter already in place, attack
+uncoloured. Measured on the worst case — steps alternating between a 250 Hz resonant lowpass
+and a 6 kHz highpass under a sustaining sample — the largest sample-to-sample jump in the
+output is **2.2×** the signal's own 99.9th-percentile slew, i.e. inside its normal dynamics,
+while the steps still read as clearly different (≈1150 vs ≈750 zero crossings).
 
 **Hold a step and the same knobs scope to that step**: a locked step plays through its own
 cutoff / resonance / type and an unlocked one plays the track's, exactly like the per-step
