@@ -557,7 +557,7 @@ function drawStepParam() {
                     : (cyc > 1) ? ('PLAYS 1 IN ' + cyc)
                     : (noteName(stepNote[c]) + ' v' + velMidi(stepVel[c]) + ' ' + panLbl(stepPan[c])), 2);
         print(0, 54, editLiving[c] ? 'row3 = plays   row4 = live'
-                    : ((editType === 'SAMPLE') ? 'row3 cyc  k4/5 win  k6/7 filt'
+                    : ((editType === 'SAMPLE') ? 'row3 cyc  k4/5 win  k6/7/8 filt'
                                                : 'row3 cyc   k4/5/6 filter'), 1);
     }
 }
@@ -1014,7 +1014,7 @@ globalThis.onMidiMessageInternal = function (data) {
                 : (smp && ki === 3) ? 'sstart' : (smp && ki === 4) ? 'send'
                 : (ki === (smp ? 5 : 3)) ? 'sfcut'
                 : (ki === (smp ? 6 : 4)) ? 'sfres'
-                : (!smp && ki === 5) ? 'sftype' : null;
+                : (ki === (smp ? 7 : 5)) ? 'sftype' : null;
         }
         else if (editTrack >= 0) {
             const smp = (editType === 'SAMPLE');
@@ -1508,7 +1508,9 @@ globalThis.onMidiMessageInternal = function (data) {
              * period, so touching the filter marked the step living and set it blinking. */
             if (stepEditCell >= 0) {
                 const c = stepEditCell, smp = (editType === 'SAMPLE');
-                const kCut = smp ? 5 : 3, kRes = smp ? 6 : 4, kType = smp ? -1 : 5;
+                /* SAMPLE keeps 4/5 for the window, so the filter sits on 6/7/8 — knob 8 came
+                 * free when the living interval moved to row 4. */
+                const kCut = smp ? 5 : 3, kRes = smp ? 6 : 4, kType = smp ? 7 : 5;
                 if (ki === kCut) {
                     stepFcut[c] = clampf(stepFcut[c] * Math.pow(1.06, dn), 20, 19000);
                     knobShow = 'sfcut';

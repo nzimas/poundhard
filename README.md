@@ -424,7 +424,7 @@ the jog/knobs/cursors edit that track's settings — all in one place.
 | **Knob 4 / 5** *(SAMPLE tracks)* | the sample's **playable window**: start / end, as a percentage of the buffer |
 | **Knob 6 / 7 / 8** *(SAMPLE tracks)* | the filter, shifted by two so the window keeps 4 and 5 |
 | **Hold a step + knob 4 / 5** *(SAMPLE)* | that **step's own** slice of the buffer — one step plays the attack, the next the tail. Unlocked steps follow the track |
-| **Hold a step + the filter knobs** | the filter **for that step only** — same knobs as the track filter (4/5/6, or 6/7 on SAMPLE). Unlocked steps play the track's filter |
+| **Hold a step + the filter knobs** | the filter **for that step only** — same knobs as the track filter (4/5/6, or 6/7/8 on SAMPLE). Unlocked steps play the track's filter |
 | **Hold a LIVING step + row 4** | that step's **living interval** — how often it transforms, counted in **its own plays** (pad 1 = every play … pad 8 = every eighth). Row 4 keeps showing the FX chain for a step that isn't living |
 | **Left / Right cursor** | clock rate / division: `/8 /4 /2 1 x2 x4 x8` (bipolar readout) |
 | **Track 1 button** | back to Tracks view |
@@ -477,8 +477,8 @@ untouched rather than through a biquad's approximation of it.
 cutoff / resonance / type and an unlocked one plays the track's, exactly like the per-step
 FX mask. Because the filter is one insert per track, the lock is applied at step time and
 the track's own values are restored by the next unlocked hit, so a lock can never leak
-forward. (On SAMPLE tracks the per-step *type* has no knob left — LP/HP stays track-level
-there; cutoff and resonance lock as usual on knobs 6 and 7.)
+forward. The layout is identical held or not — 4/5/6, and 6/7/8 on SAMPLE tracks where the
+sample window owns 4 and 5.
 
 #### Per-step FX
 
