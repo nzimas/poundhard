@@ -214,6 +214,9 @@ class Controller:
             self.bridge.stepsmp(t, cell,
                                 -1.0 if tr.step_start[cell] is None else tr.step_start[cell],
                                 -1.0 if tr.step_end[cell] is None else tr.step_end[cell])
+            fl = tr.step_filt[cell]
+            self.bridge.stepfilt(t, cell, -1.0 if fl is None else fl[0],
+                                 0.0 if fl is None else fl[1], 0 if fl is None else fl[2])
             self.bridge.stepratchet(t, cell, tr.step_ratchet[cell])
             self.bridge.stepsend(t, cell, bool(tr.step_send[cell]))
         self._push_step_macros(t)
@@ -589,7 +592,7 @@ class Controller:
         "assign", "randtrack", "mute", "solo", "stepset", "steptoggle", "clearpat", "stepfx",
         "setlen", "savepat", "loadpat", "patdel", "patpaste", "genvar", "randpat",
         "fxassign", "fxbypass", "loadproj", "loadauto", "marklive",
-        "steppaste", "rowpaste", "stepcycle", "trackfilter", "stepwindow",
+        "steppaste", "rowpaste", "stepcycle", "trackfilter", "stepwindow", "stepfilter",
     })
     # Commands that change no persisted state — they don't mark the project dirty.
     _NO_STATE = frozenset({
@@ -747,6 +750,12 @@ class Controller:
                     t,
                     cutoff=p.get("cutoff"), res=p.get("res"), ftype=p.get("type"))
                 self.bridge.filter(t, cut, rs, ty)
+        elif cmd == "stepfilter":              # hold a step + the filter knobs: lock it there
+            t = int(p.get("track", st.edit_track)); cell = int(p.get("cell", -1))
+            if 0 <= t < N_TRACKS and 0 <= cell < N_STEPS:
+                cut, rs, ty = st.set_step_filter(
+                    t, cell, cutoff=p.get("cutoff"), res=p.get("res"), ftype=p.get("type"))
+                self.bridge.stepfilt(t, cell, cut, rs, ty)
         elif cmd == "stepwindow":              # hold a step (SAMPLE) + knob 4/5: its own slice
             t = int(p.get("track", st.edit_track))
             cell = int(p.get("cell", -1)); which = str(p.get("param", ""))
@@ -1008,6 +1017,10 @@ class Controller:
                 "fx": list(et.step_fx),        # per-step FX mask (-1 = no lock)
                 "cycle": list(et.step_cycle),  # fire every Nth pattern repetition
                 # effective per-step SAMPLE window (the step's own lock, else the track's)
+                # effective per-step filter (its own lock, else the track's)
+                "stepFcut": [round(st.eff_filter(st.edit_track, c)[0], 1) for c in range(N_STEPS)],
+                "stepFres": [round(st.eff_filter(st.edit_track, c)[1], 3) for c in range(N_STEPS)],
+                "stepFtype": [st.eff_filter(st.edit_track, c)[2] for c in range(N_STEPS)],
                 "stepStart": [round(st.eff_start(st.edit_track, c), 4) for c in range(N_STEPS)],
                 "stepEnd": [round(st.eff_end(st.edit_track, c), 4) for c in range(N_STEPS)],
                 "period": list(et.step_period),

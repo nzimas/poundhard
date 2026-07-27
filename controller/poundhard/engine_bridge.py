@@ -150,6 +150,8 @@ class EngineBridge:
     def stepcycle(self, t, cell, n):   self.send("/ph/stepcycle", int(t), int(cell), int(n))
     def stepsmp(self, t, cell, start, end):     # per-step SAMPLE window (-1 = inherit)
         self.send("/ph/stepsmp", int(t), int(cell), float(start), float(end))
+    def stepfilt(self, t, cell, cutoff, res, ftype):   # per-step filter lock (-1 = clear)
+        self.send("/ph/stepfilt", int(t), int(cell), float(cutoff), float(res), int(ftype))
     def filter(self, t, cutoff, res, ftype):    # per-track multimode filter
         self.send("/ph/filter", int(t), float(cutoff), float(res), int(ftype))
     def smparm(self, src, thresh):     self.send("/ph/smparm", int(src), float(thresh))
@@ -237,6 +239,9 @@ class EngineBridge:
                 self.stepfx(t, cell, track.step_fx[cell])
             if track.step_cycle[cell] != 1:
                 self.stepcycle(t, cell, track.step_cycle[cell])
+            fl = track.step_filt[cell]
+            if fl is not None:
+                self.stepfilt(t, cell, fl[0], fl[1], fl[2])
             if track.step_start[cell] is not None or track.step_end[cell] is not None:
                 self.stepsmp(t, cell,
                              -1.0 if track.step_start[cell] is None else track.step_start[cell],

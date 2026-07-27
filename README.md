@@ -411,7 +411,6 @@ the jog/knobs/cursors edit that track's settings — all in one place.
 | **Pad — tap** (rows 1–2) | toggle that step (in-length pads dim, active bright) |
 | **Pad — hold (active step)** | **per-step lock** — jog = pitch, knob 1 = velocity, knob 2 = pan, knob 3 = macro |
 | **Rec + pad** | mark / unmark that step as a **[living step](#living-steps--the-heat-button)** (self-transforming; pulses pink) |
-| **Knob 4** (on a step) | **living period** — cycles between transforms (also marks the step living) |
 | **Hold a step + row 3** | that step's **cycle frequency**: pad 1 = every pattern repetition (default), pad 2 = every second, … pad 8 = every eighth. Row 3 is dark unless a step is held |
 | **Copy + step pad** | a step **with data** goes to the clipboard; an **empty** step **receives** it — copy and paste without letting go of Copy. Carries everything: the note/velocity/pan/macro locks, living flag and period, ratchet, send and per-step FX |
 | **Copy + Track 1 / Track 2** | the same for a whole **row** of steps — row 1 is steps 1-8, row 2 is steps 9-16. The first row press of a Copy hold **grabs** that row; every press after it **pastes** onto the row pressed, empty or not. Release Copy to grab again |
@@ -424,7 +423,9 @@ the jog/knobs/cursors edit that track's settings — all in one place.
 | **Knob 4 / 5 / 6** | the track **filter**: cutoff · resonance · LP/HP (see [Track filter](#track-filter)) |
 | **Knob 4 / 5** *(SAMPLE tracks)* | the sample's **playable window**: start / end, as a percentage of the buffer |
 | **Knob 6 / 7 / 8** *(SAMPLE tracks)* | the filter, shifted by two so the window keeps 4 and 5 |
-| **Hold a step + knob 4 / 5** *(SAMPLE)* | that **step's own** slice of the buffer — one step plays the attack, the next the tail. Unlocked steps follow the track. (The living period moves to knob 6 here) |
+| **Hold a step + knob 4 / 5** *(SAMPLE)* | that **step's own** slice of the buffer — one step plays the attack, the next the tail. Unlocked steps follow the track |
+| **Hold a step + the filter knobs** | the filter **for that step only** — same knobs as the track filter (4/5/6, or 6/7 on SAMPLE). Unlocked steps play the track's filter |
+| **Hold a step + knob 7** *(knob 8 on SAMPLE)* | **living period** — cycles between transforms (also marks the step living) |
 | **Left / Right cursor** | clock rate / division: `/8 /4 /2 1 x2 x4 x8` (bipolar readout) |
 | **Track 1 button** | back to Tracks view |
 
@@ -468,6 +469,13 @@ Measured on the device, 1 kHz lowpass, resonance 0 → maximum, with a 60 Hz pro
 The peak itself is bounded by a soft clip on the way out, so a full-resonance sweep cannot
 run away — and with the filter open and no resonance the dry signal is passed through
 untouched rather than through a biquad's approximation of it.
+
+**Hold a step and the same knobs scope to that step**: a locked step plays through its own
+cutoff / resonance / type and an unlocked one plays the track's, exactly like the per-step
+FX mask. Because the filter is one insert per track, the lock is applied at step time and
+the track's own values are restored by the next unlocked hit, so a lock can never leak
+forward. (On SAMPLE tracks the per-step *type* has no knob left — LP/HP stays track-level
+there; cutoff and resonance lock as usual on knobs 6 and 7.)
 
 #### Per-step FX
 
@@ -1015,8 +1023,8 @@ PYTHONPATH="$PWD:$PWD/vendor" python3 -m poundhard.headless
 
 **The controller is authoritative** for musical state (a `Project`: 16 tracks ×
 {engine type, note, velocity, parameters, pattern + per-step locks — pitch, velocity,
-pan, voice macro, ratchet, living flag/period, FX mask, **cycle divider** and the
-**per-step sample window** — mute, length, rate, **filter**}, plus FX assignment/bypass/macros, tempo, and 32 pattern slots). A track
+pan, voice macro, ratchet, living flag/period, FX mask, **cycle divider**, the **per-step
+sample window** and the **per-step filter** — mute, length, rate, **filter**}, plus FX assignment/bypass/macros, tempo, and 32 pattern slots). A track
 is at most **16 steps**; the per-step arrays are 32 wide for headroom and for projects
 saved before the cap. It reads `control.json`, writes `status.json`, generates kits,
 and pushes state to the engine over OSC.
@@ -1092,7 +1100,7 @@ command is dispatched until the engine reports ready.
 |---|---|
 | engine palette | `audition`, `palettegen`, `assign`, `randtrack`, `genkit`, `drumaudition` / `drummode` (DRUM type picker), `smparm` (arm the SAMPLE capture) |
 | tracks | `mute`, `solo`, `trackset` (pitch/amp/pan/rate), `voicemacro`, `voiceparam` (one named voice param — SAMPLE's window knobs), `trackfilter` (cutoff/res/type), `note`, `setlen`, `clearpat` |
-| steps | `stepset` / `steptoggle`, `steplock`, `stepmacro`, `stepfx` (per-step FX mask), `stepcycle` (fire every Nth repetition), `stepwindow` (per-step sample slice), `marklive` / `liveperiod` (living steps) |
+| steps | `stepset` / `steptoggle`, `steplock`, `stepmacro`, `stepfx` (per-step FX mask), `stepcycle` (fire every Nth repetition), `stepwindow` (per-step sample slice), `stepfilter` (per-step filter lock), `marklive` / `liveperiod` (living steps) |
 | clipboard | `stepcopy` / `steppaste`, `rowcopy` / `rowpaste` (the Copy-button gestures) |
 | FX | `fxassign`, `fxbypass`, `fxmacro`, `fxwet` |
 | macros | `heat` / `heatpct`, `shuffle`, `chaos` / `chaosreset` |
@@ -1109,8 +1117,8 @@ webPort`, per-track `muted / active / note / vel / pan / amp / rate / length` pl
 `drumTracks / drumMode`, the FX view state (`fxTop / fxBypass / fxOn / fxMacro / fxWet /
 fxNames`), and the open track's `edit` block: `steps`, the effective per-step
 `stepNote / stepVel / stepPan / stepMacro`, `living / period / ratchet / active`,
-`fx` (per-step FX masks), `cycle` (per-step dividers) and `stepStart / stepEnd` (the
-effective per-step sample window).
+`fx` (per-step FX masks), `cycle` (per-step dividers), `stepStart / stepEnd` (the effective per-step sample window)
+and `stepFcut / stepFres / stepFtype` (the effective per-step filter).
 
 Also the pattern/project state (`patFilled / patCur / patPending / projFilled`), the
 `autoSave` flag, the HEAT / SHUFFLE / chaos macro state (`heat / heatPct / shuffle /
@@ -1130,6 +1138,7 @@ the Copy-gesture clipboard is holding a step or a row.
 `/ph/stepcycle t cell n` (fire on every **n**-th repetition of the pattern, 1-8) ·
 `/ph/stepsmp t cell start end` (per-step SAMPLE window, **-1 = inherit the track's**) ·
 `/ph/filter t cutoff res type` (per-track multimode filter, type 0=LP 1=HP) ·
+`/ph/stepfilt t cell cutoff res type` (per-step filter lock, **cutoff < 0 = follow the track**) ·
 `/ph/livingfx dTime dFb dMix vMix vRoom vDamp`
 (living-step ratchet / per-step FX-send routing / send-bus params) ·
 `/ph/smparm t thresh` (arm the threshold capture) · `/ph/smpwrite \"path\"` · `/ph/smpload \"path\"` ·

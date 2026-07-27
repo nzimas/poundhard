@@ -62,6 +62,11 @@
 // per-step SAMPLE window (nil = inherit the track's own start/end)
 ~stepStart = Array.fill(~nTracks, { Array.fill(~maxSteps, { nil }) });
 ~stepEnd   = Array.fill(~nTracks, { Array.fill(~maxSteps, { nil }) });
+// per-step FILTER lock: nil = follow the track, else [cutoff, res, type]. Like the FX
+// enable p-lock, this drives ONE shared insert, so an unlocked step has to put the
+// track's own values back or a lock would leak into every hit after it.
+~stepFilt = Array.fill(~nTracks, { Array.fill(~maxSteps, { nil }) });
+~filtNow  = Array.fill(~nTracks, { nil });   // what the insert is set to right now
 ~cycle     = Array.fill(~nTracks, { -1 });   // -1 so the FIRST pass is cycle 0 (fires)
 // what each insert's \enable is set to right now (avoids re-sending the same value
 // every hit) and which FX a track needs instantiated because SOME step locks it.
@@ -324,6 +329,16 @@
 		// merged.getPairs loses to any stale \buf already in ~pstore for this track (pstore
 		// is never cleared on engine change), which silently played the 1024-frame silent
 		// buffer. A dictionary key can only hold one value, so this can't collide.
+		// PER-STEP FILTER: a locked step plays through its own cutoff/res/type; an unlocked
+		// one puts the track's back, or a lock would leak into every hit after it. Sent only
+		// when it actually changes (one insert per track, set at spawn time).
+		block { |brk|
+			var want = ~stepFilt[t][step] ? ~filt[t];
+			((~filtNow[t] != want) and: { ~filtSynth[t].notNil }).if {
+				~filtSynth[t].set(\cutoff, want[0], \res, want[1], \type, want[2]);
+				~filtNow[t] = want;
+			};
+		};
 		// per-step FX lock: flip the track's insert enables for this hit
 		block { |brk|
 			var lock;
@@ -660,8 +675,16 @@
 		var rs = m[3].asFloat.clip(0, 1);
 		var ty = m[4].asInteger.clip(0, 1);
 		~filt[t] = [cut, rs, ty];
+		~filtNow[t] = ~filt[t];
 		~filtSynth[t].notNil.if { ~filtSynth[t].set(\cutoff, cut, \res, rs, \type, ty) };
 	}, '/ph/filter'),
+	OSCdef(\phStepFilt, { |m|                      // per-step filter lock (cutoff < 0 = clear)
+		var t = m[1].asInteger.clip(0, ~nTracks - 1);
+		var c = m[2].asInteger.clip(0, ~maxSteps - 1);
+		var cut = m[3].asFloat;
+		~stepFilt[t][c] = (cut < 0).if({ nil },
+			{ [cut.clip(20, 19000), m[4].asFloat.clip(0, 1), m[5].asInteger.clip(0, 1)] });
+	}, '/ph/stepfilt'),
 	OSCdef(\phStepCycle, { |m|                     // how often a step fires (pattern cycles)
 		var t = m[1].asInteger.clip(0, ~nTracks - 1);
 		var c = m[2].asInteger.clip(0, ~maxSteps - 1);
@@ -693,6 +716,7 @@
 			~stepNote[t][c] = nil; ~stepVel[t][c] = nil; ~stepPan[t][c] = nil;
 			~stepMacro[t][c] = nil; ~stepRatchet[t][c] = 1; ~stepSend[t][c] = 0;
 			~stepStart[t][c] = nil; ~stepEnd[t][c] = nil; ~stepCycle[t][c] = 1;
+			~stepFilt[t][c] = nil;
 		};
 	}, '/ph/clearlocks'),
 	OSCdef(\phVel,  { |m| ~vel[m[1].asInteger.clip(0, ~nTracks - 1)] = m[2].asFloat; }, '/ph/vel'),

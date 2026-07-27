@@ -103,6 +103,10 @@ class Track:
     # step can play a different slice of the same buffer without touching the others.
     step_start: list = field(default_factory=lambda: [None] * N_STEPS)
     step_end: list = field(default_factory=lambda: [None] * N_STEPS)
+    # PER-STEP FILTER lock: None = follow the track, else [cutoff, res, type]. The filter is
+    # one insert per track, so a locked step sets it for its own hit and an unlocked step
+    # restores the track's own values — the same p-lock shape as the per-step FX mask.
+    step_filt: list = field(default_factory=lambda: [None] * N_STEPS)
     # PER-TRACK MULTIMODE FILTER, ahead of the FX chain. Defaults are transparent.
     filt_cutoff: float = 18000.0
     filt_res: float = 0.0
@@ -152,6 +156,7 @@ class Track:
                 "step_fx": list(self.step_fx),
                 "step_cycle": list(self.step_cycle),
                 "step_start": list(self.step_start),
+                "step_filt": [None if v is None else list(v) for v in self.step_filt],
                 "step_end": list(self.step_end),
                 "filt": [self.filt_cutoff, self.filt_res, self.filt_type],
                 "step_xmacro": [list(x) if x else None for x in self.step_xmacro]}
@@ -180,6 +185,9 @@ class Track:
         t.step_fx = ([int(x) for x in d.get("step_fx", [])][:N_STEPS] + [-1] * N_STEPS)[:N_STEPS]
         t.step_cycle = ([max(1, min(8, int(x))) for x in d.get("step_cycle", [])][:N_STEPS]
                         + [1] * N_STEPS)[:N_STEPS]
+        raw = d.get("step_filt", [])
+        fl = [None if v is None else [float(v[0]), float(v[1]), int(v[2])] for v in raw][:N_STEPS]
+        t.step_filt = (fl + [None] * N_STEPS)[:N_STEPS]
         for name in ("step_start", "step_end"):
             raw = d.get(name, [])
             vals = [None if x is None else max(0.0, min(1.0, float(x))) for x in raw][:N_STEPS]
@@ -878,7 +886,7 @@ class Project:
     # exactly like the one it came from.
     _STEP_FIELDS = ("pattern", "step_note", "step_vel", "step_pan", "step_macro",
                     "step_living", "step_period", "step_ratchet", "step_send", "step_fx",
-                    "step_cycle", "step_start", "step_end")
+                    "step_cycle", "step_start", "step_end", "step_filt")
 
     def copy_step(self, track: int, cell: int) -> dict | None:
         """Snapshot one step (and every lock on it). None if the cell is out of range."""
@@ -929,6 +937,7 @@ class Project:
         tr.step_cycle = [1] * N_STEPS
         tr.step_start = [None] * N_STEPS
         tr.step_end = [None] * N_STEPS
+        tr.step_filt = [None] * N_STEPS
 
     def eff_start(self, track: int, cell: int) -> float:
         tr = self.tracks[track]
@@ -950,6 +959,27 @@ class Project:
         else:
             tr.step_end[cell] = max(v, self.eff_start(track, cell) + 0.01)
         return (self.eff_start(track, cell), self.eff_end(track, cell))
+
+    def eff_filter(self, track: int, cell: int) -> tuple:
+        """The filter this step will play through: its own lock, else the track's."""
+        tr = self.tracks[track]
+        v = tr.step_filt[cell]
+        if v is None:
+            return (tr.filt_cutoff, tr.filt_res, tr.filt_type)
+        return (float(v[0]), float(v[1]), int(v[2]))
+
+    def set_step_filter(self, track: int, cell: int, cutoff=None, res=None, ftype=None) -> tuple:
+        """Lock the filter for ONE step. The first touch seeds the lock from the track, so
+        turning a knob nudges what you are already hearing rather than jumping."""
+        cut, rs, ty = self.eff_filter(track, cell)
+        if cutoff is not None:
+            cut = max(20.0, min(19000.0, float(cutoff)))
+        if res is not None:
+            rs = max(0.0, min(1.0, float(res)))
+        if ftype is not None:
+            ty = 1 if int(ftype) else 0
+        self.tracks[track].step_filt[cell] = [cut, rs, ty]
+        return (cut, rs, ty)
 
     def set_filter(self, track: int, cutoff: float | None = None,
                    res: float | None = None, ftype: int | None = None) -> tuple:
