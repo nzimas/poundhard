@@ -9,8 +9,9 @@ rhythmic noise and percussion-centric experimental electronica.
 
 A SuperCollider engine carries the DSP, a Python controller holds the
 authoritative musical state, and a Schwung `ui.js` drives the Move's pads, step
-buttons, encoders and screen. It runs on the same on-device stack as the
-*wildrider* takeover — reused plumbing, brand-new instrument.
+buttons, encoders and screen. It began as a fork of the *wildrider* takeover's
+plumbing and is now **self-contained**: it ships its own SuperCollider *and* JACK
+runtime, so **Schwung is the only thing it needs on the device**.
 
 ```
  Move pads / buttons / knobs / screen
@@ -27,6 +28,7 @@ buttons, encoders and screen. It runs on the same on-device stack as the
         │
         ▼
    supernova → jackd → Move speaker / output
+           (both vendored in PoundHard's own runtime bundle)
 ```
 
 ---
@@ -38,6 +40,8 @@ buttons, encoders and screen. It runs on the same on-device stack as the
 - [Controls](#controls)
   - [Tracks view](#tracks-view-default)
   - [Edit view](#edit-view-per-track)
+    - [Cycle frequency](#cycle-frequency)
+    - [Per-step FX](#per-step-fx)
   - [FX view](#fx-view)
   - [Pattern view](#pattern-view)
   - [Project view](#project-view)
@@ -103,6 +107,10 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   **transform themselves** as you play: ratchets, timbre lurches, pitch leaps, pan
   throws and per-step delay/reverb. A live-performance engine (see
   [Living steps & the HEAT button](#living-steps--the-heat-button)).
+- **Copy gestures** — hold **Copy** and a step with data goes to the clipboard, an empty
+  one receives it; hold Copy and press **Track 1 / Track 2** to grab or paste a whole
+  **row** of eight steps. Everything travels: locks, living flags, ratchets, FX masks and
+  cycle dividers.
 - **Re-roll a track's sound** in place with **Shift + Track 1** while it's open —
   a fresh sound within its assigned engine. Patterns, mutes and locks survive.
 - **Patterns are self-contained** — engines, every parameter, FX, mutes and sequences.
@@ -452,7 +460,7 @@ following hits.
 **Track 2** opens the FX view. The top two pad rows are the 16 tracks; the bottom
 row is an 8-effect chain — `OD · AMP · CRSH · RING · CLDS · RESO · GREY · VERB`
 (the space-makers sit at the end: **GREY**, a diffuse feedback delay, feeds **VERB**, the
-plate reverb that closes the chain), each a distinct colour.
+cathedral reverb that closes the chain), each a distinct colour.
 
 **CLDS** is **MiClouds** — Mutable Instruments **Clouds** (mi-UGens) as a live granular
 texture processor (granular mode): grain size / density / texture / read-position, stereo
@@ -478,7 +486,7 @@ sweeps delay time, feedback, size, diffusion, damping and modulation together.
 > an allpass diffusion chain with damped regeneration. It is drier than the plugin (Greyhole's
 > reverb-ish blur is gone) — which is why the chain now ends in a dedicated reverb.
 
-**VERB** is the **plate reverb** that closes the chain, so it reverberates everything upstream
+**VERB** is the **reverb** that closes the chain, so it reverberates everything upstream
 of it. It's a **feedback delay network** built from core UGens: a bandwidth filter → **eight
 series allpass diffusers** spanning 0.7-24 ms (the early field) → **eight modulated delay
 lines**, each carrying its own allpass and damping low-pass, recirculated through an 8×8
@@ -655,7 +663,8 @@ machine at that instant, and loading one restores all of it:
   pattern-level, so two patterns can have completely different rigs
 - every **engine parameter** of every voice, plus notes, velocities and pans
 - the **FX** state — chains per track, bypass, the macros and the dry/wet mixes
-- **mutes**, sequences, lengths, clock rates and every per-step lock
+- **mutes**, sequences, lengths, clock rates and every per-step lock — pitch, velocity,
+  pan, voice macro, ratchet, living flag and period, FX mask and cycle divider
 
 **Tempo is per pattern too.** Each pattern carries its own BPM, so switching pattern
 switches tempo with it and sections can run at different speeds. Set the selected
@@ -972,16 +981,27 @@ PYTHONPATH="$PWD:$PWD/vendor" python3 -m poundhard.headless
 ## Architecture & internals
 
 **The controller is authoritative** for musical state (a `Project`: 16 tracks ×
-{engine type, note, velocity, parameters, 32-step pattern + per-step locks, mute,
-length, rate}, plus FX assignment/bypass/macros, tempo, and 32 pattern slots). It
-reads `control.json`, writes `status.json`, generates kits, and pushes state to
-the engine over OSC.
+{engine type, note, velocity, parameters, pattern + per-step locks — pitch, velocity,
+pan, voice macro, ratchet, living flag/period, FX mask and **cycle divider** — mute,
+length, rate}, plus FX assignment/bypass/macros, tempo, and 32 pattern slots). A track
+is at most **16 steps**; the per-step arrays are 32 wide for headroom and for projects
+saved before the cap. It reads `control.json`, writes `status.json`, generates kits,
+and pushes state to the engine over OSC.
+
+**Startup is a handshake, not a race.** The controller pings until the engine answers
+`/ph/ready`, and until then it dispatches nothing — including whatever was left in
+`control.json` by the previous session, whose high-water mark it adopts on its first
+read rather than replaying. Pushing a machine's worth of state at a half-built graph
+floods the server with messages for nodes that do not exist yet and can leave it
+running-but-silent, which is a failure mode worth designing out rather than debugging
+twice.
 
 **The engine owns the step clock and the DSP.** The clock is a `TempoClock`
 routine in `engine.scd`: it advances a per-track accumulator (so each track runs
-at its own rate and length — polymeter), spawns each active/unmuted step's voice,
-streams the playhead back as `/ph/step`, and fires `/ph/cycle` on each 16-step
-bar boundary for queued pattern switching. Python stays at a relaxed rate for
+at its own rate and length — polymeter), counts each track's repetitions so a step
+carrying a **cycle divider** only fires on every Nth pass, spawns each active/unmuted
+step's voice, streams the playhead back as `/ph/step`, and fires `/ph/cycle` on each
+16-step bar boundary for queued pattern switching. Python stays at a relaxed rate for
 UI/status only.
 
 ### Voice model
@@ -998,9 +1018,19 @@ at idle. Two guards keep it robust under dense IDM/noise patterns:
   `mode`) — a hit runs only its mode's DSP, several times cheaper than an
   all-modes-then-`Select` voice.
 
+**BYTEBEAT is the one exception**, and it is forced by the UGen rather than chosen: it
+parses its expression *per instance* and starts on an `Undefined` expression that
+evaluates to 0, so a freshly spawned instance is silent until its asynchronous `/eval`
+lands. Spawning one per hit raced the parse against the note — long notes won it, short
+ones came out inaudible, and the same sound was not reproducible twice. That track keeps
+**one live voice**, parsed once and re-triggered per step (`t_trig`, `doneAction: 0`),
+with a free-running counter — which is what bytebeat is anyway.
+
 Each track has a **private stereo bus**; its voices write there, its FX chain
 processes in place (each FX `ReplaceOut`s the bus in canonical order), and a send
 sums it to the master. Node order: `gClear → gVoices → gFx → gSend → gMaster`.
+Under supernova `gVoices` is a **ParGroup** with a serial subgroup per track, so tracks
+render in parallel while each track's own chain stays ordered.
 
 ### The Move UI (ui.js) and file I/O
 
@@ -1019,37 +1049,50 @@ while a knob is touched.
 
 ### control.json (ui.js → controller)
 
-A `cmds` queue de-duped by `seq` (a single-slot mailbox lost commands when the UI
-wrote twice between polls). Commands include: `audition` / `palettegen` / `assign`
-(engine palette), `randtrack`, `mute`, `solo`, `editenter` / `editexit`, `stepset`,
-`steplock`, `stepmacro`, `stepfx`, `setlen`, `trackset`, `voicemacro`,
-`fxassign` / `fxbypass` / `fxmacro` / `fxwet`, `marklive` / `liveperiod` (living steps),
-`heat` / `heatpct` (the HEAT macro), `shuffle` (the SHUFFLE macro), `run`, `note`, `savepat` / `loadpat`,
-`patdel` / `patcopy` / `patpaste` / `patclipclear`, `undo`, `chaos` / `chaosreset`
-(knob-8 macro), `genvar` (generate
-variations), `randpat` (randomise this pattern), `saveproj` / `loadproj`, `loadauto`
-(restore the autosave), `recpad`, `panic`. `tempo` is a continuous field applied on
-change.
+A `cmds` queue de-duped by `seq` (a single-slot mailbox lost commands when the UI wrote
+twice between polls). The queue left behind by a previous session is **never replayed** —
+on its first read the controller takes the high-water mark and runs nothing — and no
+command is dispatched until the engine reports ready.
+
+| Group | Commands |
+|---|---|
+| engine palette | `audition`, `palettegen`, `assign`, `randtrack`, `genkit`, `drumaudition` / `drummode` (DRUM type picker), `smparm` (arm the SAMPLE capture) |
+| tracks | `mute`, `solo`, `trackset` (pitch/amp/pan/rate), `voicemacro`, `voiceparam` (one named voice param — SAMPLE's window knobs), `note`, `setlen`, `clearpat` |
+| steps | `stepset` / `steptoggle`, `steplock`, `stepmacro`, `stepfx` (per-step FX mask), `stepcycle` (fire every Nth repetition), `marklive` / `liveperiod` (living steps) |
+| clipboard | `stepcopy` / `steppaste`, `rowcopy` / `rowpaste` (the Copy-button gestures) |
+| FX | `fxassign`, `fxbypass`, `fxmacro`, `fxwet` |
+| macros | `heat` / `heatpct`, `shuffle`, `chaos` / `chaosreset` |
+| patterns & projects | `savepat` / `loadpat`, `patdel`, `patcopy` / `patpaste` / `patclipclear`, `genvar`, `randpat`, `saveproj` / `loadproj`, `loadauto` |
+| transport & system | `run`, `editenter` / `editexit`, `recpad`, `undo`, `panic` |
+
+`tempo` is a continuous field applied on change, not a queued command.
 
 ### status.json (controller → ui.js)
 
-Carries `ready / engine / cpu / nodes / running / tempo / step / editTrack / kit`,
-per-track `muted / active / note / vel / pan / amp / rate / length`, the engine
-`types` / role `names`, the FX view state (`fxTop / fxBypass / fxOn / fxMacro /
-fxWet / fxNames`), the open track's `edit` block (`steps`, per-step `stepNote / stepVel /
-stepPan / stepMacro`, plus `living / period` for living steps, and defaults), the
-pattern/project state (`patFilled / patCur / patPending / projFilled`), the `autoSave`
-flag, and the HEAT / SHUFFLE macro state (`heat / heatPct / shuffle`).
+Carries `ready / engine / cpu / nodes / running / tempo / step / editTrack / solo / kit /
+webPort`, per-track `muted / active / note / vel / pan / amp / rate / length` plus
+`start / end` (SAMPLE's playable window), the engine `types` / role `names` and
+`drumTracks / drumMode`, the FX view state (`fxTop / fxBypass / fxOn / fxMacro / fxWet /
+fxNames`), and the open track's `edit` block: `steps`, the effective per-step
+`stepNote / stepVel / stepPan / stepMacro`, `living / period / ratchet / active`,
+`fx` (per-step FX masks) and `cycle` (per-step dividers).
+
+Also the pattern/project state (`patFilled / patCur / patPending / projFilled`), the
+`autoSave` flag, the HEAT / SHUFFLE / chaos macro state (`heat / heatPct / shuffle /
+chaos`), the SAMPLE capture state (`smpState / smpSrc / smpChain`), the recorder
+(`recState / recSlot / recSlots / recElapsed / recAmp`), and `clipStep / clipRow` — whether
+the Copy-gesture clipboard is holding a step or a row.
 
 ### OSC (controller → engine, sclang langPort 57120)
 
 `/ph/tempo` · `/ph/run` · `/ph/steps` · `/ph/track t typeIdx` (**-1=empty** 0=DRUM
 1=FM7 2=BUCHLOID 3=MOLLY 4=RINGS 5=BEN 6=NOIZEOP 7=ICARUS 8=PLAITS 9=SHAKER 10=MEMBRANE 11=MALLET 12=BOWED 13=PLUCK 14=TUBE 15=CHAOS 16=WTABLE 17=BYTEBEAT 18=SAMPLE) ·
-`/ph/param t "name" val` (WTABLE's `wt1`/`wt2` are sprite selectors — the engine (re)loads that oscillator's wavetable buffer instead of setting a synth arg; BYTEBEAT's `expr` is a bank index — the engine pushes that expression to the voice's ByteBeat UGen via the plugin's `/eval` unit command) ·
+`/ph/param t "name" val` (WTABLE's `wt1`/`wt2` are sprite selectors — the engine (re)loads that oscillator's wavetable buffer instead of setting a synth arg; BYTEBEAT's `expr` is a bank index — the engine re-parses its **persistent** voice with the plugin's `/eval` unit command, sent a few control blocks after the node is created, never in the same instant) ·
 `/ph/preview typeIdx note vel mode [name val …]` (audition one voice → master) ·
 `/ph/pattern` · `/ph/stepset` · `/ph/steplock` · `/ph/stepmacro` · `/ph/clearlocks` ·
 `/ph/stepratchet t cell k` · `/ph/stepsend t cell on` · `/ph/stepfx t cell mask`
 (per-step FX: a bitmask over the 8 insert slots, **-1 = no lock**) ·
+`/ph/stepcycle t cell n` (fire on every **n**-th repetition of the pattern, 1-8) ·
 `/ph/livingfx dTime dFb dMix vMix vRoom vDamp`
 (living-step ratchet / per-step FX-send routing / send-bus params) ·
 `/ph/smparm t thresh` (arm the threshold capture) · `/ph/smpwrite \"path\"` · `/ph/smpload \"path\"` ·
@@ -1117,6 +1160,28 @@ an angular, industrial typeface that suits the hard, percussion-centric aestheti
   pre-VERB (v1) project is remapped on load — the flanger is dropped and CLDS/RESO/GREY
   slide down one slot, each carrying its own macro / wet / direction. Without that, a
   track's CLDS would have come back as RING.
+- **A unit command sent with the node is lost.** `/u_cmd` delivered in the same instant as
+  the `/s_new` that creates its node hits a node the server has not instantiated yet and is
+  dropped — silently. That is how BYTEBEAT ended up mute: the ByteBeat UGen starts on an
+  `Undefined` expression (silent) and only speaks once its `/eval` lands, so every voice was
+  a coin flip. Defer the unit command a few control blocks after creating the node.
+- **`Synth:onFree` only fires for a REGISTERED node.** Without `.register` the callback never
+  runs, so a reference to a freed synth (panic frees everything under `~gVoices`) lives on and
+  every later `.set` goes to a dead node — a track that is silent *forever* with nothing in the
+  log but `node not found`.
+- **`control.json` outlives the session.** The queue is on disk, so a restarting controller
+  would replay the previous session's commands at an engine that is still booting. That wedges
+  the graph: `ready` is true, `nodes` is 0, and nothing sounds. The controller now adopts the
+  queue's high-water mark on its first read and holds every command until `/ph/ready`.
+- **`ready: true` with `nodes: 0` means the graph is gone, not that your feature is broken.**
+  Usually an orphaned supernova that survived a kill: the new sclang attaches to it, never runs
+  `initTree`, and the default group (node 1) does not exist. Restart properly — and note that
+  `pgrep -f "<pattern>"` inside an ssh command matches the ssh command line itself, so the
+  remote shell kills its own session and the stack survives. Bracket the pattern
+  (`bin/sclan[g]`) and verify with `ps` before starting again.
+- **The engine recorder taps hardware bus 0**, so a capture includes anything else the Move is
+  playing. If MoveOriginal has audio running, absolute levels are meaningless — verify DSP
+  offline instead (`scsynth -N` with `-U plugins`), where the render is isolated and repeatable.
 - **A spawned voice's args can be SHADOWED by stale `~pstore` entries.** `~pstore[t]` is
   never cleared when a track changes engine, so appending an arg *after* `merged.getPairs`
   in `~spawn` can lose to an older entry of the same name. This made SAMPLE tracks play the
