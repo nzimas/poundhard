@@ -821,6 +821,32 @@
 		~killbad.(XFade2.ar(dry, w, (wet * 2 - 1)) * (1 - bypass) + (dry * bypass));
 	};
 
+	// ================= per-track MULTIMODE FILTER (before the FX chain) =================
+	// One per track, processing its private bus in place. LP <-> HP on `type`.
+	//
+	// The UGen choice is the whole point. A ladder (MoogFF) and a Butterworth RLPF both do
+	// what 1970s analogue does: as resonance rises the passband is attenuated — the bass
+	// drains out of a lowpass and the overall level sags, so the filter cannot be swept
+	// without riding the volume after it. BLowPass / BHiPass are RBJ biquads: their
+	// passband stays at UNITY for any Q, so resonance adds a peak at the corner without
+	// taking anything away below (LP) or above (HP) it. Bass and level hold across the
+	// full resonance range, which is what this instrument needs.
+	//
+	// `res` 0..1 maps exponentially to Q 0.7..14 (rq = 1/Q). At the top the peak is sharp,
+	// so the output is soft-clipped — that bounds the peak without touching the passband.
+	SynthDef(\phTrackFilter, { |in = 16, out = 16, cutoff = 18000, res = 0.0, type = 0|
+		var dry = In.ar(in, 2);
+		var fc = cutoff.clip(20, 19000);
+		var rq = 1 / res.clip(0, 1).linexp(0, 1, 0.7, 14);
+		var lp = BLowPass.ar(dry, fc, rq);
+		var hp = BHiPass.ar(dry, fc, rq);
+		var wet = Select.ar(type.clip(0, 1).round, [lp, hp]);
+		// Transparent when it is doing nothing: an open lowpass with no resonance passes
+		// the dry signal untouched rather than a biquad's approximation of it.
+		var open = (cutoff >= 18000) * (res < 0.02) * (type < 0.5);
+		ReplaceOut.ar(out, ~killbad.(Select.ar(open, [(wet * 0.9).tanh / 0.9, dry])));
+	}).add;
+
 	// per-track send: track bus -> master bus (summed)
 	SynthDef(\phSend, { |in = 16, out = 16| Out.ar(out, In.ar(in, 2)) }).add;
 

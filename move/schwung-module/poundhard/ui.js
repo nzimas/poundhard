@@ -147,6 +147,14 @@ let voiceMacro = new Array(N_TRACKS).fill(0.5);
 /* SAMPLE's playable window (knobs 4/5 in the edit view), mirrored from status */
 let sampStart = new Array(N_TRACKS).fill(0.0);
 let sampEnd = new Array(N_TRACKS).fill(1.0);
+/* per-track multimode filter: knobs 4/5/6 — and 6/7/8 on SAMPLE tracks, where 4/5 are
+ * already the sample window. Defaults are transparent (open lowpass, no resonance). */
+let filtCut = new Array(N_TRACKS).fill(18000);
+let filtRes = new Array(N_TRACKS).fill(0.0);
+let filtType = new Array(N_TRACKS).fill(0);
+/* the OPEN track's effective per-step sample window, mirrored from status */
+let stepStart = new Array(N_STEPS).fill(0.0);
+let stepEnd = new Array(N_STEPS).fill(1.0);
 /* CHAOS macro (knob 8, tracks view): sweeps every param of every assigned engine, each
  * in its own random direction. 0.5 = the safe zone (the stored state). */
 let chaosPos = 0.5;
@@ -524,6 +532,8 @@ function drawStepParam() {
     else if (knobShow === 'pan') drawParamBig('STEP PAN', panLbl(stepPan[c]), 'bi', clampf(stepPan[c], -1, 1));
     else if (knobShow === 'macro') drawParamBig('STEP MACRO', '' + Math.round(stepMacro[c] * 100), 'uni', clampf(stepMacro[c], 0, 1));
     else if (knobShow === 'period') drawParamBig('LIVE / ' + editPeriod[c] + 'cyc', '' + editPeriod[c], 'uni', clampf(editPeriod[c] / 16, 0, 1));
+    else if (knobShow === 'sstart') drawParamBig('STEP SMP START', '' + Math.round(stepStart[c] * 100), 'uni', clampf(stepStart[c], 0, 1));
+    else if (knobShow === 'send') drawParamBig('STEP SMP END', '' + Math.round(stepEnd[c] * 100), 'uni', clampf(stepEnd[c], 0, 1));
     else {
         var cyc = editCycle[c] || 1;
         clear_screen();
@@ -532,9 +542,11 @@ function drawStepParam() {
          * plays this time round, which matters more than any of its locks */
         print(0, 30, (cyc > 1) ? ('PLAYS 1 IN ' + cyc)
                                : (noteName(stepNote[c]) + ' v' + velMidi(stepVel[c]) + ' ' + panLbl(stepPan[c])), 2);
-        print(0, 54, 'row3 = every 1..8 cycles', 1);
+        print(0, 54, (editType === 'SAMPLE') ? 'row3=cycles  k4/5=step window'
+                                             : 'row3 = every 1..8 cycles', 1);
     }
 }
+function hzLbl(f) { return (f >= 1000) ? ((f / 1000).toFixed(f >= 10000 ? 0 : 1) + 'k') : ('' + Math.round(f)); }
 function drawTrackParam() {
     var t = (trackHeld >= 0) ? trackHeld : editTrack;
     if (t < 0) return;
@@ -546,11 +558,17 @@ function drawTrackParam() {
     /* SAMPLE window: percentages of the buffer, big enough to read at a glance */
     else if (knobShow === 'start') drawParamBig(L + ' SMP START', '' + Math.round(sampStart[t] * 100), 'uni', clampf(sampStart[t], 0, 1));
     else if (knobShow === 'end') drawParamBig(L + ' SMP END', '' + Math.round(sampEnd[t] * 100), 'uni', clampf(sampEnd[t], 0, 1));
+    /* the per-track filter — cutoff is logarithmic, so the bar is too */
+    else if (knobShow === 'fcut') drawParamBig(L + (filtType[t] ? ' HP CUT' : ' LP CUT'), hzLbl(filtCut[t]),
+        'uni', clampf(Math.log(filtCut[t] / 20) / Math.log(19000 / 20), 0, 1));
+    else if (knobShow === 'fres') drawParamBig(L + ' RESO', '' + Math.round(filtRes[t] * 100), 'uni', clampf(filtRes[t], 0, 1));
+    else if (knobShow === 'ftype') drawParamBig(L + ' FILTER', filtType[t] ? 'HP' : 'LP', 'uni', filtType[t] ? 1 : 0);
     else {
         clear_screen();
         print(0, 2, L + ' ' + (names[t] || types[t]), 2);
         print(0, 30, noteName(trackNote[t]) + ' vol' + velMidi(trackVol[t]) + ' ' + panLbl(trackPan[t]), 2);
-        print(0, 54, (types[t] === 'SAMPLE') ? 'k3macro k4start k5end' : 'jog pit k1vol k2pan k3macro', 1);
+        print(0, 54, (types[t] === 'SAMPLE') ? 'k4/5 window  k6/7/8 filter'
+                                            : 'k3macro  k4/5/6 filter', 1);
     }
 }
 function drawRateBig(t) {
@@ -700,8 +718,8 @@ function drawScreen() {
         for (var i = 0; i < len; i++) { n += editSteps[i] ? 1 : 0; if (editFx[i] >= 0) nfx++; }
         print(0, 6, 'T' + (editTrack + 1) + ' ' + (editName || editType), 2);
         print(0, 30, n + '/' + len + ' steps' + (nfx ? ('  ' + nfx + 'fx') : '') + '  ' + rateLbl(trackRate[editTrack] || 1), 1);
-        print(0, 44, (editType === 'SAMPLE') ? 'jog pit k1vol k2pan k3mac k4/5win'
-                                              : 'jog pit k1vol k2pan k3macro', 1);
+        print(0, 44, (editType === 'SAMPLE') ? 'k1vol k2pan k3mac k4/5win k6/7/8filt'
+                                              : 'k1vol k2pan k3macro k4/5/6 filter', 1);
         print(0, 56, copyHeld ? (rowArmed ? 'COPY: Trk1/2 pastes a row' : 'COPY: pad/Trk1/Trk2 copies')
                                : 'Trk1=back  shift=step fx', 1);
     }
@@ -754,6 +772,9 @@ function readStatus() {
             if (tr.length != null) trackLen[i] = tr.length;
             if (tr.start != null && !(knobShow === 'start' && editTrack === i)) sampStart[i] = tr.start;
             if (tr.end != null && !(knobShow === 'end' && editTrack === i)) sampEnd[i] = tr.end;
+            if (tr.fcut != null && !(knobShow === 'fcut' && editTrack === i)) filtCut[i] = tr.fcut;
+            if (tr.fres != null && !(knobShow === 'fres' && editTrack === i)) filtRes[i] = tr.fres;
+            if (tr.ftype != null) filtType[i] = tr.ftype;
         }
     }
     if (Array.isArray(s.types)) types = s.types;
@@ -773,6 +794,8 @@ function readStatus() {
         if (s.edit.living) editLiving = s.edit.living;
         if (s.edit.fx) editFx = s.edit.fx;
         if (s.edit.cycle) editCycle = s.edit.cycle;
+        if (s.edit.stepStart) stepStart = s.edit.stepStart;
+        if (s.edit.stepEnd) stepEnd = s.edit.stepEnd;
         if (s.edit.period) editPeriod = s.edit.period;
     }
     var seSig = (editTrack >= 0 && !fxView) ? ('E' + stepSel.join(',') + '|' + editFx.join(',') + (lenArm ? '!' : '')) : '';
@@ -808,6 +831,9 @@ globalThis.init = function () {
     trackPan = new Array(N_TRACKS).fill(0.0); trackRate = new Array(N_TRACKS).fill(1.0);
     voiceMacro = new Array(N_TRACKS).fill(0.5);
     sampStart = new Array(N_TRACKS).fill(0.0); sampEnd = new Array(N_TRACKS).fill(1.0);
+    filtCut = new Array(N_TRACKS).fill(18000); filtRes = new Array(N_TRACKS).fill(0.0);
+    filtType = new Array(N_TRACKS).fill(0);
+    stepStart = new Array(N_STEPS).fill(0.0); stepEnd = new Array(N_STEPS).fill(1.0);
     trackLen = new Array(N_TRACKS).fill(EDIT_STEPS);
     editSteps = new Array(N_STEPS).fill(0); editName = ''; editType = '';
     editLiving = new Array(N_STEPS).fill(false); editPeriod = new Array(N_STEPS).fill(4); recHeld = false;
@@ -960,11 +986,21 @@ globalThis.onMidiMessageInternal = function (data) {
         var which = null;
         if (fxView) which = (ki < N_FX) ? ((shiftHeld ? 'fw' : 'fx') + ki) : null;       /* FX macro / dry-wet N */
         else if (projView || patView) which = (ki === 0) ? 'tempo' : null;               /* pattern/project: knob1 = tempo */
-        else if (stepEditCell >= 0) which = (ki === 0) ? 'vel' : (ki === 1) ? 'pan' : (ki === 2) ? 'macro' : (ki === 3) ? 'period' : null;
-        else if (editTrack >= 0) which = (ki === 0) ? 'vol' : (ki === 1) ? 'pan' : (ki === 2) ? 'macro'
-            /* SAMPLE tracks: knob 4 = window start, knob 5 = window end */
-            : ((editType === 'SAMPLE' && ki === 3) ? 'start'
-            : ((editType === 'SAMPLE' && ki === 4) ? 'end' : null));
+        else if (stepEditCell >= 0) which = (ki === 0) ? 'vel' : (ki === 1) ? 'pan' : (ki === 2) ? 'macro'
+            /* a held step on a SAMPLE track: 4/5 are that step's own window, so the living
+             * period moves to 6 rather than fighting them */
+            : (editType === 'SAMPLE'
+                ? ((ki === 3) ? 'sstart' : (ki === 4) ? 'send' : (ki === 5) ? 'period' : null)
+                : ((ki === 3) ? 'period' : null));
+        else if (editTrack >= 0) {
+            const smp = (editType === 'SAMPLE');
+            which = (ki === 0) ? 'vol' : (ki === 1) ? 'pan' : (ki === 2) ? 'macro'
+                : (smp && ki === 3) ? 'start' : (smp && ki === 4) ? 'end'
+                /* the filter: 4/5/6 normally, 6/7/8 where the sample window owns 4/5 */
+                : (ki === (smp ? 5 : 3)) ? 'fcut'
+                : (ki === (smp ? 6 : 4)) ? 'fres'
+                : (ki === (smp ? 7 : 5)) ? 'ftype' : null;
+        }
         else if (!patView && !recView) {                                                 /* tracks view */
             /* Shift + touch knob 8 = jump back to the chaos macro's SAFE ZONE */
             if (ki === 7 && touched && shiftHeld) {
@@ -1412,6 +1448,32 @@ globalThis.onMidiMessageInternal = function (data) {
                 knobShow = 'fx' + ki; screenDirty = true;        /* giant readout, persists while touched */
                 return;
             }
+            /* A HELD STEP on a SAMPLE track: knobs 4/5 lock THAT STEP's slice of the
+             * buffer, so one step can play the attack and the next the tail. This has to be
+             * tested BEFORE the generic held-step block, which owns knob 4 for the living
+             * period — on a SAMPLE track that moves to knob 6, mirroring the track layout
+             * where 4/5 are the window. */
+            if (stepEditCell >= 0 && editType === 'SAMPLE' && (ki === 3 || ki === 4)) {
+                const c = stepEditCell;
+                if (ki === 3) {
+                    stepStart[c] = clampf(stepStart[c] + dn * 0.004, 0, Math.max(0, stepEnd[c] - 0.01));
+                    knobShow = 'sstart';
+                    sendCmd('stepwindow', c, { p: { track: editTrack, cell: c, param: 'start', value: stepStart[c] } });
+                } else {
+                    stepEnd[c] = clampf(stepEnd[c] + dn * 0.004, Math.min(1, stepStart[c] + 0.01), 1);
+                    knobShow = 'send';
+                    sendCmd('stepwindow', c, { p: { track: editTrack, cell: c, param: 'end', value: stepEnd[c] } });
+                }
+                screenDirty = true; return;
+            }
+            /* on a SAMPLE track the living period sits on knob 6 (4/5 are the step window) */
+            if (stepEditCell >= 0 && editType === 'SAMPLE' && ki === 5) {
+                const c = stepEditCell;
+                if (!editLiving[c]) { editLiving[c] = true; sendCmd('marklive', -1, { p: { track: editTrack, cell: c } }); }
+                editPeriod[c] = clampi(editPeriod[c] + (dn > 0 ? 1 : -1), 1, 16); knobShow = 'period';
+                sendCmd('liveperiod', -1, { p: { track: editTrack, cell: c, x: editPeriod[c] } });
+                screenDirty = true; return;
+            }
             if (stepEditCell >= 0 && ki <= 3) {                  /* step lock: k1 vel, k2 pan, k3 macro, k4 LIVE period */
                 const c = stepEditCell;
                 if (ki === 0) { stepVel[c] = clampf(stepVel[c] + dn * (2 / 127), 0, 2); knobShow = 'vel'; sendCmd('steplock', c, { p: { track: editTrack, cell: c, param: 'vel', value: stepVel[c] } }); }
@@ -1429,6 +1491,31 @@ globalThis.onMidiMessageInternal = function (data) {
                 if (ki === 0) { trackVol[t] = clampf(trackVol[t] + dn * (2 / 127), 0, 2); knobShow = 'vol'; sendCmd('trackset', t, { p: { track: t, param: 'amp', value: trackVol[t] } }); }
                 else { trackPan[t] = clampf(trackPan[t] + dn * 0.02, -1, 1); knobShow = 'pan'; sendCmd('trackset', t, { p: { track: t, param: 'pan', value: trackPan[t] } }); }
                 screenDirty = true; return;
+            }
+            /* THE TRACK FILTER. Knobs 4/5/6 = cutoff / resonance / LP-HP — shifted to 6/7/8
+             * on SAMPLE tracks, where 4 and 5 are already the sample window. */
+            if (editTrack >= 0 && stepEditCell < 0) {
+                const t = editTrack, smp = (editType === 'SAMPLE');
+                const kCut = smp ? 5 : 3, kRes = smp ? 6 : 4, kType = smp ? 7 : 5;
+                if (ki === kCut) {
+                    /* exponential: a knob turn moves the same MUSICAL distance everywhere */
+                    filtCut[t] = clampf(filtCut[t] * Math.pow(1.06, dn), 20, 19000);
+                    knobShow = 'fcut';
+                    sendCmd('trackfilter', t, { p: { track: t, cutoff: filtCut[t] } });
+                    screenDirty = true; return;
+                }
+                if (ki === kRes) {
+                    filtRes[t] = clampf(filtRes[t] + dn * 0.02, 0, 1);
+                    knobShow = 'fres';
+                    sendCmd('trackfilter', t, { p: { track: t, res: filtRes[t] } });
+                    screenDirty = true; return;
+                }
+                if (ki === kType && dn !== 0) {
+                    filtType[t] = (dn > 0) ? 1 : 0;
+                    knobShow = 'ftype';
+                    sendCmd('trackfilter', t, { p: { track: t, type: filtType[t] } });
+                    screenDirty = true; return;
+                }
             }
             /* knobs 4 / 5 on a SAMPLE track = the playable window (start / end). They are
              * bound to that engine only — on any other engine these knobs stay free. */

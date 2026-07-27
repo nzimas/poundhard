@@ -59,6 +59,9 @@
 // 8 = once every eight). ~cycle[t] counts how many times the track has come round, so a
 // short pattern can evolve over a span far longer than its own length.
 ~stepCycle = Array.fill(~nTracks, { Array.fill(~maxSteps, { 1 }) });
+// per-step SAMPLE window (nil = inherit the track's own start/end)
+~stepStart = Array.fill(~nTracks, { Array.fill(~maxSteps, { nil }) });
+~stepEnd   = Array.fill(~nTracks, { Array.fill(~maxSteps, { nil }) });
 ~cycle     = Array.fill(~nTracks, { -1 });   // -1 so the FIRST pass is cycle 0 (fires)
 // what each insert's \enable is set to right now (avoids re-sending the same value
 // every hit) and which FX a track needs instantiated because SOME step locks it.
@@ -142,6 +145,9 @@
 ~fxBypass = Array.fill(~nTracks, { 0 });                      // per-track FX bypass
 ~fxStore  = Array.fill(8, { IdentityDictionary.new });        // per-fx-type param values (macro)
 ~fxSynth  = Array.fill(~nTracks, { Array.fill(8, { nil }) }); // live FX synths
+// per-track multimode filter (one always-on insert per track, ahead of the FX chain)
+~filtSynth = Array.fill(~nTracks, { nil });
+~filt      = Array.fill(~nTracks, { [18000, 0.0, 0] });   // cutoff, res, type (0=LP 1=HP)
 
 // ---- one-time graph scaffold (buses + groups + master) ----
 ~scaffold = {
@@ -167,13 +173,22 @@
 	~gVoices = ParGroup.after(~gClear);
 	~gTrackVoices  = Array.fill(~nTracks, { Group.tail(~gVoices) });
 	~gSharedVoices = Group.tail(~gVoices);
-	~gFx     = ParGroup.after(~gVoices);
+	// the per-track filter sits between the voices and the FX chain: it shapes the track,
+	// then the inserts work on the filtered signal (a filter after the FX would be
+	// filtering reverb tails, which is not what a channel filter is for).
+	~gFilt   = ParGroup.after(~gVoices);
+	~gFx     = ParGroup.after(~gFilt);
 	~gSend   = Group.after(~gFx);
 	~gMaster = Group.after(~gSend);
 	// clears (private buses aren't auto-zeroed; voices Out.ar ADD onto them)
 	Synth(\phClear, [\bus, ~masterBus.index], ~gClear);
 	Synth(\phClear, [\bus, ~livingBus.index], ~gClear);
 	~nTracks.do { |t| Synth(\phClear, [\bus, ~trackBus[t].index], ~gClear) };
+	~nTracks.do { |t|
+		~filtSynth[t] = Synth.tail(~gFilt, \phTrackFilter,
+			[\in, ~trackBus[t].index, \out, ~trackBus[t].index,
+				\cutoff, ~filt[t][0], \res, ~filt[t][1], \type, ~filt[t][2]]);
+	};
 	// per-track FX subgroup (keeps each track's chain in canonical order) + send to master
 	~fxGroup = Array.fill(~nTracks, { Group.tail(~gFx) });
 	~nTracks.do { |t| Synth.tail(~gSend, \phSend, [\in, ~trackBus[t].index, \out, ~masterBus.index]) };
@@ -322,6 +337,9 @@
 		};
 		(def == \phSampleVoice).if {
 			merged[\buf] = ~smpBuf[t].notNil.if({ ~smpBuf[t].bufnum }, { ~silentBuf.bufnum });
+			// per-step slice: a step can play a different part of the same buffer
+			~stepStart[t][step].notNil.if { merged[\start] = ~stepStart[t][step] };
+			~stepEnd[t][step].notNil.if { merged[\end] = ~stepEnd[t][step] };
 		};
 		// BYTEBEAT does not spawn: its voice is PERSISTENT. The UGen parses its expression
 		// per instance and starts out silent, so a fresh instance per hit raced the async
@@ -629,6 +647,21 @@
 		var c = m[2].asInteger.clip(0, ~maxSteps - 1);
 		~stepRatchet[t][c] = m[3].asInteger.clip(1, 8);
 	}, '/ph/stepratchet'),
+	OSCdef(\phStepSmp, { |m|                       // per-step SAMPLE window (-1 = inherit)
+		var t = m[1].asInteger.clip(0, ~nTracks - 1);
+		var c = m[2].asInteger.clip(0, ~maxSteps - 1);
+		var st = m[3].asFloat, en = m[4].asFloat;
+		~stepStart[t][c] = (st < 0).if({ nil }, { st.clip(0, 1) });
+		~stepEnd[t][c]   = (en < 0).if({ nil }, { en.clip(0, 1) });
+	}, '/ph/stepsmp'),
+	OSCdef(\phFilter, { |m|                        // per-track filter: cutoff, res, LP/HP
+		var t = m[1].asInteger.clip(0, ~nTracks - 1);
+		var cut = m[2].asFloat.clip(20, 19000);
+		var rs = m[3].asFloat.clip(0, 1);
+		var ty = m[4].asInteger.clip(0, 1);
+		~filt[t] = [cut, rs, ty];
+		~filtSynth[t].notNil.if { ~filtSynth[t].set(\cutoff, cut, \res, rs, \type, ty) };
+	}, '/ph/filter'),
 	OSCdef(\phStepCycle, { |m|                     // how often a step fires (pattern cycles)
 		var t = m[1].asInteger.clip(0, ~nTracks - 1);
 		var c = m[2].asInteger.clip(0, ~maxSteps - 1);
@@ -656,7 +689,11 @@
 	}, '/ph/livingfx'),
 	OSCdef(\phClearLocks, { |m|                     // wipe all per-step locks for a track (pattern load)
 		var t = m[1].asInteger.clip(0, ~nTracks - 1);
-		~maxSteps.do { |c| ~stepNote[t][c] = nil; ~stepVel[t][c] = nil; ~stepPan[t][c] = nil; ~stepMacro[t][c] = nil; ~stepRatchet[t][c] = 1; ~stepSend[t][c] = 0 };
+		~maxSteps.do { |c|
+			~stepNote[t][c] = nil; ~stepVel[t][c] = nil; ~stepPan[t][c] = nil;
+			~stepMacro[t][c] = nil; ~stepRatchet[t][c] = 1; ~stepSend[t][c] = 0;
+			~stepStart[t][c] = nil; ~stepEnd[t][c] = nil; ~stepCycle[t][c] = 1;
+		};
 	}, '/ph/clearlocks'),
 	OSCdef(\phVel,  { |m| ~vel[m[1].asInteger.clip(0, ~nTracks - 1)] = m[2].asFloat; }, '/ph/vel'),
 	OSCdef(\phSamp, { |m| ~sampLoad.(m[1].asInteger.clip(0, ~nTracks - 1), m[2].asInteger); }, '/ph/samp'),

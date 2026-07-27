@@ -211,6 +211,9 @@ class Controller:
                 self.bridge.steplock(t, cell, tr.eff_note(cell), tr.eff_vel(cell), tr.eff_pan(cell))
             self.bridge.stepfx(t, cell, tr.step_fx[cell])
             self.bridge.stepcycle(t, cell, tr.step_cycle[cell])
+            self.bridge.stepsmp(t, cell,
+                                -1.0 if tr.step_start[cell] is None else tr.step_start[cell],
+                                -1.0 if tr.step_end[cell] is None else tr.step_end[cell])
             self.bridge.stepratchet(t, cell, tr.step_ratchet[cell])
             self.bridge.stepsend(t, cell, bool(tr.step_send[cell]))
         self._push_step_macros(t)
@@ -586,7 +589,7 @@ class Controller:
         "assign", "randtrack", "mute", "solo", "stepset", "steptoggle", "clearpat", "stepfx",
         "setlen", "savepat", "loadpat", "patdel", "patpaste", "genvar", "randpat",
         "fxassign", "fxbypass", "loadproj", "loadauto", "marklive",
-        "steppaste", "rowpaste", "stepcycle",
+        "steppaste", "rowpaste", "stepcycle", "trackfilter", "stepwindow",
     })
     # Commands that change no persisted state — they don't mark the project dirty.
     _NO_STATE = frozenset({
@@ -737,6 +740,19 @@ class Controller:
             if 0 <= t < N_TRACKS:
                 for pid, val in st.set_voice_macro(t, float(p.get("pos", 0.5))):
                     self.bridge.param(t, pid, val)
+        elif cmd == "trackfilter":             # knobs 4/5/6 (6/7/8 on SAMPLE): the track filter
+            t = int(p.get("track", st.edit_track))
+            if 0 <= t < N_TRACKS:
+                cut, rs, ty = st.set_filter(
+                    t,
+                    cutoff=p.get("cutoff"), res=p.get("res"), ftype=p.get("type"))
+                self.bridge.filter(t, cut, rs, ty)
+        elif cmd == "stepwindow":              # hold a step (SAMPLE) + knob 4/5: its own slice
+            t = int(p.get("track", st.edit_track))
+            cell = int(p.get("cell", -1)); which = str(p.get("param", ""))
+            if 0 <= t < N_TRACKS and 0 <= cell < N_STEPS and which in ("start", "end"):
+                a, b = st.set_step_window(t, cell, which, float(p.get("value", 0.0)))
+                self.bridge.stepsmp(t, cell, a, b)
         elif cmd == "stepcycle":               # hold a step + row-3 pad: fire every Nth cycle
             t = int(p.get("track", st.edit_track))
             cell = int(p.get("cell", -1)); every = int(p.get("every", 1))
@@ -919,7 +935,11 @@ class Controller:
                            "rate": round(tr.rate, 4), "length": tr.length,
                            # SAMPLE's playable window — knobs 4/5 in the edit view
                            "start": round(tr.params.get("sample.start", 0.0), 4),
-                           "end": round(tr.params.get("sample.end", 1.0), 4)})
+                           "end": round(tr.params.get("sample.end", 1.0), 4),
+                           # per-track multimode filter (knobs 4/5/6, or 6/7/8 on SAMPLE)
+                           "fcut": round(tr.filt_cutoff, 1),
+                           "fres": round(tr.filt_res, 3),
+                           "ftype": tr.filt_type})
         status = {
             "ready": self._built.is_set(),
             "engine": self.bridge.connected,
@@ -987,6 +1007,9 @@ class Controller:
                 "living": list(et.step_living),
                 "fx": list(et.step_fx),        # per-step FX mask (-1 = no lock)
                 "cycle": list(et.step_cycle),  # fire every Nth pattern repetition
+                # effective per-step SAMPLE window (the step's own lock, else the track's)
+                "stepStart": [round(st.eff_start(st.edit_track, c), 4) for c in range(N_STEPS)],
+                "stepEnd": [round(st.eff_end(st.edit_track, c), 4) for c in range(N_STEPS)],
                 "period": list(et.step_period),
                 "ratchet": list(et.step_ratchet),
                 "active": list(et.step_active),

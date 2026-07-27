@@ -41,6 +41,7 @@ runtime, so **Schwung is the only thing it needs on the device**.
   - [Tracks view](#tracks-view-default)
   - [Edit view](#edit-view-per-track)
     - [Cycle frequency](#cycle-frequency)
+    - [Track filter](#track-filter)
     - [Per-step FX](#per-step-fx)
   - [FX view](#fx-view)
   - [Pattern view](#pattern-view)
@@ -101,8 +102,11 @@ runtime, so **Schwung is the only thing it needs on the device**.
 - **16-step sequencer per track**, each with independent length and clock rate
   (**polymeter** — tracks phase against each other), and a per-step **cycle frequency** so
   a step can fire once every 2-8 repetitions.
-- **Per-step locks** on pitch, velocity, pan, a **voice macro** and the **FX chain** —
-  each step can carry its own tone *and its own effects*.
+- **Per-step locks** on pitch, velocity, pan, a **voice macro**, the **FX chain** and —
+  on SAMPLE tracks — the **slice of the buffer** a step plays. Each step can carry its own
+  tone, its own effects and its own fragment of the sample.
+- **A multimode filter on every track** (cutoff / resonance / LP-HP) that keeps its bass
+  and its level as resonance rises — see [Track filter](#track-filter).
 - **Living steps** — mark steps (or hit **HEAT** for the whole rig) and they
   **transform themselves** as you play: ratchets, timbre lurches, pitch leaps, pan
   throws and per-step delay/reverb. A live-performance engine (see
@@ -293,7 +297,8 @@ All voices are **spawned per hit and self-free** (see [voice model](#voice-model
   the pad**, so you can immediately capture the next one and build up several tracks each
   playing a different mangled sample. Playback is note-resampled, with filter, drive and
   an AR envelope, and plays a **window** of the buffer — `start` and `end`, live on
-  **knobs 4 and 5** of that track's edit view (PlayBuf has no end point, so the window is
+  **knobs 4 and 5** of that track's edit view, and lockable **per step** (hold a step and
+  use the same two knobs), so one step can trigger the attack and another the tail (PlayBuf has no end point, so the window is
   closed by a hold-then-4ms-fade envelope sized to exactly how long it takes to play at the
   current rate). A **short press** of the pad just triggers the take — only a **hold**
   arms recording.
@@ -416,7 +421,10 @@ the jog/knobs/cursors edit that track's settings — all in one place.
 | **Jog wheel** | track pitch (re-pitches ringing voices live) |
 | **Knob 1 / 2** | track volume / pan |
 | **Knob 3** | **voice macro** — one knob sweeps every timbral param of the voice, each in a random direction; the directions re-roll whenever the track's sound is regenerated |
-| **Knob 4 / 5** *(SAMPLE tracks)* | the sample's **playable window**: start / end, as a percentage of the buffer. Both show the giant readout while touched. On every other engine these knobs are still free. |
+| **Knob 4 / 5 / 6** | the track **filter**: cutoff · resonance · LP/HP (see [Track filter](#track-filter)) |
+| **Knob 4 / 5** *(SAMPLE tracks)* | the sample's **playable window**: start / end, as a percentage of the buffer |
+| **Knob 6 / 7 / 8** *(SAMPLE tracks)* | the filter, shifted by two so the window keeps 4 and 5 |
+| **Hold a step + knob 4 / 5** *(SAMPLE)* | that **step's own** slice of the buffer — one step plays the attack, the next the tail. Unlocked steps follow the track. (The living period moves to knob 6 here) |
 | **Left / Right cursor** | clock rate / division: `/8 /4 /2 1 x2 x4 x8` (bipolar readout) |
 | **Track 1 button** | back to Tracks view |
 
@@ -435,6 +443,31 @@ without the step count — or your reading of the grid — ever growing. Tracks 
 The counters reset when the transport starts, so a divided step lands on the downbeat and
 then every Nth repetition after it. The divider travels with the step: it is saved with the
 pattern, carried by the [copy gestures](#edit-view-per-track), and cleared with the pattern.
+
+#### Track filter
+
+Every track has a **multimode filter** ahead of its FX chain — knobs **4 / 5 / 6** for
+cutoff, resonance and LP/HP, shifted to **6 / 7 / 8** on SAMPLE tracks where 4 and 5 are
+already the sample window. It is transparent at its defaults (open lowpass, no resonance),
+and it filters the *track*, not the reverb tails, because it sits before the inserts.
+
+The UGen choice is the whole point. Ask a ladder (`MoogFF`) or a Butterworth `RLPF` for
+resonance and you get 1970s behaviour: the passband is attenuated as Q rises, so a lowpass
+drains its own bass and the level sags — you cannot sweep it without riding the volume
+afterwards. PoundHard uses **RBJ biquads** (`BLowPass` / `BHiPass`), whose passband stays
+at unity for any Q: resonance adds a peak at the corner without taking anything away below
+it (LP) or above it (HP).
+
+Measured on the device, 1 kHz lowpass, resonance 0 → maximum, with a 60 Hz probe:
+
+| filter | bass at 60 Hz | output level |
+|---|---|---|
+| **RBJ biquad** (what PoundHard uses) | **+0.0 dB** | **+0.2 dB** |
+| MoogFF ladder (for comparison) | −13.8 dB | −12.5 dB |
+
+The peak itself is bounded by a soft clip on the way out, so a full-resonance sweep cannot
+run away — and with the filter open and no resonance the dry signal is passed through
+untouched rather than through a biquad's approximation of it.
 
 #### Per-step FX
 
@@ -982,8 +1015,8 @@ PYTHONPATH="$PWD:$PWD/vendor" python3 -m poundhard.headless
 
 **The controller is authoritative** for musical state (a `Project`: 16 tracks ×
 {engine type, note, velocity, parameters, pattern + per-step locks — pitch, velocity,
-pan, voice macro, ratchet, living flag/period, FX mask and **cycle divider** — mute,
-length, rate}, plus FX assignment/bypass/macros, tempo, and 32 pattern slots). A track
+pan, voice macro, ratchet, living flag/period, FX mask, **cycle divider** and the
+**per-step sample window** — mute, length, rate, **filter**}, plus FX assignment/bypass/macros, tempo, and 32 pattern slots). A track
 is at most **16 steps**; the per-step arrays are 32 wide for headroom and for projects
 saved before the cap. It reads `control.json`, writes `status.json`, generates kits,
 and pushes state to the engine over OSC.
@@ -1028,7 +1061,8 @@ with a free-running counter — which is what bytebeat is anyway.
 
 Each track has a **private stereo bus**; its voices write there, its FX chain
 processes in place (each FX `ReplaceOut`s the bus in canonical order), and a send
-sums it to the master. Node order: `gClear → gVoices → gFx → gSend → gMaster`.
+sums it to the master. Node order: `gClear → gVoices → gFilt → gFx → gSend → gMaster`
+(`gFilt` is the per-track multimode filter, one always-on insert per track).
 Under supernova `gVoices` is a **ParGroup** with a serial subgroup per track, so tracks
 render in parallel while each track's own chain stays ordered.
 
@@ -1057,8 +1091,8 @@ command is dispatched until the engine reports ready.
 | Group | Commands |
 |---|---|
 | engine palette | `audition`, `palettegen`, `assign`, `randtrack`, `genkit`, `drumaudition` / `drummode` (DRUM type picker), `smparm` (arm the SAMPLE capture) |
-| tracks | `mute`, `solo`, `trackset` (pitch/amp/pan/rate), `voicemacro`, `voiceparam` (one named voice param — SAMPLE's window knobs), `note`, `setlen`, `clearpat` |
-| steps | `stepset` / `steptoggle`, `steplock`, `stepmacro`, `stepfx` (per-step FX mask), `stepcycle` (fire every Nth repetition), `marklive` / `liveperiod` (living steps) |
+| tracks | `mute`, `solo`, `trackset` (pitch/amp/pan/rate), `voicemacro`, `voiceparam` (one named voice param — SAMPLE's window knobs), `trackfilter` (cutoff/res/type), `note`, `setlen`, `clearpat` |
+| steps | `stepset` / `steptoggle`, `steplock`, `stepmacro`, `stepfx` (per-step FX mask), `stepcycle` (fire every Nth repetition), `stepwindow` (per-step sample slice), `marklive` / `liveperiod` (living steps) |
 | clipboard | `stepcopy` / `steppaste`, `rowcopy` / `rowpaste` (the Copy-button gestures) |
 | FX | `fxassign`, `fxbypass`, `fxmacro`, `fxwet` |
 | macros | `heat` / `heatpct`, `shuffle`, `chaos` / `chaosreset` |
@@ -1071,11 +1105,12 @@ command is dispatched until the engine reports ready.
 
 Carries `ready / engine / cpu / nodes / running / tempo / step / editTrack / solo / kit /
 webPort`, per-track `muted / active / note / vel / pan / amp / rate / length` plus
-`start / end` (SAMPLE's playable window), the engine `types` / role `names` and
+`start / end` (SAMPLE's playable window) and `fcut / fres / ftype` (the track filter), the engine `types` / role `names` and
 `drumTracks / drumMode`, the FX view state (`fxTop / fxBypass / fxOn / fxMacro / fxWet /
 fxNames`), and the open track's `edit` block: `steps`, the effective per-step
 `stepNote / stepVel / stepPan / stepMacro`, `living / period / ratchet / active`,
-`fx` (per-step FX masks) and `cycle` (per-step dividers).
+`fx` (per-step FX masks), `cycle` (per-step dividers) and `stepStart / stepEnd` (the
+effective per-step sample window).
 
 Also the pattern/project state (`patFilled / patCur / patPending / projFilled`), the
 `autoSave` flag, the HEAT / SHUFFLE / chaos macro state (`heat / heatPct / shuffle /
@@ -1093,6 +1128,8 @@ the Copy-gesture clipboard is holding a step or a row.
 `/ph/stepratchet t cell k` · `/ph/stepsend t cell on` · `/ph/stepfx t cell mask`
 (per-step FX: a bitmask over the 8 insert slots, **-1 = no lock**) ·
 `/ph/stepcycle t cell n` (fire on every **n**-th repetition of the pattern, 1-8) ·
+`/ph/stepsmp t cell start end` (per-step SAMPLE window, **-1 = inherit the track's**) ·
+`/ph/filter t cutoff res type` (per-track multimode filter, type 0=LP 1=HP) ·
 `/ph/livingfx dTime dFb dMix vMix vRoom vDamp`
 (living-step ratchet / per-step FX-send routing / send-bus params) ·
 `/ph/smparm t thresh` (arm the threshold capture) · `/ph/smpwrite \"path\"` · `/ph/smpload \"path\"` ·

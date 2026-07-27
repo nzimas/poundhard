@@ -148,6 +148,10 @@ class EngineBridge:
     # --- SAMPLE engine (capture -> mangle -> audition -> assign) ---
     def stepfx(self, t, cell, mask):   self.send("/ph/stepfx", int(t), int(cell), int(mask))
     def stepcycle(self, t, cell, n):   self.send("/ph/stepcycle", int(t), int(cell), int(n))
+    def stepsmp(self, t, cell, start, end):     # per-step SAMPLE window (-1 = inherit)
+        self.send("/ph/stepsmp", int(t), int(cell), float(start), float(end))
+    def filter(self, t, cutoff, res, ftype):    # per-track multimode filter
+        self.send("/ph/filter", int(t), float(cutoff), float(res), int(ftype))
     def smparm(self, src, thresh):     self.send("/ph/smparm", int(src), float(thresh))
     def smpwrite(self, path):          self.send("/ph/smpwrite", str(path))
     def smpload(self, path):           self.send("/ph/smpload", str(path))
@@ -220,6 +224,7 @@ class EngineBridge:
         if track.type == "SAMPLER" and track.sample >= 0:
             self.samp(t, track.sample)
         self.pattern(t, track.pattern)
+        self.filter(t, track.filt_cutoff, track.filt_res, track.filt_type)
         self.mute(t, track.muted)
         self.length(t, track.length)
         self.rate(t, track.rate)
@@ -232,3 +237,7 @@ class EngineBridge:
                 self.stepfx(t, cell, track.step_fx[cell])
             if track.step_cycle[cell] != 1:
                 self.stepcycle(t, cell, track.step_cycle[cell])
+            if track.step_start[cell] is not None or track.step_end[cell] is not None:
+                self.stepsmp(t, cell,
+                             -1.0 if track.step_start[cell] is None else track.step_start[cell],
+                             -1.0 if track.step_end[cell] is None else track.step_end[cell])

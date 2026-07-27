@@ -99,6 +99,14 @@ class Track:
     # 1 = every cycle (the default), 4 = once every four times the pattern comes round.
     # It is what lets a 16-step pattern evolve over a much longer span than 16 steps.
     step_cycle: list = field(default_factory=lambda: [1] * N_STEPS)
+    # PER-STEP SAMPLE WINDOW (SAMPLE tracks). None = inherit the track's own start/end, so a
+    # step can play a different slice of the same buffer without touching the others.
+    step_start: list = field(default_factory=lambda: [None] * N_STEPS)
+    step_end: list = field(default_factory=lambda: [None] * N_STEPS)
+    # PER-TRACK MULTIMODE FILTER, ahead of the FX chain. Defaults are transparent.
+    filt_cutoff: float = 18000.0
+    filt_res: float = 0.0
+    filt_type: int = 0            # 0 = lowpass, 1 = highpass
     step_xmacro: list = field(default_factory=lambda: [None] * N_STEPS)  # transform's param overrides
     step_cyc: list = field(default_factory=lambda: [0] * N_STEPS)        # runtime bar counter
     step_active: list = field(default_factory=lambda: [False] * N_STEPS)  # runtime: transformed last cycle
@@ -143,6 +151,9 @@ class Track:
                 "step_ratchet": list(self.step_ratchet), "step_send": list(self.step_send),
                 "step_fx": list(self.step_fx),
                 "step_cycle": list(self.step_cycle),
+                "step_start": list(self.step_start),
+                "step_end": list(self.step_end),
+                "filt": [self.filt_cutoff, self.filt_res, self.filt_type],
                 "step_xmacro": [list(x) if x else None for x in self.step_xmacro]}
 
     @classmethod
@@ -169,6 +180,15 @@ class Track:
         t.step_fx = ([int(x) for x in d.get("step_fx", [])][:N_STEPS] + [-1] * N_STEPS)[:N_STEPS]
         t.step_cycle = ([max(1, min(8, int(x))) for x in d.get("step_cycle", [])][:N_STEPS]
                         + [1] * N_STEPS)[:N_STEPS]
+        for name in ("step_start", "step_end"):
+            raw = d.get(name, [])
+            vals = [None if x is None else max(0.0, min(1.0, float(x))) for x in raw][:N_STEPS]
+            setattr(t, name, (vals + [None] * N_STEPS)[:N_STEPS])
+        fl = d.get("filt")
+        if isinstance(fl, (list, tuple)) and len(fl) == 3:
+            t.filt_cutoff = max(20.0, min(19000.0, float(fl[0])))
+            t.filt_res = max(0.0, min(1.0, float(fl[1])))
+            t.filt_type = 1 if int(fl[2]) else 0
         t.step_cyc = [0] * N_STEPS
         t.step_heat = [False] * N_STEPS       # HEAT is never restored from disk (performance-only)
         return t
@@ -858,7 +878,7 @@ class Project:
     # exactly like the one it came from.
     _STEP_FIELDS = ("pattern", "step_note", "step_vel", "step_pan", "step_macro",
                     "step_living", "step_period", "step_ratchet", "step_send", "step_fx",
-                    "step_cycle")
+                    "step_cycle", "step_start", "step_end")
 
     def copy_step(self, track: int, cell: int) -> dict | None:
         """Snapshot one step (and every lock on it). None if the cell is out of range."""
@@ -907,6 +927,40 @@ class Project:
         tr.step_pan = [None] * N_STEPS
         tr.step_fx = [-1] * N_STEPS
         tr.step_cycle = [1] * N_STEPS
+        tr.step_start = [None] * N_STEPS
+        tr.step_end = [None] * N_STEPS
+
+    def eff_start(self, track: int, cell: int) -> float:
+        tr = self.tracks[track]
+        v = tr.step_start[cell]
+        return float(v) if v is not None else float(tr.params.get("sample.start", 0.0))
+
+    def eff_end(self, track: int, cell: int) -> float:
+        tr = self.tracks[track]
+        v = tr.step_end[cell]
+        return float(v) if v is not None else float(tr.params.get("sample.end", 1.0))
+
+    def set_step_window(self, track: int, cell: int, which: str, value: float) -> tuple:
+        """Lock this step's slice of the sample. Start and end clamp against each other so
+        the window can never invert."""
+        tr = self.tracks[track]
+        v = max(0.0, min(1.0, float(value)))
+        if which == "start":
+            tr.step_start[cell] = min(v, self.eff_end(track, cell) - 0.01)
+        else:
+            tr.step_end[cell] = max(v, self.eff_start(track, cell) + 0.01)
+        return (self.eff_start(track, cell), self.eff_end(track, cell))
+
+    def set_filter(self, track: int, cutoff: float | None = None,
+                   res: float | None = None, ftype: int | None = None) -> tuple:
+        tr = self.tracks[track]
+        if cutoff is not None:
+            tr.filt_cutoff = max(20.0, min(19000.0, float(cutoff)))
+        if res is not None:
+            tr.filt_res = max(0.0, min(1.0, float(res)))
+        if ftype is not None:
+            tr.filt_type = 1 if int(ftype) else 0
+        return (tr.filt_cutoff, tr.filt_res, tr.filt_type)
 
     def set_step_cycle(self, track: int, cell: int, every: int) -> int:
         """How often this step may fire, in pattern repetitions (1 = every cycle, 8 = max)."""
