@@ -1245,6 +1245,10 @@ globalThis.onMidiMessageInternal = function (data) {
     if ((status === 0x80 || (status === 0x90 && d2 === 0)) && d1 >= 68 && d1 <= 99) {
         if (editTrack < 0) return;
         const cell = NOTE_TO_CELL[d1];
+        /* ONLY the held pad's own release ends the hold. Clearing this for any pad release
+         * meant that tapping a second pad DURING a hold — a row-3 cycle pad, say — cancelled
+         * the bookkeeping, so lifting the step pad afterwards matched nothing and its
+         * held-step mode (and row 3 with it) stayed on screen. */
         if (heldCell === cell) {
             if (heldStepEdit) { stepEditCell = -1; knobShow = null; ledDirty = true; screenDirty = true; }
             else if (cell < editLen()) {
@@ -1252,8 +1256,8 @@ globalThis.onMidiMessageInternal = function (data) {
                 sendCmd('stepset', cell, { p: { track: editTrack, cell: cell, on: editSteps[cell] } });
                 ledDirty = true; screenDirty = true;
             }
+            heldCell = -1; heldStepEdit = false;
         }
-        heldCell = -1; heldStepEdit = false;
         return;
     }
 
