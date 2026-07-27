@@ -22,7 +22,7 @@ import random
 
 from . import catalog
 from . import kits
-from .tracks import Track, N_TRACKS, N_STEPS, N_PATTERNS
+from .tracks import Track, N_TRACKS, N_STEPS, N_PATTERNS, MAX_STEPS, DEFAULT_STEPS
 
 # engines whose pitch is genuinely melodic (worth per-step pitch locks). BEN /
 # NOIZEOP / BUCHLOID track `note` but as texture, so they get rhythm-only variation.
@@ -130,7 +130,7 @@ def analyze(base: dict, all_patterns: list) -> dict:
     tracks = base.get("tracks", [])
     active, densities = [], {}
     for i, td in enumerate(tracks):
-        L = max(1, int(td.get("length", N_STEPS)))
+        L = max(1, min(MAX_STEPS, int(td.get("length", DEFAULT_STEPS))))
         on = _onsets(td.get("pattern", []), L)
         if td.get("type", "EMPTY") != "EMPTY" and on:
             active.append(i)
@@ -143,7 +143,7 @@ def analyze(base: dict, all_patterns: list) -> dict:
     for snap in pats:
         for td in snap.get("tracks", []):
             if td.get("type") in _MELODIC:
-                L = max(1, int(td.get("length", N_STEPS)))
+                L = max(1, min(MAX_STEPS, int(td.get("length", DEFAULT_STEPS))))
                 for i in _onsets(td.get("pattern", []), L):
                     locks = td.get("step_note", [])
                     n = locks[i] if i < len(locks) and locks[i] is not None else td.get("note")
@@ -277,7 +277,7 @@ def _decide_additions(analysis: dict, rng) -> list[tuple[int, dict]]:
 
 def _added_groove(tr: Track, engine: str, L: int, intensity: float, rng) -> None:
     """Give a newly-added instrument a sparse, related part for THIS variation."""
-    tr.length = L
+    tr.length = min(MAX_STEPS, L)
     if engine in ("ICARUS", "BUCHLOID"):       # pad: a hit at the top of the phrase (+ maybe mid)
         pat = [0] * N_STEPS
         pat[0] = 1
@@ -334,7 +334,7 @@ def _make_variation(base: dict, analysis: dict, added: list[tuple[int, dict]],
             if rng.random() < 0.15 * intensity:
                 tr.muted = not tr.muted
             if role == "tonal" and rng.random() < 0.2 * intensity:
-                tr.length = rng.choice([12, 16, 20, 24, 32])
+                tr.length = rng.choice([8, 12, 16])      # a track is never longer than MAX_STEPS
         new_tracks.append(tr.to_dict())
 
     snap["tracks"] = new_tracks
@@ -696,7 +696,7 @@ def random_pattern(project, rng: random.Random | None = None) -> list[str]:
     for t, v in enumerate(voices):
         tr = st.tracks[t]
         tr.load_voice(v["voice"])
-        tr.length = v["length"]
+        tr.length = max(1, min(MAX_STEPS, int(v["length"])))
         tr.rate = v["rate"]
         tr.pattern = v["pattern"]
         for i, n in v["locks"].items():
@@ -796,7 +796,7 @@ def _score(base: dict, cand: dict, analysis: dict) -> float:
         t = td.get("type", "EMPTY")
         if t == "EMPTY":
             continue
-        L = max(1, int(td.get("length", N_STEPS)))
+        L = max(1, min(MAX_STEPS, int(td.get("length", DEFAULT_STEPS))))
         cost += _voice_cost(t, len(_onsets(td.get("pattern", []), L)), L)
     for stack in cand.get("track_fx", []):
         for k in stack:
@@ -824,7 +824,7 @@ def _score(base: dict, cand: dict, analysis: dict) -> float:
         for i, td in enumerate(cand["tracks"]):
             if i == anchor or td.get("type", "EMPTY") == "EMPTY":
                 continue
-            L = max(1, int(td.get("length", N_STEPS)))
+            L = max(1, min(MAX_STEPS, int(td.get("length", DEFAULT_STEPS))))
             if L != KL:
                 continue
             for j in _onsets(td.get("pattern", []), L):

@@ -210,6 +210,7 @@ class Controller:
                     or tr.step_pan[cell] is not None):
                 self.bridge.steplock(t, cell, tr.eff_note(cell), tr.eff_vel(cell), tr.eff_pan(cell))
             self.bridge.stepfx(t, cell, tr.step_fx[cell])
+            self.bridge.stepcycle(t, cell, tr.step_cycle[cell])
             self.bridge.stepratchet(t, cell, tr.step_ratchet[cell])
             self.bridge.stepsend(t, cell, bool(tr.step_send[cell]))
         self._push_step_macros(t)
@@ -585,7 +586,7 @@ class Controller:
         "assign", "randtrack", "mute", "solo", "stepset", "steptoggle", "clearpat", "stepfx",
         "setlen", "savepat", "loadpat", "patdel", "patpaste", "genvar", "randpat",
         "fxassign", "fxbypass", "loadproj", "loadauto", "marklive",
-        "steppaste", "rowpaste",
+        "steppaste", "rowpaste", "stepcycle",
     })
     # Commands that change no persisted state — they don't mark the project dirty.
     _NO_STATE = frozenset({
@@ -736,6 +737,12 @@ class Controller:
             if 0 <= t < N_TRACKS:
                 for pid, val in st.set_voice_macro(t, float(p.get("pos", 0.5))):
                     self.bridge.param(t, pid, val)
+        elif cmd == "stepcycle":               # hold a step + row-3 pad: fire every Nth cycle
+            t = int(p.get("track", st.edit_track))
+            cell = int(p.get("cell", -1)); every = int(p.get("every", 1))
+            if 0 <= t < N_TRACKS and 0 <= cell < N_STEPS:
+                n = st.set_step_cycle(t, cell, every)
+                self.bridge.stepcycle(t, cell, n)
         elif cmd == "stepcopy":                # Copy + a step that HAS data: to the clipboard
             t = int(p.get("track", st.edit_track)); cell = int(p.get("cell", -1))
             clip = st.copy_step(t, cell)
@@ -788,8 +795,9 @@ class Controller:
             if 0 <= t < N_TRACKS:
                 st.clear_pattern(t)
                 self.bridge.pattern(t, st.tracks[t].pattern)
-                for c in range(N_STEPS):        # drop the per-step FX locks too
+                for c in range(N_STEPS):        # drop the per-step FX locks + cycle dividers
                     self.bridge.stepfx(t, c, -1)
+                    self.bridge.stepcycle(t, c, 1)
         elif cmd == "run":
             st.running = bool(int(arg))
             self.bridge.run(st.running)
@@ -978,6 +986,7 @@ class Controller:
                 # and which are firing (transformed) this cycle (transient model)
                 "living": list(et.step_living),
                 "fx": list(et.step_fx),        # per-step FX mask (-1 = no lock)
+                "cycle": list(et.step_cycle),  # fire every Nth pattern repetition
                 "period": list(et.step_period),
                 "ratchet": list(et.step_ratchet),
                 "active": list(et.step_active),

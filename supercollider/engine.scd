@@ -55,6 +55,11 @@
 // assignment". Applied at step time as a parameter lock on each FX's `enable`, so a step
 // can turn effects on or off for its own hit without rebuilding the chain.
 ~stepFx = Array.fill(~nTracks, { Array.fill(~maxSteps, { -1 }) });
+// CYCLE FREQUENCY: how often a step may fire, in PATTERN REPETITIONS (1 = every cycle,
+// 8 = once every eight). ~cycle[t] counts how many times the track has come round, so a
+// short pattern can evolve over a span far longer than its own length.
+~stepCycle = Array.fill(~nTracks, { Array.fill(~maxSteps, { 1 }) });
+~cycle     = Array.fill(~nTracks, { -1 });   // -1 so the FIRST pass is cycle 0 (fires)
 // what each insert's \enable is set to right now (avoids re-sending the same value
 // every hit) and which FX a track needs instantiated because SOME step locks it.
 ~fxEnable = Array.fill(~nTracks, { Array.fill(8, { 0 }) });
@@ -369,7 +374,11 @@
 		while ({ ~acc[t] >= 1.0 }) {
 			~acc[t] = ~acc[t] - 1.0;
 			~pos[t] = (~pos[t] + 1) % ~length[t].max(1);
-			((~pattern[t][~pos[t]] == 1) and: { ~mute[t] == 0 }).if {
+			// a wrap to 0 is one more repetition of this track's pattern
+			(~pos[t] == 0).if { ~cycle[t] = ~cycle[t] + 1 };
+			((~pattern[t][~pos[t]] == 1) and: { ~mute[t] == 0 }
+				// CYCLE FREQUENCY: only fire on every Nth repetition of the pattern
+				and: { (~cycle[t] % (~stepCycle[t][~pos[t]] ? 1).max(1)) == 0 }).if {
 				var st = ~pos[t];
 				var k = (~stepRatchet[t][st] ? 1).asInteger.clip(1, 8);
 				~spawn.(t, st, 1.0);
@@ -400,6 +409,9 @@
 	~running.not.if {
 		~running = true;
 		~globalTick = -1;
+		// -1 so the first pass counts as cycle 0: an every-Nth step fires on the downbeat
+		// and then every N repetitions, rather than staying silent until the Nth bar.
+		~nTracks.do { |t| ~cycle[t] = -1 };
 		~nTracks.do { |t| ~pos[t] = -1; ~acc[t] = 0.0 };
 		~seqTask = Routine({ loop { ~advance.value; 1.wait } });
 		~applyTempo.value;
@@ -617,6 +629,11 @@
 		var c = m[2].asInteger.clip(0, ~maxSteps - 1);
 		~stepRatchet[t][c] = m[3].asInteger.clip(1, 8);
 	}, '/ph/stepratchet'),
+	OSCdef(\phStepCycle, { |m|                     // how often a step fires (pattern cycles)
+		var t = m[1].asInteger.clip(0, ~nTracks - 1);
+		var c = m[2].asInteger.clip(0, ~maxSteps - 1);
+		~stepCycle[t][c] = m[3].asInteger.clip(1, 8);
+	}, '/ph/stepcycle'),
 	OSCdef(\phStepFx, { |m|                        // per-step FX mask (-1 = no lock)
 		var t = m[1].asInteger.clip(0, ~nTracks - 1);
 		var c = m[2].asInteger.clip(0, ~maxSteps - 1);

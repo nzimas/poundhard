@@ -60,6 +60,9 @@ const HOLD_MS = 350;
  * spectrum so the locks read at a glance. */
 const EDIT_STEPS = 16;
 const EDIT_FX0 = 24;
+const EDIT_CYC0 = 16;       /* row 3: the cycle-frequency selector, shown only while a step is held */
+const CYC_ON = 21;          /* the divider this step uses */
+const CYC_OFF = 116;        /* the other choices, dim */
 const STEPFX_ON = 5;        /* red: an FX locked onto the selected step(s) */
 const STEPFX_SEL = 1;       /* bright red: a step currently selected under Shift */
 const STEPFX_MARK = 68;     /* dark red: a step that carries FX but isn't selected */
@@ -182,7 +185,6 @@ let seqBeats = 0, lastPulseMs = 0, wasRunning = false;
 let lastStepCol = new Array(N_TRACKS).fill(-1);
 
 let shiftHeld = false, masterTouched = false;
-let ccTrace = [];   /* TEMPORARY: see the Shift+knob diagnostic below */
 /* Pattern-view modifiers: X (Delete) + pad = delete & close the gap; Copy + pad = copy,
  * then further pads paste while Copy stays down. Releasing Copy forgets the clipboard. */
 let deleteHeld = false, copyHeld = false, copyArmed = false;
@@ -211,7 +213,8 @@ let smpState = 'idle', smpSrc = -1, smpChain = [];
  * into capture sources. smpHold marks that the hold has been recognised. */
 let smpHold = false;
 let stepSel = [];            /* steps selected under Shift (per-step FX editing) */
-let editFx = new Array(N_STEPS).fill(-1);   /* per-step FX mask mirrored from status */
+let editFx = new Array(N_STEPS).fill(-1);
+let editCycle = new Array(N_STEPS).fill(1);   /* fire every Nth pattern repetition */   /* per-step FX mask mirrored from status */
 let lenArm = false;          /* Shift + master-knob touch: next pad sets the pattern LENGTH */
 const SAMPLE_CELL = 18;
 let drumMode = -1;                   /* committed DRUM type (-1 = any); mirrors the controller */
@@ -457,6 +460,14 @@ function renderLEDs() {
                 else if (editLiving[c]) color = (phase % 18 < 9) ? LIVE_ON : LIVE_DIM;
                 else if (editFx[c] >= 0) color = STEPFX_MARK;      /* carries per-step FX */
                 else color = editSteps[c] ? TRACK_COLOR : DIM_COLOR;
+            } else if (c >= EDIT_CYC0 && c < EDIT_FX0) {
+                /* Row 3 = CYCLE FREQUENCY, and it exists only while a step is HELD: pad 1
+                 * every cycle, pad 8 every eighth. Dark the rest of the time so the row
+                 * stays out of the way during normal editing. */
+                if (stepEditCell >= 0) {
+                    const every = editCycle[stepEditCell] || 1;
+                    color = ((c - EDIT_CYC0) + 1 === every) ? CYC_ON : CYC_OFF;
+                }
             } else if (c >= EDIT_FX0) {                            /* row 4: per-step FX */
                 let k = c - EDIT_FX0;
                 /* while steps are selected, show which FX those steps carry (red); the
@@ -514,10 +525,14 @@ function drawStepParam() {
     else if (knobShow === 'macro') drawParamBig('STEP MACRO', '' + Math.round(stepMacro[c] * 100), 'uni', clampf(stepMacro[c], 0, 1));
     else if (knobShow === 'period') drawParamBig('LIVE / ' + editPeriod[c] + 'cyc', '' + editPeriod[c], 'uni', clampf(editPeriod[c] / 16, 0, 1));
     else {
+        var cyc = editCycle[c] || 1;
         clear_screen();
         print(0, 2, 'STEP ' + (c + 1) + (editLiving[c] ? ' *LIVE*' : ''), 2);
-        print(0, 30, noteName(stepNote[c]) + ' v' + velMidi(stepVel[c]) + ' ' + panLbl(stepPan[c]), 2);
-        print(0, 54, editLiving[c] ? ('living / every ' + editPeriod[c] + ' cyc') : 'jog pit k1vel k2pan k3macro k4live', 1);
+        /* the cycle divider is the headline when it isn't 1 — it changes WHETHER the step
+         * plays this time round, which matters more than any of its locks */
+        print(0, 30, (cyc > 1) ? ('PLAYS 1 IN ' + cyc)
+                               : (noteName(stepNote[c]) + ' v' + velMidi(stepVel[c]) + ' ' + panLbl(stepPan[c])), 2);
+        print(0, 54, 'row3 = every 1..8 cycles', 1);
     }
 }
 function drawTrackParam() {
@@ -757,6 +772,7 @@ function readStatus() {
         if (s.edit.stepMacro) stepMacro = s.edit.stepMacro;
         if (s.edit.living) editLiving = s.edit.living;
         if (s.edit.fx) editFx = s.edit.fx;
+        if (s.edit.cycle) editCycle = s.edit.cycle;
         if (s.edit.period) editPeriod = s.edit.period;
     }
     var seSig = (editTrack >= 0 && !fxView) ? ('E' + stepSel.join(',') + '|' + editFx.join(',') + (lenArm ? '!' : '')) : '';
@@ -795,7 +811,8 @@ globalThis.init = function () {
     trackLen = new Array(N_TRACKS).fill(EDIT_STEPS);
     editSteps = new Array(N_STEPS).fill(0); editName = ''; editType = '';
     editLiving = new Array(N_STEPS).fill(false); editPeriod = new Array(N_STEPS).fill(4); recHeld = false;
-    editFx = new Array(N_STEPS).fill(-1); stepSel = []; lenArm = false;
+    editFx = new Array(N_STEPS).fill(-1); editCycle = new Array(N_STEPS).fill(1);
+    stepSel = []; lenArm = false;
     stepNote = new Array(N_STEPS).fill(60); stepVel = new Array(N_STEPS).fill(1.0); stepPan = new Array(N_STEPS).fill(0.0);
     shiftHeld = false; masterTouched = false; seq = 0; cmdQueue = [];
     clipStep = false; clipRow = false; rowArmed = false;
@@ -1149,6 +1166,16 @@ globalThis.onMidiMessageInternal = function (data) {
     if (status === 0x90 && d2 > 0 && d1 >= 68 && d1 <= 99) {
         if (editTrack < 0) return;
         const cell = NOTE_TO_CELL[d1];
+        /* Row 3 while a step is HELD = that step's cycle frequency (every Nth repetition). */
+        if (stepEditCell >= 0 && cell >= EDIT_CYC0 && cell < EDIT_FX0) {
+            const every = (cell - EDIT_CYC0) + 1;
+            editCycle[stepEditCell] = every;                       /* optimistic */
+            sendCmd('stepcycle', stepEditCell,
+                { p: { track: editTrack, cell: stepEditCell, every: every } });
+            showAction(every === 1 ? 'EVERY CYCLE' : ('EVERY ' + every));
+            ledDirty = true; screenDirty = true;
+            return;
+        }
         /* COPY + step. A step that HAS data goes to the clipboard; an EMPTY step receives
          * it — so copy-then-paste is two presses without ever letting go of Copy. */
         if (copyHeld && cell < EDIT_STEPS) {
@@ -1357,13 +1384,6 @@ globalThis.onMidiMessageInternal = function (data) {
             running = !running; sendCmd('run', running ? 1 : 0);
             showAction(running ? 'PLAY' : 'STOP'); ledDirty = true; screenDirty = true;
             return;
-        }
-        /* TEMPORARY DIAGNOSTIC (remove once the Shift+FX-knob report is settled): record
-         * every CC that arrives while Shift is held, so we can see what the Move actually
-         * sends for a shifted encoder turn. Capped, and only while Shift is down. */
-        if (shiftHeld && ccTrace.length < 40) {
-            ccTrace.push(d1 + ':' + d2 + (fxView ? 'F' : '') );
-            host_write_file(PH + '/ipc/cctrace.txt', ccTrace.join(' '));
         }
         if (d1 >= MoveKnob1 && d1 <= MoveKnob1 + 7) {
             const ki = d1 - MoveKnob1;

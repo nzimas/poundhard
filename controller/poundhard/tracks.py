@@ -18,6 +18,9 @@ from .catalog import FX_SPECS, N_FX
 N_TRACKS = 16
 N_STEPS = 32
 DEFAULT_STEPS = 16              # what a fresh track loops over (the editor's step grid)
+MAX_STEPS = 16                  # the LONGEST a track may be. The per-step arrays are still
+                                # N_STEPS wide (older projects, and headroom), but nothing
+                                # may set a length beyond the 16 steps the editor shows.
 N_PATTERNS = 32     # pattern slots per project (and project slots on disk)
 
 
@@ -92,6 +95,10 @@ class Track:
     # PER-STEP FX: bitmask over the 8 insert slots, -1 = no lock (use the track's chain).
     # Performance data like the other step locks, so it survives kit regeneration.
     step_fx: list = field(default_factory=lambda: [-1] * N_STEPS)
+    # CYCLE FREQUENCY: how often a step is allowed to fire, in pattern repetitions.
+    # 1 = every cycle (the default), 4 = once every four times the pattern comes round.
+    # It is what lets a 16-step pattern evolve over a much longer span than 16 steps.
+    step_cycle: list = field(default_factory=lambda: [1] * N_STEPS)
     step_xmacro: list = field(default_factory=lambda: [None] * N_STEPS)  # transform's param overrides
     step_cyc: list = field(default_factory=lambda: [0] * N_STEPS)        # runtime bar counter
     step_active: list = field(default_factory=lambda: [False] * N_STEPS)  # runtime: transformed last cycle
@@ -135,6 +142,7 @@ class Track:
                 "step_period": list(self.step_period),
                 "step_ratchet": list(self.step_ratchet), "step_send": list(self.step_send),
                 "step_fx": list(self.step_fx),
+                "step_cycle": list(self.step_cycle),
                 "step_xmacro": [list(x) if x else None for x in self.step_xmacro]}
 
     @classmethod
@@ -147,7 +155,8 @@ class Track:
         t = cls(type=raw_type, note=int(d.get("note", 40)),
                 vel=float(d.get("vel", 1.0)), sample=int(d.get("sample", -1)),
                 params=params, muted=bool(d.get("muted", False)),
-                length=int(d.get("length", N_STEPS)), rate=float(d.get("rate", 1.0)))
+                length=max(1, min(MAX_STEPS, int(d.get("length", DEFAULT_STEPS)))),
+                rate=float(d.get("rate", 1.0)))
         pat = list(d.get("pattern", []))[:N_STEPS]
         t.pattern = (pat + [0] * N_STEPS)[:N_STEPS]
         for attr in ("step_note", "step_vel", "step_pan", "step_macro", "step_xmacro"):
@@ -158,6 +167,8 @@ class Track:
         t.step_ratchet = ([int(x) for x in d.get("step_ratchet", [])][:N_STEPS] + [1] * N_STEPS)[:N_STEPS]
         t.step_send = ([int(x) for x in d.get("step_send", [])][:N_STEPS] + [0] * N_STEPS)[:N_STEPS]
         t.step_fx = ([int(x) for x in d.get("step_fx", [])][:N_STEPS] + [-1] * N_STEPS)[:N_STEPS]
+        t.step_cycle = ([max(1, min(8, int(x))) for x in d.get("step_cycle", [])][:N_STEPS]
+                        + [1] * N_STEPS)[:N_STEPS]
         t.step_cyc = [0] * N_STEPS
         t.step_heat = [False] * N_STEPS       # HEAT is never restored from disk (performance-only)
         return t
@@ -846,7 +857,8 @@ class Project:
     # its living-step settings. Copy carries ALL of it — a step pasted elsewhere sounds
     # exactly like the one it came from.
     _STEP_FIELDS = ("pattern", "step_note", "step_vel", "step_pan", "step_macro",
-                    "step_living", "step_period", "step_ratchet", "step_send", "step_fx")
+                    "step_living", "step_period", "step_ratchet", "step_send", "step_fx",
+                    "step_cycle")
 
     def copy_step(self, track: int, cell: int) -> dict | None:
         """Snapshot one step (and every lock on it). None if the cell is out of range."""
@@ -894,9 +906,16 @@ class Project:
         tr.step_vel = [None] * N_STEPS
         tr.step_pan = [None] * N_STEPS
         tr.step_fx = [-1] * N_STEPS
+        tr.step_cycle = [1] * N_STEPS
+
+    def set_step_cycle(self, track: int, cell: int, every: int) -> int:
+        """How often this step may fire, in pattern repetitions (1 = every cycle, 8 = max)."""
+        n = max(1, min(8, int(every)))
+        self.tracks[track].step_cycle[cell] = n
+        return n
 
     def set_length(self, track: int, length: int) -> int:
-        self.tracks[track].length = max(1, min(N_STEPS, int(length)))
+        self.tracks[track].length = max(1, min(MAX_STEPS, int(length)))
         return self.tracks[track].length
 
     def set_track_param(self, track: int, param: str, value: float) -> tuple:

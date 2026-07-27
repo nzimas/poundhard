@@ -94,8 +94,9 @@ buttons, encoders and screen. It runs on the same on-device stack as the
   audition its current sound; **Shift + pad** to regenerate it; **hold a pad and
   tap a track** (step button) to assign that engine + sound to the track. Assigning
   keeps the track's existing sequence — only the sound changes.
-- **16-step sequencer per track** (32 internally), each with independent length and
-  clock rate (**polymeter** — tracks phase against each other).
+- **16-step sequencer per track**, each with independent length and clock rate
+  (**polymeter** — tracks phase against each other), and a per-step **cycle frequency** so
+  a step can fire once every 2-8 repetitions.
 - **Per-step locks** on pitch, velocity, pan, a **voice macro** and the **FX chain** —
   each step can carry its own tone *and its own effects*.
 - **Living steps** — mark steps (or hit **HEAT** for the whole rig) and they
@@ -398,6 +399,7 @@ the jog/knobs/cursors edit that track's settings — all in one place.
 | **Pad — hold (active step)** | **per-step lock** — jog = pitch, knob 1 = velocity, knob 2 = pan, knob 3 = macro |
 | **Rec + pad** | mark / unmark that step as a **[living step](#living-steps--the-heat-button)** (self-transforming; pulses pink) |
 | **Knob 4** (on a step) | **living period** — cycles between transforms (also marks the step living) |
+| **Hold a step + row 3** | that step's **cycle frequency**: pad 1 = every pattern repetition (default), pad 2 = every second, … pad 8 = every eighth. Row 3 is dark unless a step is held |
 | **Copy + step pad** | a step **with data** goes to the clipboard; an **empty** step **receives** it — copy and paste without letting go of Copy. Carries everything: the note/velocity/pan/macro locks, living flag and period, ratchet, send and per-step FX |
 | **Copy + Track 1 / Track 2** | the same for a whole **row** of steps — row 1 is steps 1-8, row 2 is steps 9-16. The first row press of a Copy hold **grabs** that row; every press after it **pastes** onto the row pressed, empty or not. Release Copy to grab again |
 | **Shift + step pads** | **select** steps for the per-step FX editor (selected = bright red) |
@@ -409,6 +411,22 @@ the jog/knobs/cursors edit that track's settings — all in one place.
 | **Knob 4 / 5** *(SAMPLE tracks)* | the sample's **playable window**: start / end, as a percentage of the buffer. Both show the giant readout while touched. On every other engine these knobs are still free. |
 | **Left / Right cursor** | clock rate / division: `/8 /4 /2 1 x2 x4 x8` (bipolar readout) |
 | **Track 1 button** | back to Tracks view |
+
+#### Cycle frequency
+
+Row 3 of the edit view — visible **only while a step is held** — sets how often that step is
+allowed to fire, counted in **repetitions of the pattern**: the leftmost pad is every cycle
+(the default), the rightmost every eighth. A step set to 4 plays once, then stays silent for
+three passes, then plays again.
+
+It is what lets a short pattern behave like a long one: 16 steps carrying a few different
+dividers take 8 repetitions before they repeat themselves exactly, so the part evolves
+without the step count — or your reading of the grid — ever growing. Tracks are capped at
+**16 steps**; this is how you get past that without getting lost.
+
+The counters reset when the transport starts, so a divided step lands on the downbeat and
+then every Nth repetition after it. The divider travels with the step: it is saved with the
+pattern, carried by the [copy gestures](#edit-view-per-track), and cleared with the pattern.
 
 #### Per-step FX
 
