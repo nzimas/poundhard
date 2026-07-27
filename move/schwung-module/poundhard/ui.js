@@ -479,6 +479,11 @@ function renderLEDs() {
                     const every = editCycle[stepEditCell] || 1;
                     color = ((c - EDIT_CYC0) + 1 === every) ? CYC_ON : CYC_OFF;
                 }
+            } else if (c >= EDIT_FX0 && stepEditCell >= 0 && editLiving[stepEditCell]) {
+                /* a LIVING step is held: row 4 is its transform interval, in plays of the
+                 * step (pink — the living colour — so it can't be read as the FX row) */
+                const every = editPeriod[stepEditCell] || 1;
+                color = ((c - EDIT_FX0) + 1 === every) ? LIVE_ON : LIVE_DIM;
             } else if (c >= EDIT_FX0) {                            /* row 4: per-step FX */
                 let k = c - EDIT_FX0;
                 /* while steps are selected, show which FX those steps carry (red); the
@@ -534,7 +539,7 @@ function drawStepParam() {
     else if (knobShow === 'vel') drawParamBig('STEP VELOCITY', '' + velMidi(stepVel[c]), 'uni', clampf(stepVel[c] / 2, 0, 1));
     else if (knobShow === 'pan') drawParamBig('STEP PAN', panLbl(stepPan[c]), 'bi', clampf(stepPan[c], -1, 1));
     else if (knobShow === 'macro') drawParamBig('STEP MACRO', '' + Math.round(stepMacro[c] * 100), 'uni', clampf(stepMacro[c], 0, 1));
-    else if (knobShow === 'period') drawParamBig('LIVE / ' + editPeriod[c] + 'cyc', '' + editPeriod[c], 'uni', clampf(editPeriod[c] / 16, 0, 1));
+
     else if (knobShow === 'sstart') drawParamBig('STEP SMP START', '' + Math.round(stepStart[c] * 100), 'uni', clampf(stepStart[c], 0, 1));
     else if (knobShow === 'send') drawParamBig('STEP SMP END', '' + Math.round(stepEnd[c] * 100), 'uni', clampf(stepEnd[c], 0, 1));
     else if (knobShow === 'sfcut') drawParamBig(stepFtype[c] ? 'STEP HP CUT' : 'STEP LP CUT', hzLbl(stepFcut[c]),
@@ -542,15 +547,18 @@ function drawStepParam() {
     else if (knobShow === 'sfres') drawParamBig('STEP RESO', '' + Math.round(stepFres[c] * 100), 'uni', clampf(stepFres[c], 0, 1));
     else if (knobShow === 'sftype') drawParamBig('STEP FILTER', stepFtype[c] ? 'HP' : 'LP', 'uni', stepFtype[c] ? 1 : 0);
     else {
-        var cyc = editCycle[c] || 1;
+        var cyc = editCycle[c] || 1, lp = editPeriod[c] || 1;
         clear_screen();
         print(0, 2, 'STEP ' + (c + 1) + (editLiving[c] ? ' *LIVE*' : ''), 2);
         /* the cycle divider is the headline when it isn't 1 — it changes WHETHER the step
-         * plays this time round, which matters more than any of its locks */
-        print(0, 30, (cyc > 1) ? ('PLAYS 1 IN ' + cyc)
-                               : (noteName(stepNote[c]) + ' v' + velMidi(stepVel[c]) + ' ' + panLbl(stepPan[c])), 2);
-        print(0, 54, (editType === 'SAMPLE') ? 'k4/5 win  k6/7 filt  k8 live'
-                                             : 'k4/5/6 filter  k7 live  row3 cyc', 1);
+         * plays this time round, which matters more than any of its locks. For a living
+         * step, say how often it transforms too: row 4 counts ITS PLAYS, not bars. */
+        print(0, 30, editLiving[c] ? ('1 IN ' + cyc + '  LIVE 1 IN ' + lp)
+                    : (cyc > 1) ? ('PLAYS 1 IN ' + cyc)
+                    : (noteName(stepNote[c]) + ' v' + velMidi(stepVel[c]) + ' ' + panLbl(stepPan[c])), 2);
+        print(0, 54, editLiving[c] ? 'row3 = plays   row4 = live'
+                    : ((editType === 'SAMPLE') ? 'row3 cyc  k4/5 win  k6/7 filt'
+                                               : 'row3 cyc   k4/5/6 filter'), 1);
     }
 }
 function hzLbl(f) { return (f >= 1000) ? ((f / 1000).toFixed(f >= 10000 ? 0 : 1) + 'k') : ('' + Math.round(f)); }
@@ -1006,8 +1014,7 @@ globalThis.onMidiMessageInternal = function (data) {
                 : (smp && ki === 3) ? 'sstart' : (smp && ki === 4) ? 'send'
                 : (ki === (smp ? 5 : 3)) ? 'sfcut'
                 : (ki === (smp ? 6 : 4)) ? 'sfres'
-                : (!smp && ki === 5) ? 'sftype'
-                : (ki === (smp ? 7 : 6)) ? 'period' : null;
+                : (!smp && ki === 5) ? 'sftype' : null;
         }
         else if (editTrack >= 0) {
             const smp = (editType === 'SAMPLE');
@@ -1219,6 +1226,17 @@ globalThis.onMidiMessageInternal = function (data) {
     if (status === 0x90 && d2 > 0 && d1 >= 68 && d1 <= 99) {
         if (editTrack < 0) return;
         const cell = NOTE_TO_CELL[d1];
+        /* Row 4 while a LIVING step is held = how often its transform fires, counted in
+         * PLAYS of that step — so it multiplies with row 3. Row 4 keeps showing the FX
+         * chain for a step that isn't living. */
+        if (stepEditCell >= 0 && editLiving[stepEditCell] && cell >= EDIT_FX0) {
+            const every = (cell - EDIT_FX0) + 1;
+            editPeriod[stepEditCell] = every;                      /* optimistic */
+            sendCmd('liveperiod', -1, { p: { track: editTrack, cell: stepEditCell, x: every } });
+            showAction(every === 1 ? 'LIVE EVERY PLAY' : ('LIVE 1 IN ' + every));
+            ledDirty = true; screenDirty = true;
+            return;
+        }
         /* Row 3 while a step is HELD = that step's cycle frequency (every Nth repetition). */
         if (stepEditCell >= 0 && cell >= EDIT_CYC0 && cell < EDIT_FX0) {
             const every = (cell - EDIT_CYC0) + 1;
@@ -1509,15 +1527,6 @@ globalThis.onMidiMessageInternal = function (data) {
                     sendCmd('stepfilter', c, { p: { track: editTrack, cell: c, type: stepFtype[c] } });
                     screenDirty = true; return;
                 }
-            }
-            /* the living period keeps the last free knob: 7 normally, 8 on SAMPLE tracks
-             * (whose 4-7 are taken by the window and the filter) */
-            if (stepEditCell >= 0 && ki === (editType === 'SAMPLE' ? 7 : 6)) {
-                const c = stepEditCell;
-                if (!editLiving[c]) { editLiving[c] = true; sendCmd('marklive', -1, { p: { track: editTrack, cell: c } }); }
-                editPeriod[c] = clampi(editPeriod[c] + (dn > 0 ? 1 : -1), 1, 16); knobShow = 'period';
-                sendCmd('liveperiod', -1, { p: { track: editTrack, cell: c, x: editPeriod[c] } });
-                screenDirty = true; return;
             }
             if (stepEditCell >= 0 && ki <= 2) {                  /* step lock: k1 vel, k2 pan, k3 macro */
                 const c = stepEditCell;

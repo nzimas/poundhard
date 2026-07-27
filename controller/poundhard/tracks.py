@@ -596,7 +596,10 @@ class Project:
         return tr.step_living[cell]
 
     def set_step_period(self, track: int, cell: int, period: int) -> int:
-        self.tracks[track].step_period[cell] = max(1, min(16, int(period)))
+        """How often the living transform fires, counted in PLAYS OF THIS STEP (1-8, the
+        row-4 pads). It multiplies with the step's own playback divider: a step that plays
+        every 3rd pattern cycle with a living interval of 2 transforms every 6th cycle."""
+        self.tracks[track].step_period[cell] = max(1, min(8, int(period)))
         return self.tracks[track].step_period[cell]
 
     def _revert_living_cell(self, track: int, cell: int) -> None:
@@ -700,8 +703,13 @@ class Project:
 
         Fix: hold the transform armed for a FULL loop (`loop_bars`, rounded UP so the window
         always covers at least one play). Any window that long is guaranteed to contain
-        exactly one play of the step, regardless of phase — so a fire is ALWAYS audible. The
-        period is counted in step PLAYS: fire once, then stay plain for `period-1` loops."""
+        exactly one play of the step, regardless of phase — so a fire is ALWAYS audible.
+
+        The period is counted in PLAYS OF THE STEP, and a step's cycle divider decides how
+        often that is: one play takes `step_cycle * loop_bars` bars, so a living interval of
+        N fires every `N * step_cycle` plays-worth of bars. Row 3 (when it plays) and row 4
+        (how often it transforms) multiply — which is the whole point of driving both from
+        the same cycle-counting model."""
         tr = self.tracks[track]
         # under SHUFFLE, engine track `track` plays `src`'s rhythm — time the living period to
         # the loop it actually plays, not this track's own length/rate.
@@ -712,7 +720,8 @@ class Project:
         for c in range(N_STEPS):
             if not tr.step_living[c]:
                 continue
-            eff = max(1, int(tr.step_period[c])) * loop_bars   # total bars in one period
+            play_bars = max(1, int(tr.step_cycle[c])) * loop_bars   # bars between two PLAYS
+            eff = max(1, int(tr.step_period[c])) * play_bars        # bars between transforms
             phase = tr.step_cyc[c] % eff
             if phase == 0:                        # start of a period -> arm a fresh transform
                 fx = self.reroll_living(track, c)
@@ -720,7 +729,7 @@ class Project:
                 changed.append(c)
                 if fx is not None:
                     living_fx = fx
-            elif phase == loop_bars and tr.step_active[c]:   # one loop later -> back to plain
+            elif phase == play_bars and tr.step_active[c]:   # one PLAY later -> back to plain
                 self._revert_living_cell(track, c)
                 tr.step_active[c] = False
                 changed.append(c)

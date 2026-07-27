@@ -425,7 +425,7 @@ the jog/knobs/cursors edit that track's settings — all in one place.
 | **Knob 6 / 7 / 8** *(SAMPLE tracks)* | the filter, shifted by two so the window keeps 4 and 5 |
 | **Hold a step + knob 4 / 5** *(SAMPLE)* | that **step's own** slice of the buffer — one step plays the attack, the next the tail. Unlocked steps follow the track |
 | **Hold a step + the filter knobs** | the filter **for that step only** — same knobs as the track filter (4/5/6, or 6/7 on SAMPLE). Unlocked steps play the track's filter |
-| **Hold a step + knob 7** *(knob 8 on SAMPLE)* | **living period** — cycles between transforms (also marks the step living) |
+| **Hold a LIVING step + row 4** | that step's **living interval** — how often it transforms, counted in **its own plays** (pad 1 = every play … pad 8 = every eighth). Row 4 keeps showing the FX chain for a step that isn't living |
 | **Left / Right cursor** | clock rate / division: `/8 /4 /2 1 x2 x4 x8` (bipolar readout) |
 | **Track 1 button** | back to Tracks view |
 
@@ -440,6 +440,9 @@ It is what lets a short pattern behave like a long one: 16 steps carrying a few 
 dividers take 8 repetitions before they repeat themselves exactly, so the part evolves
 without the step count — or your reading of the grid — ever growing. Tracks are capped at
 **16 steps**; this is how you get past that without getting lost.
+
+For a **living step**, row 4 then sets how often it *transforms*, counted in plays of that
+step — so the two rows multiply (see [Living steps](#living-steps--the-heat-button)).
 
 The counters reset when the transport starts, so a divided step lands on the downbeat and
 then every Nth repetition after it. The divider travels with the step: it is saved with the
@@ -812,10 +815,22 @@ then reverted, so the groove keeps re-inventing its own accents. It's built for 
 performance: mark a few steps and the pattern stays recognisable but never quite repeats.
 
 **Mark a step** in the [edit view](#edit-view-per-track) with **Rec + pad** (living steps
-pulse **pink**). Each carries its own **period** — how many of *its own plays* pass between
-transforms — set with **knob 4** on that step (marking it live if it isn't). The period is
-counted in **step plays, not bars**: a step on a 2-bar loop still transforms every *N* times
-you actually hear it, so the count holds no matter the track's length or clock rate.
+pulse **pink**). Then **hold that step**: row 3 sets how often it *plays*, row 4 how often it
+*transforms* — the same eight-pad, cycle-counting gesture for both, which is what makes the
+pair easy to reason about.
+
+Row 4 is counted in **plays of that step**, not bars, so the two multiply:
+
+| Row 3 (plays) | Row 4 (transforms) | Result |
+|---|---|---|
+| 1 | 4 | plays every cycle, transforms every 4th play — every 4 cycles |
+| 2 | 2 | plays every 2nd cycle, transforms every 2nd play — every 4 cycles |
+| 3 | 2 | plays every 3rd cycle, transforms every 2nd play — every 6 cycles |
+| 4 | 3 | plays every 4th cycle, transforms every 3rd play — every 12 cycles |
+
+You decide **when the step speaks**, then independently **how often it says something new**.
+Because the count is in plays rather than bars, it holds whatever the track's length or clock
+rate — a step on a 2-bar loop still transforms every *N* times you actually hear it.
 
 When a living step fires, one or more **flavours** are stacked and driven hard for something
 you can actually hear — never a timid nudge:
@@ -1100,7 +1115,7 @@ command is dispatched until the engine reports ready.
 |---|---|
 | engine palette | `audition`, `palettegen`, `assign`, `randtrack`, `genkit`, `drumaudition` / `drummode` (DRUM type picker), `smparm` (arm the SAMPLE capture) |
 | tracks | `mute`, `solo`, `trackset` (pitch/amp/pan/rate), `voicemacro`, `voiceparam` (one named voice param — SAMPLE's window knobs), `trackfilter` (cutoff/res/type), `note`, `setlen`, `clearpat` |
-| steps | `stepset` / `steptoggle`, `steplock`, `stepmacro`, `stepfx` (per-step FX mask), `stepcycle` (fire every Nth repetition), `stepwindow` (per-step sample slice), `stepfilter` (per-step filter lock), `marklive` / `liveperiod` (living steps) |
+| steps | `stepset` / `steptoggle`, `steplock`, `stepmacro`, `stepfx` (per-step FX mask), `stepcycle` (fire every Nth repetition), `stepwindow` (per-step sample slice), `stepfilter` (per-step filter lock), `marklive` / `liveperiod` (living steps — the period is in PLAYS of the step, 1-8) |
 | clipboard | `stepcopy` / `steppaste`, `rowcopy` / `rowpaste` (the Copy-button gestures) |
 | FX | `fxassign`, `fxbypass`, `fxmacro`, `fxwet` |
 | macros | `heat` / `heatpct`, `shuffle`, `chaos` / `chaosreset` |
