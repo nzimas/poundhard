@@ -519,6 +519,14 @@ or mute ones it does. An effect that only a step uses is instantiated in the tra
 Steps without a lock restore the track's normal chain, so a lock never leaks into the
 following hits.
 
+> **A disabled insert is a WIRE**, and that has to be exact: its dry path is passed through
+> untouched — not faded toward the wet, not routed through a DC blocker, not panned by an
+> equal-power law. Each of those quietly cost level, and because a step-locked effect leaves
+> its insert sitting in the chain for *every* step, the cost landed on the whole track.
+> Measured with white noise, a disabled insert of any type now changes the track by **±0.03
+> dB**; on the device, three effects locked onto a step that never even plays leave the track
+> within **0.1 dB** — its own take-to-take noise floor.
+
 ### FX view
 
 **Track 2** opens the FX view. The top two pad rows are the 16 tracks; the bottom

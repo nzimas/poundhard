@@ -813,12 +813,32 @@
 	// Each FX reads its track bus (`in`), processes, and REPLACES the bus (`out`
 	// == `in`) — so a track's FX run in place, in canonical chain order. Stereo.
 	// Dry/wet is equal-power (XFade2 on wet*2-1); bypass hard-crossfades to dry.
-	~panOut = { |sig, pan| Balance2.ar(sig[0], sig[1], pan.clip(-1, 1)) };
+	// Balance L/R with UNITY GAIN AT CENTRE. Balance2 is equal-power, which costs 3 dB at
+	// centre — so an insert that merely EXISTED in a chain turned the whole track down by
+	// 3 dB, whether or not it was doing anything. Attenuate the side you pan away from
+	// instead: centre is untouched, hard over is one channel, and nothing is lost.
+	~panOut = { |sig, pan|
+		var p = pan.clip(-1, 1);
+		[sig[0] * (1 - p.max(0)), sig[1] * (1 + p.min(0))];
+	};
 	// Pedalboard insert wrapper — STEREO (processes both channels), so the track's
 	// pan is preserved through the FX. `y` is a stereo signal, not a mono sum.
+	// A DISABLED INSERT MUST BE A WIRE. Multiplying the wet by `enable` and then
+	// equal-power-crossfading against the dry attenuates the DRY as the wet falls to
+	// silence — at wet 0.5 that is -3 dB, applied to the WHOLE track, on every step,
+	// for every insert a per-step FX lock had caused to exist. Switch the mix in and
+	// out instead, and slew the switch so toggling it per step cannot click.
+	~fxMix = { |dry, mixed, enable, bypass|
+		var on = Lag.kr((enable * (1 - bypass)).clip(0, 1), 0.005);
+		// ~killbad guards the PROCESSED path only. Running the dry through it too costs a
+		// little low end per insert (it is a DC blocker), and a track carrying several
+		// step-locked inserts loses that several times over — measured -1.6 dB with three.
+		// A disabled insert has to be bit-transparent, not merely quiet-transparent.
+		(~killbad.(mixed) * on) + (dry * (1 - on));
+	};
 	~fxOut = { |dry, y, amp, enable, wet, bypass|
-		var w = LeakDC.ar(y) * amp * enable;
-		~killbad.(XFade2.ar(dry, w, (wet * 2 - 1)) * (1 - bypass) + (dry * bypass));
+		var w = LeakDC.ar(y) * amp;
+		~fxMix.(dry, XFade2.ar(dry, w, (wet * 2 - 1)), enable, bypass);
 	};
 
 	// ================= per-track MULTIMODE FILTER (before the FX chain) =================
@@ -978,12 +998,12 @@
 		}, {
 			Greyhole.ar(dry, dTime.clip(0.01, 4), damp.clip(0, 1), size.clip(0.5, 5),
 				diff.clip(0, 1), feedback.clip(0, 1), modDepth.clip(0, 1), modFreq.clip(0, 10));
-		}) * enable;
+		});
 		var wL = g[0], wR = g[1];
 		var mid = (wL + wR) * 0.5, side = (wL - wR) * 0.5 * width;
 		var wetL = (mid + side) * amp, wetR = (mid - side) * amp, outSig;
 		outSig = [XFade2.ar(inL, wetL, wet * 2 - 1), XFade2.ar(inR, wetR, wet * 2 - 1)];
-		ReplaceOut.ar(out, ~killbad.(~panOut.((outSig * (1 - bypass)) + (dry * bypass), pan)));
+		ReplaceOut.ar(out, ~panOut.(~fxMix.(dry, outSig, enable, bypass), pan));
 	}).add;
 
 	// ================= VERB — cathedral reverb (LAST in the chain) ====================
@@ -1061,8 +1081,7 @@
 		mid = (wetL + wetR) * 0.5; side = (wetL - wetR) * 0.5 * width.clip(0, 1.5);
 		wetL = (mid + side) * amp; wetR = (mid - side) * amp;
 		outSig = [XFade2.ar(inL, wetL, wet * 2 - 1), XFade2.ar(inR, wetR, wet * 2 - 1)];
-		ReplaceOut.ar(out, ~killbad.(~panOut.((outSig * enable * (1 - bypass))
-			+ (dry * bypass) + (dry * (1 - enable)), pan)));
+		ReplaceOut.ar(out, ~panOut.(~fxMix.(dry, outSig, enable, bypass), pan));
 	}).add;
 
 	// ---- RESO: Streson — a tuned string resonator / comb-with-feedback (sc3-plugins) ----
@@ -1072,7 +1091,7 @@
 	// gives the chain its space). res is clamped for feedback safety.
 	SynthDef(\phStreson, { |out = 0, in = 0, freq = 220, res = 0.85, damp = 0.3, amp = 0.9, pan = 0, bypass = 0, wet = 0.5, enable = 1|
 		var dry = In.ar(in, 2);
-		var y = Streson.ar(dry, (1.0 / freq.clip(40, 5000)), res.clip(0, 0.96)) * enable;
+		var y = Streson.ar(dry, (1.0 / freq.clip(40, 5000)), res.clip(0, 0.96));
 		y = LPF.ar(LeakDC.ar(y), damp.clip(0, 1).linexp(0, 1, 18000, 1500));   // tame the resonant top
 		ReplaceOut.ar(out, ~fxOut.(dry, y, amp, enable, wet, bypass));
 	}).add;
@@ -1086,9 +1105,9 @@
 		// drywet=1: Clouds returns full wet; we manage dry/wet ourselves with `wet`.
 		var g = MiClouds.ar(dry, pit.clip(-36, 36), pos.clip(0, 1), size.clip(0, 1), dens.clip(0, 1),
 			tex.clip(0, 1), 1.0, 1.0, spread.clip(0, 1), rvb.clip(0, 1), fb.clip(0, 1),
-			freeze, mode.round.clip(0, 3), lofi.round.clip(0, 1)) * enable;
+			freeze, mode.round.clip(0, 3), lofi.round.clip(0, 1));
 		var wL = g[0] * amp, wR = g[1] * amp, outSig;
 		outSig = [XFade2.ar(dry[0], wL, wet * 2 - 1), XFade2.ar(dry[1], wR, wet * 2 - 1)];
-		ReplaceOut.ar(out, ~killbad.(~panOut.((outSig * (1 - bypass)) + (dry * bypass), pan)));
+		ReplaceOut.ar(out, ~panOut.(~fxMix.(dry, outSig, enable, bypass), pan));
 	}).add;
 };
