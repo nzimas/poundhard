@@ -42,6 +42,7 @@ runtime, so **Schwung is the only thing it needs on the device**.
   - [Edit view](#edit-view-per-track)
     - [Cycle frequency](#cycle-frequency)
     - [Generating a sequence](#generating-a-sequence)
+    - [Transposing](#transposing)
     - [The project's scale](#the-projects-scale)
     - [Track filter](#track-filter)
     - [Per-step FX](#per-step-fx)
@@ -108,8 +109,9 @@ runtime, so **Schwung is the only thing it needs on the device**.
   on SAMPLE tracks — the **slice of the buffer** a step plays. Each step can carry its own
   tone, its own effects and its own fragment of the sample.
 - **Generate a part** for the open track — six rhythm algorithms (Euclidean, polyrhythmic
-  pairs, additive groupings, bursts, sieves, fractured grids) plus velocity, pan, pitch and
-  cycle dividers, in the project's own scale.
+  pairs, additive groupings, bursts, sieves, fractured grids) plus velocity, pan, pitch,
+  cycle dividers and self-transforming living steps, in the project's own scale.
+- **Transpose a sequence** from the jog wheel without disturbing anything else in it.
 - **A multimode filter on every track** (cutoff / resonance / LP-HP) that keeps its bass
   and its level as resonance rises — see [Track filter](#track-filter).
 - **Living steps** — mark steps (or hit **HEAT** for the whole rig) and they
@@ -422,7 +424,8 @@ the jog/knobs/cursors edit that track's settings — all in one place.
 | **Shift + step pads** | **select** steps for the per-step FX editor (selected = bright red) |
 | **Shift + bottom row** | add / remove that effect on every selected step |
 | **Shift + master knob touch + pad** | set that pad as the **last step** (polymeter, up to 16) |
-| **Shift + touch the volume knob + Track 1** | **generate a new sequence** for this track — rhythm, velocities, pans, pitches and cycle dividers (see [Generating a sequence](#generating-a-sequence)) |
+| **Shift + touch the volume knob + Track 1** | **generate a new sequence** for this track — rhythm, velocities, pans, pitches, cycle dividers and living steps (see [Generating a sequence](#generating-a-sequence)) |
+| **Shift + jog wheel** | **transpose the sequence**, one semitone per detent, ±24 (see [Transposing](#transposing)) |
 | **Jog wheel** | track pitch (re-pitches ringing voices live) |
 | **Knob 1 / 2** | track volume / pan |
 | **Knob 3** | **voice macro** — one knob sweeps every timbral param of the voice, each in a random direction; the directions re-roll whenever the track's sound is regenerated |
@@ -477,6 +480,38 @@ scattering; **cycle dividers** put some hits on every 2nd–8th repetition so th
 over a longer span; and pitched engines get a **scale-aware line** (below). Measured over 300
 generations: all six algorithms appear, 2–12 hits per bar (median 6), and two consecutive
 generations produced the same rhythm twice in 300.
+
+Finally a few hits are made **living steps** — the same living steps you place by hand with
+Rec + pad, written through the same code, so they edit, save and behave identically. Each
+generated one gets a living interval (row 4) and one or two per-step effects, and then does
+what living steps do: re-roll its own character, filter, pitch leap, pan, ratchet and
+delay/reverb send every time its interval comes round. That is what stops a generated bar
+from being a loop.
+
+They stay scarce on purpose. At most a quarter of the hits and never more than four, never
+on the downbeat (the ear's anchor), and always on the weak steps where a transform colours
+the bar instead of fighting the pulse. The intervals within a bar are made *distinct*, so
+the marked steps transform on different repetitions rather than lurching together — and
+since each one multiplies by that step's own cycle divider, a bar can take dozens of
+repetitions to come back round to where it started. Over 400 generations: 17% of bars get
+none at all, the rest average 29% of their hits, and no generated living step ever landed on
+step 1.
+
+A living step now also **remembers what it was**. Between transforms it returns to its own
+velocity, pan and pitch rather than to the bare track defaults — which matters little for a
+step marked by hand on an empty grid, but everything for a generated one that arrives with
+material already written.
+
+#### Transposing
+
+**Shift + turn the jog wheel** transposes the open track's sequence, one semitone per
+detent, up to ±24. The screen shows the amount in the giant readout while you turn (`+5`,
+`-12`, `±0`) and keeps it beside the key in the edit view for as long as it isn't zero — a
+transposed sequence should never be silently transposed.
+
+It is an offset, not a rewrite. The step locks keep the pitches the generator or your hands
+put there, so step placement, velocity, pan, living marks, effects and cycle intervals are
+untouched, and turning back to zero restores the original pitches exactly.
 
 #### The project's scale
 
@@ -1194,6 +1229,7 @@ command is dispatched until the engine reports ready.
 | steps | `stepset` / `steptoggle`, `steplock`, `stepmacro`, `stepfx` (per-step FX mask), `stepcycle` (fire every Nth repetition), `stepwindow` (per-step sample slice), `stepfilter` (per-step filter lock), `marklive` / `liveperiod` (living steps — the period is in PLAYS of the step, 1-8) |
 | clipboard | `stepcopy` / `steppaste`, `rowcopy` / `rowpaste` (the Copy-button gestures) |
 | generation | `stepgen` (a new sequence for one track, scale-aware) |
+| transpose | `transpose` (semitone offset for one track's sequence) |
 | FX | `fxassign`, `fxbypass`, `fxmacro`, `fxwet` |
 | macros | `heat` / `heatpct`, `shuffle`, `chaos` / `chaosreset` |
 | patterns & projects | `savepat` / `loadpat`, `patdel`, `patcopy` / `patpaste` / `patclipclear`, `genvar`, `randpat`, `saveproj` / `loadproj`, `loadauto` |

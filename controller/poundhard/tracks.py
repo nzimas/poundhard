@@ -67,6 +67,10 @@ DRUM_TRACKS = 6            # tracks 0..5 are DRUM; 6..15 are the other generator
 UNDO_LEVELS = 20           # depth of the global undo stack (discrete actions)
 
 
+def _clamp_note(n: int) -> int:
+    return max(0, min(127, int(n)))
+
+
 @dataclass
 class Track:
     type: str = "EMPTY"          # unassigned by default (no engine, no sound)
@@ -79,6 +83,10 @@ class Track:
     length: int = DEFAULT_STEPS     # per-track pattern length (polymeter), 1..32
                                     # (the editor shows/edits 16; the model still allows 32)
     rate: float = 1.0               # clock rate vs master (steps per master tick)
+    # SEQUENCE TRANSPOSE (Shift + jog wheel), in semitones, -24..+24. An OFFSET rather than a
+    # rewrite: the step locks keep the pitches the generator or the player put there, so
+    # transposing away and back is exact and every other per-step parameter is untouched.
+    transpose: int = 0
     # per-step locks (None = inherit the track default). Performance data — kept
     # across kit regeneration, like patterns.
     step_note: list = field(default_factory=lambda: [None] * N_STEPS)
@@ -90,6 +98,11 @@ class Track:
     # is a runtime bar counter (not persisted).
     step_living: list = field(default_factory=lambda: [False] * N_STEPS)
     step_period: list = field(default_factory=lambda: [4] * N_STEPS)     # cycles between transforms
+    # What a living cell returns to BETWEEN transforms: (note, vel, pan) as they were when the
+    # step became living. Without it a living step forgets any lock it had — which mattered
+    # little when living steps were only ever placed by hand on bare steps, but a GENERATED
+    # living step arrives with velocity/pan/pitch already written and must keep them.
+    step_lbase: list = field(default_factory=lambda: [None] * N_STEPS)
     step_ratchet: list = field(default_factory=lambda: [1] * N_STEPS)    # retriggers per hit
     step_send: list = field(default_factory=lambda: [0] * N_STEPS)       # route hit -> living delay/reverb
     # PER-STEP FX: bitmask over the 8 insert slots, -1 = no lock (use the track's chain).
@@ -129,7 +142,11 @@ class Track:
 
     def eff_note(self, cell: int) -> int:
         v = self.step_note[cell]
-        return int(v) if v is not None else self.note
+        return _clamp_note((int(v) if v is not None else self.note) + self.transpose)
+
+    def eff_track_note(self) -> int:
+        """The track's own note as the engine should hear it (transpose applied)."""
+        return _clamp_note(self.note + self.transpose)
 
     def eff_vel(self, cell: int) -> float:
         v = self.step_vel[cell]
@@ -152,6 +169,8 @@ class Track:
                 # persisted, so a snapshot stores only the hand-placed (Rec+pad) living steps.
                 "step_living": [lv and not ht for lv, ht in zip(self.step_living, self.step_heat)],
                 "step_period": list(self.step_period),
+                "step_lbase": [None if v is None else list(v) for v in self.step_lbase],
+                "transpose": self.transpose,
                 "step_ratchet": list(self.step_ratchet), "step_send": list(self.step_send),
                 "step_fx": list(self.step_fx),
                 "step_cycle": list(self.step_cycle),
@@ -180,6 +199,9 @@ class Track:
             setattr(t, attr, (vals + [None] * N_STEPS)[:N_STEPS])
         t.step_living = ([bool(x) for x in d.get("step_living", [])][:N_STEPS] + [False] * N_STEPS)[:N_STEPS]
         t.step_period = ([int(x) for x in d.get("step_period", [])][:N_STEPS] + [4] * N_STEPS)[:N_STEPS]
+        lb = [None if v is None else tuple(v) for v in d.get("step_lbase", [])][:N_STEPS]
+        t.step_lbase = (lb + [None] * N_STEPS)[:N_STEPS]
+        t.transpose = max(-24, min(24, int(d.get("transpose", 0))))
         t.step_ratchet = ([int(x) for x in d.get("step_ratchet", [])][:N_STEPS] + [1] * N_STEPS)[:N_STEPS]
         t.step_send = ([int(x) for x in d.get("step_send", [])][:N_STEPS] + [0] * N_STEPS)[:N_STEPS]
         t.step_fx = ([int(x) for x in d.get("step_fx", [])][:N_STEPS] + [-1] * N_STEPS)[:N_STEPS]
@@ -598,11 +620,15 @@ class Project:
         tr = self.tracks[track]
         tr.step_living[cell] = not tr.step_living[cell]
         if tr.step_living[cell]:
+            # remember what the step WAS, so every revert between transforms returns it to
+            # its own locks rather than to the bare track defaults
+            tr.step_lbase[cell] = (tr.step_note[cell], tr.step_vel[cell], tr.step_pan[cell])
             self.reroll_living(track, cell)     # one-shot feedback; fx sends wait for tick
             tr.step_active[cell] = True
             tr.step_cyc[cell] = 1               # already armed at phase 0 -> next tick is phase 1
         else:                                   # back to a plain, untransformed step
             self._revert_living_cell(track, cell)
+            tr.step_lbase[cell] = None
             tr.step_active[cell] = False
         return tr.step_living[cell]
 
@@ -613,15 +639,26 @@ class Project:
         self.tracks[track].step_period[cell] = max(1, min(8, int(period)))
         return self.tracks[track].step_period[cell]
 
+    # -- transpose ---------------------------------------------------------- #
+    def transpose_track(self, track: int, delta: int) -> int:
+        """Shift a whole sequence by semitones (Shift + jog). Returns the new total, -24..+24.
+
+        Nothing is rewritten: the offset rides on top of the step locks, so step placement,
+        velocity, pan, living marks, FX and cycle intervals are all untouched, and coming back
+        to 0 restores the original pitches exactly.
+        """
+        tr = self.tracks[track]
+        tr.transpose = max(-24, min(24, tr.transpose + int(delta)))
+        return tr.transpose
+
     def _revert_living_cell(self, track: int, cell: int) -> None:
         """Return a living cell to its plain, untransformed state (keeps the living mark)."""
         tr = self.tracks[track]
         tr.step_xmacro[cell] = None
         tr.step_ratchet[cell] = 1
         tr.step_send[cell] = 0
-        tr.step_note[cell] = None
-        tr.step_vel[cell] = None
-        tr.step_pan[cell] = None
+        base = tr.step_lbase[cell]
+        tr.step_note[cell], tr.step_vel[cell], tr.step_pan[cell] = base or (None, None, None)
 
     def reroll_living(self, track: int, cell: int):
         """Roll ONE fresh transformation for a living step (fired periodically — see
@@ -676,7 +713,13 @@ class Project:
             tr.step_ratchet[cell] = rng.choice([2, 2, 3, 4])
 
         if "pitch" in chosen and tr.type not in ("EMPTY", "DRUM"):
-            pcs = {(kits._ROOT + s) % 12 for s in kits._SCALE}
+            # a living leap belongs to the piece: use the project's own scale once something
+            # has established one, and only fall back to the kit default before that
+            if self.scale_name is not None:
+                from . import scales
+                pcs = scales.pitch_classes(self.scale_root, self.scale_name)
+            else:
+                pcs = {(kits._ROOT + s) % 12 for s in kits._SCALE}
             cand = tr.note + rng.choice([-24, -12, -12, -7, -5, 5, 7, 12, 12, 19, 24])
             tr.step_note[cell] = max(24, min(96, _snap_scale(cand, pcs)))
 
@@ -787,6 +830,7 @@ class Project:
                 tr.step_period[c] = 4
                 tr.step_cyc[c] = 0
                 tr.step_active[c] = False
+                tr.step_lbase[c] = None
                 if snap is not None:                    # restore the exact base for this cell
                     n, v, pa, ra, se, xm = snap[t][c]
                     tr.step_note[c] = n; tr.step_vel[c] = v; tr.step_pan[c] = pa
@@ -826,6 +870,9 @@ class Project:
                 tr.step_heat[cell] = True               # HEAT-owned: cleared on toggle-off, never saved
                 tr.step_period[cell] = per
                 tr.step_active[cell] = False
+                # keep whatever the step already had; HEAT should not erase hand-set or
+                # generated locks while it holds the cell
+                tr.step_lbase[cell] = (tr.step_note[cell], tr.step_vel[cell], tr.step_pan[cell])
                 self._revert_living_cell(t, cell)       # start plain; fires when its period elapses
                 tr.step_cyc[cell] = random.randrange(per * loop_bars)   # stagger the first fire
 

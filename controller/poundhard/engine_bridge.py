@@ -221,7 +221,7 @@ class EngineBridge:
         self.set_type(t, track.type)
         for pid, val in track.params.items():
             self.param(t, pid, val)
-        self.note(t, track.note)
+        self.note(t, track.eff_track_note())   # the sequence transpose rides on the note
         self.vel(t, track.vel)
         if track.type == "SAMPLER" and track.sample >= 0:
             self.samp(t, track.sample)

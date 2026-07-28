@@ -26,7 +26,7 @@ import math
 import random
 
 from . import scales
-from .catalog import VOICES
+from .catalog import VOICES, N_FX
 from .tracks import N_STEPS, MAX_STEPS
 
 # engines whose pitch is musically meaningful (a note lock changes the note you hear,
@@ -197,11 +197,15 @@ def generate(project, track: int, rng: random.Random | None = None) -> dict:
     prefer = {pc for pc, _ in sorted(ctx["pcs"].items(), key=lambda kv: -kv[1])[:4]}
 
     # ---- clear this track's step state, then write the new bar ----
+    for cell in range(N_STEPS):                  # drop any living mark this track still holds
+        if tr.step_living[cell] and not tr.step_heat[cell]:
+            project.toggle_living(track, cell)
     tr.pattern = [0] * N_STEPS
     tr.step_note = [None] * N_STEPS
     tr.step_vel = [None] * N_STEPS
     tr.step_pan = [None] * N_STEPS
     tr.step_cycle = [1] * N_STEPS
+    tr.step_fx = [-1] * N_STEPS
 
     # a shared contour so accents/pan/pitch move together rather than each jittering
     phase = rng.uniform(0, math.tau)
@@ -270,5 +274,55 @@ def generate(project, track: int, rng: random.Random | None = None) -> dict:
         if i != 0 and rng.random() < (0.3 if texture else 0.18):
             tr.step_cycle[i] = rng.choice((2, 2, 3, 4, 4, 8))
 
+    living = _living(project, track, rng, [i for i in range(n) if hits[i]], texture)
+
     return {"ok": True, "algo": algo, "hits": sum(hits), "steps": n,
-            "scale": f"{name}", "root": root, "pitched": pitched}
+            "scale": f"{name}", "root": root, "pitched": pitched, "living": living}
+
+
+def _living(project, track: int, rng: random.Random, hits: list[int],
+            texture: bool) -> int:
+    """Designate a few of the generated hits as LIVING STEPS.
+
+    Living steps are the instrument's long-term variation: a marked step re-rolls its own
+    transformation — engine character, filter, pitch leap, pan, ratchet, delay/reverb send —
+    every `step_period` plays of that step. Generating them is what makes a generated bar
+    keep moving instead of looping identically forever.
+
+    Two things keep it musical rather than soupy. FEW: at most a quarter of the hits and
+    never more than four, so the rhythm stays legible; and never the downbeat, which is the
+    ear's anchor. SLOW AND UNEVEN: periods are drawn from 2..8 and deliberately made
+    distinct, so the marked steps transform on different bars rather than lurching together
+    — with the step's own cycle divider multiplying on top, a bar can take dozens of
+    repetitions to come back round to where it started.
+
+    Everything is written through the manual living-step path (`toggle_living`), so a
+    generated living step IS a hand-placed one: the same transform, the same periods, the
+    same row-4 editing, the same behaviour under HEAT and pattern save.
+    """
+    body = [c for c in hits if c != 0]
+    if len(hits) < 3 or not body:
+        return 0
+    frac = rng.uniform(0.25, 0.45) if texture else rng.uniform(0.2, 0.38)
+    k = min(4, len(body), max(1, round(len(hits) * frac)))
+    if rng.random() < (0.06 if texture else 0.14):       # some bars are simply not alive
+        return 0
+
+    # prefer the weak steps: a transform on an off-beat colours the bar, the same transform
+    # on a strong beat fights the pulse
+    weighted = sorted(body, key=lambda c: (0 if (c % 4) in (1, 3) else 1, rng.random()))
+    chosen = weighted[:k]
+
+    tr = project.tracks[track]
+    pool = [2, 3, 4, 5, 6, 8]
+    rng.shuffle(pool)
+    for idx, cell in enumerate(chosen):
+        tr.step_period[cell] = pool[idx % len(pool)]     # distinct periods -> staggered fires
+        # one or two inserts on the step, so the transform arrives through an effect too
+        bits = rng.sample(range(N_FX), 1 if rng.random() < 0.65 else 2)
+        mask = 0
+        for b in bits:
+            mask |= (1 << b)
+        tr.step_fx[cell] = mask
+        project.toggle_living(track, cell)               # rolls its first transform
+    return len(chosen)

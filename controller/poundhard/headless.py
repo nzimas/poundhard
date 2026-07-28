@@ -222,6 +222,16 @@ class Controller:
             self.bridge.stepsend(t, cell, bool(tr.step_send[cell]))
         self._push_step_macros(t)
 
+    def _push_notes(self, t: int) -> None:
+        """Re-push only what a transposition changes: the track note and every pitched step
+        lock. Velocity, pan, FX, cycle intervals and living marks are left alone."""
+        tr = self.state.tracks[t]
+        self.bridge.note(t, tr.eff_track_note())
+        for cell in range(N_STEPS):
+            if (tr.step_note[cell] is not None or tr.step_vel[cell] is not None
+                    or tr.step_pan[cell] is not None):
+                self.bridge.steplock(t, cell, tr.eff_note(cell), tr.eff_vel(cell), tr.eff_pan(cell))
+
     def _push_step_macros(self, t: int) -> None:
         for cell in range(N_STEPS):
             pairs = self.state.step_engine_macro(t, cell)   # living transform takes precedence
@@ -727,7 +737,7 @@ class Controller:
             if 0 <= t < N_TRACKS:
                 kind, v = st.set_track_param(t, p.get("param", ""), float(p.get("value", 0)))
                 if kind == "note":
-                    self.bridge.note(t, v)
+                    self.bridge.note(t, st.tracks[t].eff_track_note())
                 elif kind == "vel":
                     self.bridge.vel(t, v)
                 elif kind == "pan":
@@ -756,7 +766,16 @@ class Controller:
                     self.bridge.push_track(t, st.tracks[t])
                     self._push_step_cell(t)
                     self._push_step_macros(t)
-                    self._gen_note = "%s %d/%d" % (info["algo"], info["hits"], info["steps"])
+                    for c in range(N_STEPS):        # generated living steps arrive transformed
+                        if st.tracks[t].step_living[c]:
+                            self._push_living_cell(t, c)
+                    self._gen_note = "%s %d/%d%s" % (info["algo"], info["hits"], info["steps"],
+                                                     " L%d" % info["living"] if info["living"] else "")
+        elif cmd == "transpose":               # Shift + jog wheel: shift the sequence in semitones
+            t = int(p.get("track", st.edit_track))
+            if 0 <= t < N_TRACKS:
+                st.transpose_track(t, int(p.get("d", 0)))
+                self._push_notes(t)
         elif cmd == "trackfilter":             # knobs 4/5/6 (6/7/8 on SAMPLE): the track filter
             t = int(p.get("track", st.edit_track))
             if 0 <= t < N_TRACKS:
@@ -850,7 +869,7 @@ class Controller:
             t = int(p.get("track", -1)); n = int(p.get("note", 40))
             if 0 <= t < N_TRACKS:
                 st.tracks[t].note = n
-                self.bridge.note(t, n)
+                self.bridge.note(t, st.tracks[t].eff_track_note())
         elif cmd == "fxassign":
             t = int(p.get("track", -1)); fx = int(p.get("fx", -1))
             if 0 <= t < N_TRACKS and 0 <= fx < N_FX:
@@ -960,6 +979,7 @@ class Controller:
                            "start": round(tr.params.get("sample.start", 0.0), 4),
                            "end": round(tr.params.get("sample.end", 1.0), 4),
                            # per-track multimode filter (knobs 4/5/6, or 6/7/8 on SAMPLE)
+                           "transpose": tr.transpose,
                            "fcut": round(tr.filt_cutoff, 1),
                            "fres": round(tr.filt_res, 3),
                            "ftype": tr.filt_type})
@@ -1020,6 +1040,7 @@ class Controller:
                 "steps": et.pattern, "type": et.type,
                 "name": "" if et.type == "EMPTY" else et.type, "note": et.note,
                 "length": et.length, "rate": round(et.rate, 4),
+                "transpose": et.transpose,
                 "defVel": round(et.vel, 3), "defPan": round(et.default_pan(), 3),
                 # effective per-step values (lock or track default) for the UI readout
                 "stepNote": [et.eff_note(c) for c in range(N_STEPS)],

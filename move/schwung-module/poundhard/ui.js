@@ -142,6 +142,7 @@ let trackVel = new Array(N_TRACKS).fill(1.0);
 let trackVol = new Array(N_TRACKS).fill(0.8);
 let trackPan = new Array(N_TRACKS).fill(0.0);
 let trackRate = new Array(N_TRACKS).fill(1.0);
+let trackTrans = new Array(N_TRACKS).fill(0);   /* sequence transpose, semitones (Shift + jog) */
 let trackLen = new Array(N_TRACKS).fill(EDIT_STEPS);
 let voiceMacro = new Array(N_TRACKS).fill(0.5);
 /* SAMPLE's playable window (knobs 4/5 in the edit view), mirrored from status */
@@ -526,6 +527,14 @@ function drawParamBig(head, valStr, kind, frac) {
     if (kind === null) { drawBig(valStr, 12, 10); }        /* no bar -> value can be huge */
     else { drawBig(valStr, 4, 7); if (kind === 'uni') bar(frac); else bbar(frac); }
 }
+/* TRANSPOSE: sign always shown, so +0 and -0 can't be confused, and huge — this is a
+ * blind-operable gesture and the number is the only feedback. */
+function drawTransBig() {
+    var v = trackTrans[editTrack] | 0;
+    drawParamBig('T' + (editTrack + 1) + ' TRANSPOSE',
+                 (v > 0 ? '+' : (v < 0 ? '-' : '\u00b1')) + Math.abs(v),
+                 'bi', clampf(v / 24, -1, 1));
+}
 function drawTempoBig() { drawParamBig('TEMPO', '' + Math.round(tempo), 'uni', clampf((tempo - 20) / 280, 0, 1)); }
 function drawHeatBig() { drawParamBig(heatOn ? 'HEAT ON' : 'HEAT', Math.round(heatPct * 100) + '%', 'uni', clampf(heatPct, 0, 1)); }
 /* CHAOS: bipolar around the safe zone — 0 = exactly the stored state. */
@@ -695,6 +704,7 @@ function drawScreen() {
     /* giant TEMPO readout while knob 1 is touched (tracks view + project view) */
     /* Giant TEMPO readout while knob 1 is touched — tracks, PATTERN and project views.
      * Tempo is per-pattern, so in the pattern view this is the selected pattern's BPM. */
+    if (knobShow === 'trans' && editTrack >= 0) { drawTransBig(); return; }
     if (knobShow === 'tempo' && !fxView && !recView && editTrack < 0 && stepEditCell < 0) { drawTempoBig(); return; }
     if (knobShow === 'chaos' && !fxView && !patView && !projView && !recView && editTrack < 0) { drawChaosBig(); return; }
     if (knobShow === 'heat' && !fxView && !patView && !projView && !recView && editTrack < 0) { drawHeatBig(); return; }
@@ -734,7 +744,11 @@ function drawScreen() {
         for (var i = 0; i < len; i++) { n += editSteps[i] ? 1 : 0; if (editFx[i] >= 0) nfx++; }
         print(0, 6, 'T' + (editTrack + 1) + ' ' + (editName || editType), 2);
         print(0, 30, n + '/' + len + ' steps' + (nfx ? ('  ' + nfx + 'fx') : '') + '  ' + rateLbl(trackRate[editTrack] || 1), 1);
-        if (scaleLabel) print(0, 42, scaleLabel, 1);
+        /* the key, and the sequence transpose beside it when it isn't 0 — a shifted
+         * sequence must never be silently shifted */
+        var tsp = trackTrans[editTrack] | 0;
+        if (scaleLabel || tsp) print(0, 42, (scaleLabel || '') +
+            (tsp ? ((scaleLabel ? '  ' : '') + (tsp > 0 ? '+' : '') + tsp + 'st') : ''), 1);
         print(0, 44, (editType === 'SAMPLE') ? 'k1vol k2pan k3mac k4/5win k6/7/8filt'
                                               : 'k1vol k2pan k3macro k4/5/6 filter', 1);
         print(0, 56, copyHeld ? (rowArmed ? 'COPY: Trk1/2 pastes a row' : 'COPY: pad/Trk1/Trk2 copies')
@@ -790,6 +804,7 @@ function readStatus() {
             if (tr.length != null) trackLen[i] = tr.length;
             if (tr.start != null && !(knobShow === 'start' && editTrack === i)) sampStart[i] = tr.start;
             if (tr.end != null && !(knobShow === 'end' && editTrack === i)) sampEnd[i] = tr.end;
+            if (tr.transpose != null && !(knobShow === 'trans' && editTrack === i)) trackTrans[i] = tr.transpose;
             if (tr.fcut != null && !(knobShow === 'fcut' && editTrack === i)) filtCut[i] = tr.fcut;
             if (tr.fres != null && !(knobShow === 'fres' && editTrack === i)) filtRes[i] = tr.fres;
             if (tr.ftype != null) filtType[i] = tr.ftype;
@@ -850,6 +865,7 @@ globalThis.init = function () {
     trackNote = new Array(N_TRACKS).fill(60); trackVel = new Array(N_TRACKS).fill(1.0);
     trackVol = new Array(N_TRACKS).fill(0.8);
     trackPan = new Array(N_TRACKS).fill(0.0); trackRate = new Array(N_TRACKS).fill(1.0);
+    trackTrans = new Array(N_TRACKS).fill(0);
     voiceMacro = new Array(N_TRACKS).fill(0.5);
     sampStart = new Array(N_TRACKS).fill(0.0); sampEnd = new Array(N_TRACKS).fill(1.0);
     filtCut = new Array(N_TRACKS).fill(18000); filtRes = new Array(N_TRACKS).fill(0.0);
@@ -1342,6 +1358,7 @@ globalThis.onMidiMessageInternal = function (data) {
         if (d1 === MoveBack && d2 > 0) { exitConfirm = true; screenDirty = true; return; }
         if (d1 === MoveShift) {
             shiftHeld = d2 > 0;
+            if (!shiftHeld && knobShow === 'trans') { knobShow = null; screenDirty = true; }
             if (!shiftHeld && (stepSel.length || lenArm)) {       /* release ends the gesture */
                 stepSel = []; lenArm = false;
             }
@@ -1368,6 +1385,16 @@ globalThis.onMidiMessageInternal = function (data) {
         if (d1 === MoveMainKnob) {
             var jd = decodeDelta(d2);
             if (jd !== 0) {
+                /* SHIFT + jog = transpose the whole sequence, one semitone per detent.
+                 * Everything else about the steps is untouched — this only offsets pitch. */
+                if (shiftHeld && editTrack >= 0) {
+                    var tt = editTrack;
+                    trackTrans[tt] = clampi(trackTrans[tt] + jd, -24, 24);
+                    knobShow = 'trans';
+                    sendCmd('transpose', tt, { p: { track: tt, d: jd } });
+                    screenDirty = true;
+                    return;
+                }
                 if (stepEditCell >= 0) {
                     var c = stepEditCell; stepNote[c] = clampi(Math.round(stepNote[c]) + jd, 0, 127);
                     knobShow = 'pitch'; sendCmd('steplock', c, { p: { track: editTrack, cell: c, param: 'pitch', value: stepNote[c] } }); screenDirty = true;
