@@ -77,6 +77,7 @@ class Controller:
         self._seq_primed = False
         # STEP / ROW CLIPBOARD (Copy-button gestures in the edit view). Not persisted: it is
         # a performance tool, not project state.
+        self._gen_note = ""
         self._step_clip: dict | None = None
         self._row_clip: list | None = None
         self._last_tempo = None
@@ -593,6 +594,7 @@ class Controller:
         "setlen", "savepat", "loadpat", "patdel", "patpaste", "genvar", "randpat",
         "fxassign", "fxbypass", "loadproj", "loadauto", "marklive",
         "steppaste", "rowpaste", "stepcycle", "trackfilter", "stepwindow", "stepfilter",
+        "stepgen",
     })
     # Commands that change no persisted state — they don't mark the project dirty.
     _NO_STATE = frozenset({
@@ -647,6 +649,8 @@ class Controller:
             if 0 <= t < N_TRACKS and 0 <= cell < N_STEPS and param in ("pitch", "vel", "pan"):
                 nn, vv, pp = st.set_step_param(t, cell, param, float(p.get("value", 0)))
                 self.bridge.steplock(t, cell, nn, vv, pp)
+                if param == "pitch":           # hand-entered notes can define the key too
+                    st.ensure_scale([nn])
         elif cmd == "stepmacro":               # per-step voice-macro lock (knob 3 on a held step)
             t = int(p.get("track", st.edit_track))
             cell = int(p.get("cell", -1))
@@ -743,6 +747,16 @@ class Controller:
             if 0 <= t < N_TRACKS:
                 for pid, val in st.set_voice_macro(t, float(p.get("pos", 0.5))):
                     self.bridge.param(t, pid, val)
+        elif cmd == "stepgen":                 # Shift + volume touch + Track 1: new sequence
+            t = int(p.get("track", st.edit_track))
+            if 0 <= t < N_TRACKS:
+                from . import stepgen
+                info = stepgen.generate(st, t)
+                if info.get("ok"):
+                    self.bridge.push_track(t, st.tracks[t])
+                    self._push_step_cell(t)
+                    self._push_step_macros(t)
+                    self._gen_note = "%s %d/%d" % (info["algo"], info["hits"], info["steps"])
         elif cmd == "trackfilter":             # knobs 4/5/6 (6/7/8 on SAMPLE): the track filter
             t = int(p.get("track", st.edit_track))
             if 0 <= t < N_TRACKS:
@@ -968,6 +982,9 @@ class Controller:
             "autoSave": self._autosaved,       # a recovery file exists (Shift+Menu restores it)
             "heat": self._heat_on,             # HEAT macro engaged
             "heatPct": round(self._heat_pct, 3),
+            # the project's scale, once something pitched has established it
+            "scale": (None if st.scale_name is None
+                      else {"root": st.scale_root, "name": st.scale_name}),
             "clipStep": self._step_clip is not None,   # Copy-gesture clipboard state
             "clipRow": self._row_clip is not None,
             "smpState": self._smp_state,        # idle/armed/recording/processing/ready

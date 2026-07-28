@@ -202,6 +202,7 @@ let deleteHeld = false, copyHeld = false, copyArmed = false;
 /* Copy-button clipboard in the EDIT view: `clipStep` = a step is held, `rowArmed` = the
  * current Copy hold has already grabbed a row (so the next row press pastes). */
 let clipStep = false, clipRow = false, rowArmed = false;
+let scaleLabel = '';                /* the project's key, once something pitched sets it */
 let seq = 0, cmdQueue = [];
 let tempoLocal = 120, tempoDirty = false, controlDirty = false;
 /* pad hold -> per-step param lock */
@@ -733,6 +734,7 @@ function drawScreen() {
         for (var i = 0; i < len; i++) { n += editSteps[i] ? 1 : 0; if (editFx[i] >= 0) nfx++; }
         print(0, 6, 'T' + (editTrack + 1) + ' ' + (editName || editType), 2);
         print(0, 30, n + '/' + len + ' steps' + (nfx ? ('  ' + nfx + 'fx') : '') + '  ' + rateLbl(trackRate[editTrack] || 1), 1);
+        if (scaleLabel) print(0, 42, scaleLabel, 1);
         print(0, 44, (editType === 'SAMPLE') ? 'k1vol k2pan k3mac k4/5win k6/7/8filt'
                                               : 'k1vol k2pan k3macro k4/5/6 filter', 1);
         print(0, 56, copyHeld ? (rowArmed ? 'COPY: Trk1/2 pastes a row' : 'COPY: pad/Trk1/Trk2 copies')
@@ -759,6 +761,7 @@ function readStatus() {
     if (s.shuffle != null && !shufHeld) shufOn = !!s.shuffle;
     if (s.heatPct != null && knobShow !== 'heat') heatPct = s.heatPct;
     if (s.drumMode != null && paletteHeld !== DRUM_CELL) drumMode = s.drumMode;
+    scaleLabel = (s.scale && s.scale.name) ? (noteName(s.scale.root).replace(/[0-9-]/g, '') + ' ' + s.scale.name) : '';
     if (s.clipStep != null) clipStep = !!s.clipStep;
     if (s.clipRow != null) clipRow = !!s.clipRow;
     if (s.smpState != null) smpState = s.smpState;
@@ -1446,8 +1449,16 @@ globalThis.onMidiMessageInternal = function (data) {
             return;
         }
         if (d1 === MoveRow1 && d2 > 0) {
-            /* Shift+Track1 = re-roll the OPEN track's sound within its assigned engine.
-             * (Whole-kit regen is retired — the engine palette generates & assigns now.) */
+            /* Shift + touch the volume knob + Track 1 = GENERATE a new step sequence for
+             * the open track (rhythm, velocities, pans, pitches, cycle dividers). Shift +
+             * Track 1 alone still re-rolls that track's SOUND — the knob touch is what
+             * separates "new part" from "new voice". */
+            if (shiftHeld && masterTouched) {
+                if (editTrack >= 0) { sendCmd('stepgen', editTrack, { p: { track: editTrack } }); showAction('GEN SEQ T' + (editTrack + 1)); }
+                else showAction('open a track first');
+                ledDirty = true; screenDirty = true;
+                return;
+            }
             if (shiftHeld) {
                 if (editTrack >= 0) { sendCmd('randtrack', editTrack, { p: { track: editTrack } }); showAction('RND T' + (editTrack + 1)); }
                 else showAction('open a track first');

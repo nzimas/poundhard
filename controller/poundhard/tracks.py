@@ -220,6 +220,10 @@ class Project:
         self.steps: int = N_STEPS
         self.kit_name: str = ""
         self.edit_track: int = -1          # which track the UI is editing (-1 = tracks view)
+        # The project's scale, established by the FIRST pitched material and respected by
+        # every generated track afterwards. None until something pitched exists.
+        self.scale_root: int | None = None
+        self.scale_name: str | None = None
         # FX: per-track assignment stacks (last = prevailing colour), bypass, and
         # per-fx-type randomized macros (position 0..1 + a fixed +/-1 direction per param).
         self.track_fx: list[list[int]] = [[] for _ in range(N_TRACKS)]
@@ -300,6 +304,8 @@ class Project:
             "fx_dir": [dict(d) for d in self.fx_dir],
             "voice_macro": list(self.voice_macro),
             "voice_dir": [dict(d) for d in self.voice_dir],
+            # the piece's scale travels with the pattern: switching pattern switches key
+            "scale": None if self.scale_name is None else [self.scale_root, self.scale_name],
         }
 
     def apply_full(self, snap: dict) -> None:
@@ -310,6 +316,11 @@ class Project:
         self.tempo = float(snap.get("tempo", self.tempo))
         self.chaos_invalidate()               # new sounds -> the old safe zone is void
         self.kit_name = snap.get("kit_name", self.kit_name)
+        sc = snap.get("scale")
+        if isinstance(sc, (list, tuple)) and len(sc) == 2:
+            self.scale_root, self.scale_name = int(sc[0]), str(sc[1])
+        else:                                  # a project saved before scales existed
+            self.scale_root, self.scale_name = None, None
         self.tracks = [Track.from_dict(td) for td in snap.get("tracks", [])][:N_TRACKS]
         while len(self.tracks) < N_TRACKS:
             self.tracks.append(Track())
@@ -935,6 +946,26 @@ class Project:
             if step and self.paste_step(track, base + i, step):
                 written.append(base + i)
         return written
+
+    # -- the project's scale ------------------------------------------------ #
+    # There is no key selector, and there should not be one: the first track to carry
+    # pitched material decides what the piece is in, and generated tracks answer to it.
+    def set_scale(self, root: int, name: str) -> tuple:
+        self.scale_root = int(root)
+        self.scale_name = str(name)
+        return (self.scale_root, self.scale_name)
+
+    def ensure_scale(self, notes=None) -> tuple:
+        """Establish the scale from what has been played, if it isn't established yet."""
+        if self.scale_name is not None:
+            return (self.scale_root, self.scale_name)
+        from . import scales
+        pool = list(notes or [])
+        if not pool:
+            ctx = scales.context(self)
+            pool = ctx["notes"]
+        root, name = scales.detect(pool)
+        return self.set_scale(root, name)
 
     def clear_pattern(self, track: int) -> None:
         tr = self.tracks[track]

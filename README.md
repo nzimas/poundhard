@@ -41,6 +41,8 @@ runtime, so **Schwung is the only thing it needs on the device**.
   - [Tracks view](#tracks-view-default)
   - [Edit view](#edit-view-per-track)
     - [Cycle frequency](#cycle-frequency)
+    - [Generating a sequence](#generating-a-sequence)
+    - [The project's scale](#the-projects-scale)
     - [Track filter](#track-filter)
     - [Per-step FX](#per-step-fx)
   - [FX view](#fx-view)
@@ -105,6 +107,9 @@ runtime, so **Schwung is the only thing it needs on the device**.
 - **Per-step locks** on pitch, velocity, pan, a **voice macro**, the **FX chain** and —
   on SAMPLE tracks — the **slice of the buffer** a step plays. Each step can carry its own
   tone, its own effects and its own fragment of the sample.
+- **Generate a part** for the open track — six rhythm algorithms (Euclidean, polyrhythmic
+  pairs, additive groupings, bursts, sieves, fractured grids) plus velocity, pan, pitch and
+  cycle dividers, in the project's own scale.
 - **A multimode filter on every track** (cutoff / resonance / LP-HP) that keeps its bass
   and its level as resonance rises — see [Track filter](#track-filter).
 - **Living steps** — mark steps (or hit **HEAT** for the whole rig) and they
@@ -417,6 +422,7 @@ the jog/knobs/cursors edit that track's settings — all in one place.
 | **Shift + step pads** | **select** steps for the per-step FX editor (selected = bright red) |
 | **Shift + bottom row** | add / remove that effect on every selected step |
 | **Shift + master knob touch + pad** | set that pad as the **last step** (polymeter, up to 16) |
+| **Shift + touch the volume knob + Track 1** | **generate a new sequence** for this track — rhythm, velocities, pans, pitches and cycle dividers (see [Generating a sequence](#generating-a-sequence)) |
 | **Jog wheel** | track pitch (re-pitches ringing voices live) |
 | **Knob 1 / 2** | track volume / pan |
 | **Knob 3** | **voice macro** — one knob sweeps every timbral param of the voice, each in a random direction; the directions re-roll whenever the track's sound is regenerated |
@@ -447,6 +453,48 @@ step — so the two rows multiply (see [Living steps](#living-steps--the-heat-bu
 The counters reset when the transport starts, so a divided step lands on the downbeat and
 then every Nth repetition after it. The divider travels with the step: it is saved with the
 pattern, carried by the [copy gestures](#edit-view-per-track), and cleared with the pattern.
+
+#### Generating a sequence
+
+**Shift + touch the volume knob + Track 1** writes the open track a new 16-step part.
+(Shift + Track 1 *without* the knob touch still re-rolls that track's **sound** — the knob
+touch is what separates "new part" from "new voice".)
+
+It is not a random grid. One of six algorithms is chosen per generation:
+
+| | |
+|---|---|
+| **euclid** | even distribution of *k* over *n*, rotated — the reliable spine |
+| **euclid pair** | two Euclids combined with AND / OR / XOR — polyrhythm folded into one bar |
+| **asymmetric** | additive grouping (3+3+2, 5+3, 7+5+4…), accents on the group heads |
+| **burst** | dense clusters separated by gaps — the rhythmic-noise shape |
+| **sieve** | a residue rule (every 3rd from offset 1, layered) — irregular against the grid but perfectly periodic |
+| **fracture** | a Euclid whose hits are displaced a step at a time — off the grid, not off the rails |
+
+Then each hit is written with material, not noise: **velocity** follows a contour with
+accents on group heads and the occasional ghost; **pan** sweeps across the bar rather than
+scattering; **cycle dividers** put some hits on every 2nd–8th repetition so the bar unfolds
+over a longer span; and pitched engines get a **scale-aware line** (below). Measured over 300
+generations: all six algorithms appear, 2–12 hits per bar (median 6), and two consecutive
+generations produced the same rhythm twice in 300.
+
+#### The project's scale
+
+There is no key selector, and there should not be one. **The first pitched material decides
+what the piece is in** — whether you enter notes by hand or generate them — and every track
+generated afterwards answers to it. The scale is detected from the notes actually played:
+the candidate root and mode that best explain them, preferring the tightest set that fits
+(so a minor triad reads as a pentatonic rather than as "chromatic"), with the most-repeated
+note weighted as the likely tonic. The palette is deliberately dark — phrygian, locrian,
+aeolian, dorian, harmonic minor, octatonic, whole tone, minor pentatonic, in sen.
+
+A later track's generated pitches are then shaped by three things: the scale, the **pitch
+classes the other tracks already use** (when two scale tones are equally close, the one
+already in play wins — that is what makes a new part sound *related* rather than merely
+legal), and the **register others occupy** (a new line leans away from a crowded one).
+Dissonance is still available: a small per-note `tension` licence lets a line step outside
+the scale on purpose — 96% of generated notes land in scale, and the rest are chosen grit
+rather than accident. The scale travels with the pattern, so switching pattern switches key.
 
 #### Track filter
 
@@ -1145,6 +1193,7 @@ command is dispatched until the engine reports ready.
 | tracks | `mute`, `solo`, `trackset` (pitch/amp/pan/rate), `voicemacro`, `voiceparam` (one named voice param — SAMPLE's window knobs), `trackfilter` (cutoff/res/type), `note`, `setlen`, `clearpat` |
 | steps | `stepset` / `steptoggle`, `steplock`, `stepmacro`, `stepfx` (per-step FX mask), `stepcycle` (fire every Nth repetition), `stepwindow` (per-step sample slice), `stepfilter` (per-step filter lock), `marklive` / `liveperiod` (living steps — the period is in PLAYS of the step, 1-8) |
 | clipboard | `stepcopy` / `steppaste`, `rowcopy` / `rowpaste` (the Copy-button gestures) |
+| generation | `stepgen` (a new sequence for one track, scale-aware) |
 | FX | `fxassign`, `fxbypass`, `fxmacro`, `fxwet` |
 | macros | `heat` / `heatpct`, `shuffle`, `chaos` / `chaosreset` |
 | patterns & projects | `savepat` / `loadpat`, `patdel`, `patcopy` / `patpaste` / `patclipclear`, `genvar`, `randpat`, `saveproj` / `loadproj`, `loadauto` |
@@ -1161,7 +1210,8 @@ webPort`, per-track `muted / active / note / vel / pan / amp / rate / length` pl
 fxNames`), and the open track's `edit` block: `steps`, the effective per-step
 `stepNote / stepVel / stepPan / stepMacro`, `living / period / ratchet / active`,
 `fx` (per-step FX masks), `cycle` (per-step dividers), `stepStart / stepEnd` (the effective per-step sample window)
-and `stepFcut / stepFres / stepFtype` (the effective per-step filter).
+and `stepFcut / stepFres / stepFtype` (the effective per-step filter), plus the project's
+`scale` (`{root, name}`, or null until something pitched establishes it).
 
 Also the pattern/project state (`patFilled / patCur / patPending / projFilled`), the
 `autoSave` flag, the HEAT / SHUFFLE / chaos macro state (`heat / heatPct / shuffle /
