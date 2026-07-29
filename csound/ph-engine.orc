@@ -112,22 +112,126 @@ opcode PhChaos, a, akk
   xout  aval
 endop
 
-; The one exit point. Every architecture ends here: shared safety (DC, limiting, the
-; amplitude envelope's tail) and the per-track channel routing live in exactly one place.
+; ---- the output bus ---------------------------------------------------------------
+; Voices ACCUMULATE here rather than writing to the sound card. A per-voice limiter cannot
+; stop a track clipping: each voice was individually under the ceiling and then four
+; overlapping hits summed straight past it. One limiter per track pair, after the sum, is
+; the only place the ceiling can actually be enforced.
+gaL[]  init 17          ; 16 tracks + the audition pair
+gaR[]  init 17
+
+; The one exit point. Every architecture ends here: DC blocking, a generous per-voice
+; safety clip (so one runaway voice cannot poison the sum), and the track routing.
 opcode PhOut, 0, aaii
   aL, aR, itrack, ichan xin
+  it   =  itrack
   aLd  dcblock2 aL
   aRd  dcblock2 aR
-  aLc  clip aLd, 0, 0.95
-  aRc  clip aRd, 0, 0.95
-       outch ichan, aLc, ichan + 1, aRc
+  aLc  clip aLd, 0, 4
+  aRc  clip aRd, 0, 4
+  gaL[it] = gaL[it] + aLc
+  gaR[it] = gaR[it] + aRc
 endop
 
-; ---- the keep-alive -------------------------------------------------------------------
-; Every note arrives over UDP as a $-prefixed score event, so the score itself holds
-; nothing but this: one instrument running for a century, purely so the performance never
-; ends. Without it Csound reaches the end of its score and exits.
+; ---- the output stage -----------------------------------------------------------------
+; Runs for a century so the performance never ends (every note arrives over UDP, so the
+; score has nothing else in it), and — because Csound runs instruments in numerical order
+; and this is the highest number — it is also where every track's accumulated sum is
+; limited and written out, after all voices for the block have contributed.
+;
+; The limiter rides gain from the block peak: transparent below the ceiling, and it only
+; ever pulls DOWN, never boosts. Attack is one control block (1.5 ms), release is slow
+; enough not to pump. A soft clip sits behind it as a backstop for the single block an
+; instantaneous transient can sneak through before the gain reacts.
+; A gain-riding limiter for one stereo pair. Transparent below the ceiling, and it only
+; ever pulls DOWN — never boosts. Attack is one control block (1.5 ms); release is slow
+; enough not to pump. The clip behind it catches the single block an instantaneous
+; transient can sneak through before the gain reacts.
+;
+; A UDO, called once per track BY NAME rather than from a loop: max_k and kheld are state,
+; and a runtime loop would reuse one instance for all 17 pairs, so a single loud track
+; would duck every other one.
+opcode PhLimit, aa, aai
+  aL, aR, iCeil xin
+  kpk   max_k abs(aL) + abs(aR), 1, 1
+  kwant =  (kpk > iCeil ? iCeil / kpk : 1)
+  kheld init 1
+  kheld =  (kwant < kheld ? kwant : kheld + (kwant - kheld) * 0.002)
+  aLo   clip aL * kheld, 0, 0.95
+  aRo   clip aR * kheld, 0, 0.95
+  xout  aLo, aRo
+endop
+
 instr 999
+  iCeil = 0.85
+  aL0, aR0  PhLimit gaL[0], gaR[0], iCeil
+  outch 3, aL0, 4, aR0
+  gaL[0] = 0
+  gaR[0] = 0
+  aL1, aR1  PhLimit gaL[1], gaR[1], iCeil
+  outch 5, aL1, 6, aR1
+  gaL[1] = 0
+  gaR[1] = 0
+  aL2, aR2  PhLimit gaL[2], gaR[2], iCeil
+  outch 7, aL2, 8, aR2
+  gaL[2] = 0
+  gaR[2] = 0
+  aL3, aR3  PhLimit gaL[3], gaR[3], iCeil
+  outch 9, aL3, 10, aR3
+  gaL[3] = 0
+  gaR[3] = 0
+  aL4, aR4  PhLimit gaL[4], gaR[4], iCeil
+  outch 11, aL4, 12, aR4
+  gaL[4] = 0
+  gaR[4] = 0
+  aL5, aR5  PhLimit gaL[5], gaR[5], iCeil
+  outch 13, aL5, 14, aR5
+  gaL[5] = 0
+  gaR[5] = 0
+  aL6, aR6  PhLimit gaL[6], gaR[6], iCeil
+  outch 15, aL6, 16, aR6
+  gaL[6] = 0
+  gaR[6] = 0
+  aL7, aR7  PhLimit gaL[7], gaR[7], iCeil
+  outch 17, aL7, 18, aR7
+  gaL[7] = 0
+  gaR[7] = 0
+  aL8, aR8  PhLimit gaL[8], gaR[8], iCeil
+  outch 19, aL8, 20, aR8
+  gaL[8] = 0
+  gaR[8] = 0
+  aL9, aR9  PhLimit gaL[9], gaR[9], iCeil
+  outch 21, aL9, 22, aR9
+  gaL[9] = 0
+  gaR[9] = 0
+  aL10, aR10  PhLimit gaL[10], gaR[10], iCeil
+  outch 23, aL10, 24, aR10
+  gaL[10] = 0
+  gaR[10] = 0
+  aL11, aR11  PhLimit gaL[11], gaR[11], iCeil
+  outch 25, aL11, 26, aR11
+  gaL[11] = 0
+  gaR[11] = 0
+  aL12, aR12  PhLimit gaL[12], gaR[12], iCeil
+  outch 27, aL12, 28, aR12
+  gaL[12] = 0
+  gaR[12] = 0
+  aL13, aR13  PhLimit gaL[13], gaR[13], iCeil
+  outch 29, aL13, 30, aR13
+  gaL[13] = 0
+  gaR[13] = 0
+  aL14, aR14  PhLimit gaL[14], gaR[14], iCeil
+  outch 31, aL14, 32, aR14
+  gaL[14] = 0
+  gaR[14] = 0
+  aL15, aR15  PhLimit gaL[15], gaR[15], iCeil
+  outch 33, aL15, 34, aR15
+  gaL[15] = 0
+  gaR[15] = 0
+  aL16, aR16  PhLimit gaL[16], gaR[16], iCeil
+  outch 35, aL16, 36, aR16
+  gaL[16] = 0
+  gaR[16] = 0
 endin
 
 ; =======================================================================================

@@ -490,6 +490,11 @@ The processing is *inside* the voices — dynamic filters, resonator banks, spec
 waveshapers, ring and cross modulation, frequency shifting, delay networks and diffusion,
 stereo imaging, random and chaotic modulation — rather than bolted on afterwards.
 
+Every track's voices sum onto a bus and pass a **limiter** before they leave Csound. A
+per-voice ceiling cannot stop a track clipping — each voice was individually under the
+limit and four overlapping hits summed straight past it. The limiter rides gain from the
+block peak, is transparent below the ceiling, and only ever pulls down.
+
 **How it is plumbed.** Csound runs as a separate JACK client and writes one stereo pair per
 track into supernova's inputs; an SC voice carries that pair onto the track bus. So a
 Csound track is an ordinary PoundHard track: the per-track filter, the 8-slot FX chain, the
@@ -500,7 +505,12 @@ silence — it is genuinely inside the signal path, not mixed in beside it.
 Notes fire as `$`-prefixed score events over Csound's UDP port. supernova boots with 36
 input channels: 1-2 are the microphone, 3-34 are the 16 stereo returns, and 35-36 are the
 audition pair the palette pad plays through — the engine has to be able to make a sound on
-a track that does not exist yet. The runtime is a
+a track that does not exist yet.
+
+Csound's realtime thread runs at priority 68, above supernova's DSP threads (65) and below
+jackd (70), pinned to core 3. It feeds supernova within the same JACK cycle, so it has to
+finish first; at equal priority and free to migrate across all four cores it competed with
+the very threads waiting on it, which is where the XRuns came from. The runtime is a
 second bundle (`move/build-csound.sh`) — the Csound previously on the device was an offline
 build with no JACK module, able to render the SAMPLE mangler's files and nothing else.
 

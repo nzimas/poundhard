@@ -867,8 +867,10 @@ SynthDef(\phCsound, { |out = 16, in = 2, amp = 0.85, pan = 0.0, gate = 1|
 	// track t's Csound pair is 2 + 2t. Lagged pan/amp — these change per hit and a step
 	// lock must not click.
 	var sig = SoundIn.ar([in, in + 1]);
-	var a = Lag.kr(amp, 0.008);
-	var p = Lag.kr(pan.clip(-1, 1), 0.008);
+	// 50 ms, not 8: this signal never stops, so a gain or pan change is heard on top of
+	// whatever is already ringing. Slow enough to be a move rather than a step.
+	var a = Lag.kr(amp, 0.05);
+	var p = Lag.kr(pan.clip(-1, 1), 0.05);
 	var wide = [sig[0] * (1 - p.max(0)), sig[1] * (1 + p.min(0))];
 	Out.ar(out, ~killbad.(wide * a));
 }).add;

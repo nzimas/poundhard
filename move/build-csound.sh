@@ -97,6 +97,52 @@ CSRC
 gcc -O2 -o /out/bin/ph-jackconnect /tmp/phjc.c -ljack
 echo "--- ph-jackconnect built"
 
+# ph-rtsched: place a process's REALTIME threads. Csound and supernova share the JACK
+# cycle and Csound feeds supernova, so Csound must outrank it — but JACK hands every
+# client the same priority, and neither chrt nor taskset may touch a SCHED_FIFO thread
+# without CAP_SYS_NICE, which the `ableton` user running the stack does not have. A tiny
+# helper carrying that capability is the same answer ph-jackconnect is for jack_connect.
+cat > /tmp/phrt.c <<'CSRC'
+/* ph-rtsched <pid> <priority> <cpu>  — retune a process's realtime threads.
+   cpu < 0 leaves affinity alone. Non-RT threads are ignored. */
+#define _GNU_SOURCE
+#include <sched.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <dirent.h>
+int main(int argc, char **argv) {
+    if (argc != 4) { fprintf(stderr, "usage: %s pid prio cpu\n", argv[0]); return 2; }
+    int prio = atoi(argv[2]), cpu = atoi(argv[3]), done = 0, bad = 0;
+    char dir[128];
+    snprintf(dir, sizeof dir, "/proc/%s/task", argv[1]);
+    DIR *d = opendir(dir);
+    if (!d) { perror("opendir"); return 1; }
+    struct dirent *e;
+    while ((e = readdir(d))) {
+        if (e->d_name[0] == '.') continue;
+        int tid = atoi(e->d_name);
+        if (tid <= 0) continue;
+        if (sched_getscheduler(tid) != SCHED_FIFO) continue;   /* only the RT ones */
+        struct sched_param sp; memset(&sp, 0, sizeof sp); sp.sched_priority = prio;
+        if (sched_setscheduler(tid, SCHED_FIFO, &sp)) { perror("setscheduler"); bad++; continue; }
+        if (cpu >= 0) {
+            cpu_set_t set; CPU_ZERO(&set); CPU_SET(cpu, &set);
+            if (sched_setaffinity(tid, sizeof set, &set)) { perror("setaffinity"); bad++; continue; }
+        }
+        printf("tid %d -> SCHED_FIFO prio %d", tid, prio);
+        if (cpu >= 0) printf(" cpu %d", cpu);
+        printf("\n");
+        done++;
+    }
+    closedir(d);
+    if (!done) fprintf(stderr, "no realtime threads found\n");
+    return (done && !bad) ? 0 : 1;
+}
+CSRC
+gcc -O2 -o /out/bin/ph-rtsched /tmp/phrt.c
+echo "--- ph-rtsched built"
+
 # RPATH. Csound carries RT capabilities on the device (it joins the realtime graph beside
 # jackd and supernova), and glibc runs a capability-carrying binary in secure-execution
 # mode where LD_LIBRARY_PATH is DISCARDED. Without a baked-in path Csound cannot find
@@ -126,7 +172,7 @@ mkdir -p "$OUT"
 docker run --rm --platform linux/arm64 \
   -v "$WORK":/w -v "$OUT":/out ubuntu:22.04 bash /w/build.sh
 
-chmod +x "$OUT/bin/csound" "$OUT/bin/ph-jackconnect"
+chmod +x "$OUT/bin/csound" "$OUT/bin/ph-jackconnect" "$OUT/bin/ph-rtsched"
 # tracked as a tarball, like the SC runtime beside it — not 58 loose binaries
 ( cd "$ROOT/move/bundle" && tar czf poundhard-csound.tar.gz csound )
 echo "-> bundle at $OUT ($(du -sh "$OUT" | cut -f1)), tarball $(du -h "$ROOT/move/bundle/poundhard-csound.tar.gz" | cut -f1)"

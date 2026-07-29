@@ -86,6 +86,20 @@ else
         || echo "[csound] WARNING: engine 20 will be silent — connections failed"
 fi
 
-# Keep Csound off the display core (3) and out of the way of the SC DSP threads.
-taskset -pc 0-2 "$CSPID" >/dev/null 2>&1 || true
+# ---- realtime placement -----------------------------------------------------------
+# Csound and supernova are in the SAME JACK cycle, and Csound feeds supernova: its audio
+# has to be written before supernova's DSP threads read it. It came up at priority 65 —
+# exactly the DSP threads' priority — and unpinned across all four cores, so it competed
+# with the very threads waiting on it and migrated between them mid-callback. That is
+# where the XRuns came from.
+#
+# Priority 68 puts it above the DSP threads (65) and below jackd (70), which is the order
+# the graph actually needs. Affinity goes on the RT THREAD, not the process: setting it on
+# the pid before the callback thread exists does not stick (the same gotcha run-engine.sh
+# documents for supernova). Core 3 is where it already ran and is the least loaded — the
+# DSP threads own cores 0-2, one each.
+# chrt and taskset both refuse to touch a SCHED_FIFO thread without CAP_SYS_NICE, and the
+# stack runs as `ableton`. ph-rtsched carries that capability (see build-csound.sh).
+sleep 1
+"$CS/bin/ph-rtsched" "$CSPID" 68 3 || echo "[csound] WARNING: could not place RT threads"
 echo "[csound] up"

@@ -278,6 +278,9 @@
 // over UDP per hit. Nothing spawns per hit on this side — the audio is already flowing.
 ~csAddr  = NetAddr("127.0.0.1", 11000);        // Csound's UDP server (--port=11000)
 ~csVoice = Array.fill(~nTracks, { nil });
+// what the carrier was last told, so a hit that changes nothing sets nothing
+~csPan   = Array.fill(~nTracks, { nil });
+~csAmp   = Array.fill(~nTracks, { nil });
 ~csEnsure = { |t|
 	((~ready == true) and: { ~csVoice[t].isNil }).if {
 		var syn = Synth.tail(~gTrackVoices[t] ? ~gVoices, \phCsound, [
@@ -292,7 +295,8 @@
 	};
 	~csVoice[t];
 };
-~csFree = { |t| ~csVoice[t].notNil.if { ~csVoice[t].free; ~csVoice[t] = nil } };
+~csFree = { |t| ~csVoice[t].notNil.if { ~csVoice[t].free; ~csVoice[t] = nil };
+	~csPan[t] = nil; ~csAmp[t] = nil };
 // AUDITION. The palette pad must make a sound on a track that does not exist yet, so the
 // engine keeps a 17th stereo pair ("track 16", supernova inputs 35-36) purely for preview,
 // carried to the MASTER bus rather than a track bus. Without this, auditioning the Csound
@@ -414,8 +418,22 @@
 		(def == \phCsound).if {
 			var voice = ~csEnsure.(t);
 			voice.notNil.if {
-				voice.set(\amp, (merged[\amp] ? 0.85) * vv, \pan, (merged[\pan] ? 0.0),
-					\out, (merged[\out] ? ~trackBus[t].index));
+				// The carrier is a CONTINUOUS stream, not a per-hit voice, so anything set on
+				// it here is heard as a step in the middle of whatever is already sounding —
+				// including the tail of a reverb fed from it. That was the audible thump.
+				//   * velocity is Csound's job (p6). Multiplying the carrier by it as well
+				//     both double-applied it and gain-stepped the stream on every hit.
+				//   * a per-step living-FX send used to move the carrier's \out from the
+				//     track bus to the living bus mid-stream, which cut the reverb's input
+				//     dead. A continuous source cannot be re-routed per hit; it stays put.
+				// Only pan follows the step, and only when it actually changes — the synth
+				// lags it, so it reads as a pan move rather than a click.
+				var wantPan = (merged[\pan] ? 0.0);
+				var wantAmp = (merged[\amp] ? 0.85);
+				((~csPan[t] != wantPan) or: { ~csAmp[t] != wantAmp }).if {
+					voice.set(\pan, wantPan, \amp, wantAmp);
+					~csPan[t] = wantPan; ~csAmp[t] = wantAmp;
+				};
 				~csHit.(t, nn, vv, merged, (merged[\dur] ? 0.9));
 			};
 		};
@@ -904,7 +922,7 @@
 	// forget them here so the next hit rebuilds (and re-parses) them.
 	OSCdef(\phPanic, { |m|
 		~stopSeq.value; ~gVoices.notNil.if { ~gVoices.deepFree }; ~trackVoices.do { |l| l.clear };
-		~nTracks.do { |t| ~bbVoice[t] = nil; ~csVoice[t] = nil }; ~bbPrevVoice = nil; ~bbPrevExpr = nil;
+		~nTracks.do { |t| ~bbVoice[t] = nil; ~csVoice[t] = nil; ~csPan[t] = nil; ~csAmp[t] = nil }; ~bbPrevVoice = nil; ~bbPrevExpr = nil;
 	}, '/ph/panic'),
 	OSCdef(\phRecStart, { |m| ~recStart.value(m[1].asString); }, '/ph/recstart'),
 	OSCdef(\phRecStop,  { |m| ~recStop.value; }, '/ph/recstop'),

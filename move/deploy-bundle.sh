@@ -65,13 +65,15 @@ if [ -f "$CSBUNDLE" ]; then
     rm -rf $DEST/csound && mv $DEST/csound.new/csound $DEST/csound && rm -rf $DEST/csound.new
     mkdir -p $DEST/csound/orc
     chown -R ableton:users $DEST/csound
-    chmod +x $DEST/csound/bin/csound $DEST/csound/bin/ph-jackconnect
+    chmod +x $DEST/csound/bin/csound $DEST/csound/bin/ph-jackconnect $DEST/csound/bin/ph-rtsched
     # Csound joins the realtime graph beside jackd and supernova and needs the same
     # privileges, or its JACK callback runs at normal priority and XRuns the whole graph.
     # Csound's binaries are RPATH'd to this short symlink, because a capability-carrying
     # binary never sees LD_LIBRARY_PATH (see build-csound.sh).
     ln -sfn $DEST/csound/lib /data/UserData/pcslib
     setcap cap_ipc_lock,cap_sys_nice=eip $DEST/csound/bin/csound
+    # the helper that re-places Csound's RT threads needs the same privilege to do it
+    setcap cap_sys_nice=eip $DEST/csound/bin/ph-rtsched
     getcap $DEST/csound/bin/csound
   "
 else
