@@ -461,7 +461,8 @@ the jog/knobs/cursors edit that track's settings — all in one place.
 | **Knob 6 / 7 / 8** *(SAMPLE tracks)* | the filter, shifted by two so the window keeps 4 and 5 |
 | **Hold a step + knob 4 / 5** *(SAMPLE)* | that **step's own** slice of the buffer — one step plays the attack, the next the tail. Unlocked steps follow the track |
 | **Hold a step + the filter knobs** | the filter **for that step only** — same knobs as the track filter (4/5/6, or 6/7/8 on SAMPLE). Unlocked steps play the track's filter |
-| **Hold a LIVING step + row 4** | that step's **living interval** — how often it transforms, counted in **its own plays** (pad 1 = every play … pad 8 = every eighth). Row 4 keeps showing the FX chain for a step that isn't living |
+| **Hold a LIVING step + row 4** | that step's **living interval** — how often it transforms, counted in **its own plays** (pad 1 = every play … pad 8 = every eighth) |
+| **Hold a step WITH FX + row 4** | that step's **effect interval** — how often its effects are applied, counted in its own plays, exactly as above. A living step keeps row 4 for its transform |
 | **Left / Right cursor** | clock rate / division: `/8 /4 /2 1 x2 x4 x8` (bipolar readout) |
 | **Track 1 button** | back to Tracks view |
 
@@ -477,8 +478,11 @@ dividers take 8 repetitions before they repeat themselves exactly, so the part e
 without the step count — or your reading of the grid — ever growing. Tracks are capped at
 **16 steps**; this is how you get past that without getting lost.
 
-For a **living step**, row 4 then sets how often it *transforms*, counted in plays of that
-step — so the two rows multiply (see [Living steps](#living-steps--the-heat-button)).
+Row 4 then sets how often the step's **special behaviour** happens, counted in plays of
+that step — so the two rows multiply. It means the same thing whichever behaviour the step
+has: for a **living step** it is how often it *transforms*, and for a step carrying
+**effects** it is how often those effects are *applied* (see
+[Per-step FX](#per-step-fx)). One model, one gesture, one row.
 
 The counters reset when the transport starts, so a divided step lands on the downbeat and
 then every Nth repetition after it. The divider travels with the step: it is saved with the
@@ -701,9 +705,26 @@ carries it; tapping it turns it **on everywhere** if it was missing anywhere, el
 everywhere**, so mixed selections resolve predictably. Releasing Shift clears the
 selection. Steps that carry FX stay marked in **dark red**.
 
+**The effects need not fire every time the step does.** Hold a step that carries FX and
+row 4 becomes its **effect interval**, counted in plays of that step — the same row, the
+same gesture and the same meaning as a living step's transform interval. Row 3 says how
+often the step plays; row 4 says how often it goes wet; the two multiply:
+
+> **Effect interval = step playback interval × effect cycle interval**
+
+A step on **row 3 = 2** with **row 4 = 3** plays every second pattern cycle and goes wet on
+every third of those plays — dry, dry, wet, dry, dry, wet — so the effects land every
+**sixth** pattern cycle. Verified on the device with that exact setting: the step played
+every 2 s and the effects landed every 6 s, on plays 2, 5, 8 and 11.
+
+Like the living interval, the phase follows the running cycle counter rather than resetting
+when you dial the interval in, so the first wet play after you set it can come sooner than
+the full interval; the spacing from then on is exact.
+
 A step's lock is a mask over the eight insert slots and **overrides the track's own FX
 assignment for that hit only** — a step can switch effects on that the track doesn't have,
-or mute ones it does. An effect that only a step uses is instantiated in the track's chain
+or mute ones it does. On a play where the effect interval says *dry*, the lock simply does
+not apply and the step falls back to the track's own chain. An effect that only a step uses is instantiated in the track's chain
 **disabled**, and opened just for the locked hits, so nothing is spent on it otherwise.
 Steps without a lock restore the track's normal chain, so a lock never leaks into the
 following hits.
@@ -1410,6 +1431,8 @@ carries nothing into the next step drawn there) ·
 `/ph/stepratchet t cell k` · `/ph/stepsend t cell on` · `/ph/stepfx t cell mask`
 (per-step FX: a bitmask over the 8 insert slots, **-1 = no lock**) ·
 `/ph/stepcycle t cell n` (fire on every **n**-th repetition of the pattern, 1-8) ·
+`/ph/stepfxcycle t cell n` (apply the step's FX mask on every **n**-th PLAY of the step,
+1-8 — multiplies with `/ph/stepcycle` the way a living step's period does) ·
 `/ph/stepsmp t cell start end` (per-step SAMPLE window, **-1 = inherit the track's**) ·
 `/ph/filter t cutoff res type` (per-track multimode filter, type 0=LP 1=HP) ·
 `/ph/stepfilt t cell cutoff res type` (per-step filter lock, **cutoff < 0 = follow the track**) ·

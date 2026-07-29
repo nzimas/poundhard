@@ -59,6 +59,10 @@
 // 8 = once every eight). ~cycle[t] counts how many times the track has come round, so a
 // short pattern can evolve over a span far longer than its own length.
 ~stepCycle = Array.fill(~nTracks, { Array.fill(~maxSteps, { 1 }) });
+// PER-STEP FX CYCLE: how often a step's FX mask is APPLIED, counted in PLAYS of the step.
+// 1 = every play. It multiplies with ~stepCycle exactly as a living step's period does, so
+// a step on every 2nd repetition with an FX interval of 3 goes wet every 6th repetition.
+~stepFxCycle = Array.fill(~nTracks, { Array.fill(~maxSteps, { 1 }) });
 // per-step SAMPLE window (nil = inherit the track's own start/end)
 ~stepStart = Array.fill(~nTracks, { Array.fill(~maxSteps, { nil }) });
 ~stepEnd   = Array.fill(~nTracks, { Array.fill(~maxSteps, { nil }) });
@@ -389,6 +393,18 @@
 		block { |brk|
 			var lock;
 			lock = ~stepFx[t][step] ? -1;
+			// FX CYCLE: the mask does not have to apply on every play of the step. The step
+			// only fires when ~cycle is divisible by its own divider, so the number of times
+			// it has PLAYED is that division — and the mask applies on the last play of each
+			// group of `fc`, which is where a living step's transform lands too.
+			(lock >= 0).if {
+				var fc = (~stepFxCycle[t][step] ? 1).max(1);
+				(fc > 1).if {
+					var sc = (~stepCycle[t][step] ? 1).max(1);
+					var plays = (~cycle[t] div: sc);
+					((plays % fc) != (fc - 1)).if { lock = -1 };   // not this time: play dry
+				};
+			};
 			8.do { |k|
 				var want = (lock >= 0).if({ (lock >> k) & 1 }, { ~assigned[t][k] });
 				((~fxEnable[t][k] != want) and: { ~fxSynth[t][k].notNil }).if {
@@ -818,6 +834,11 @@
 	// nothing behind, and pushing the track's current defaults into the slot instead would
 	// leave a real lock there that merely happens to match — it would stop following the
 	// track the moment its note or filter changed.
+	OSCdef(\phStepFxCycle, { |m|
+		var t = m[1].asInteger.clip(0, ~nTracks - 1);
+		var c = m[2].asInteger.clip(0, ~maxSteps - 1);
+		~stepFxCycle[t][c] = m[3].asInteger.clip(1, 8);
+	}, '/ph/stepfxcycle'),
 	OSCdef(\phClearCell, { |m|
 		var t = m[1].asInteger.clip(0, ~nTracks - 1);
 		var c = m[2].asInteger.clip(0, ~maxSteps - 1);
@@ -825,7 +846,7 @@
 		~stepNote[t][c] = nil; ~stepVel[t][c] = nil; ~stepPan[t][c] = nil;
 		~stepMacro[t][c] = nil; ~stepRatchet[t][c] = 1; ~stepSend[t][c] = 0;
 		~stepStart[t][c] = nil; ~stepEnd[t][c] = nil; ~stepCycle[t][c] = 1;
-		~stepFilt[t][c] = nil; ~stepFx[t][c] = -1;
+		~stepFilt[t][c] = nil; ~stepFx[t][c] = -1; ~stepFxCycle[t][c] = 1;
 		(~stepFxNeed.(t) != before).if { ~rebuildFx.(t) };
 	}, '/ph/clearcell'),
 	OSCdef(\phClearLocks, { |m|                     // wipe all per-step locks for a track (pattern load)
@@ -834,7 +855,7 @@
 			~stepNote[t][c] = nil; ~stepVel[t][c] = nil; ~stepPan[t][c] = nil;
 			~stepMacro[t][c] = nil; ~stepRatchet[t][c] = 1; ~stepSend[t][c] = 0;
 			~stepStart[t][c] = nil; ~stepEnd[t][c] = nil; ~stepCycle[t][c] = 1;
-			~stepFilt[t][c] = nil; ~stepFx[t][c] = -1;
+			~stepFilt[t][c] = nil; ~stepFx[t][c] = -1; ~stepFxCycle[t][c] = 1;
 		};
 		~rebuildFx.(t);                             // the per-step FX locks just went away
 	}, '/ph/clearlocks'),

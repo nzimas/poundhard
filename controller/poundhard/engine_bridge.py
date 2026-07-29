@@ -160,6 +160,7 @@ class EngineBridge:
     def smpassign(self, t, path):      self.send("/ph/smpassign", int(t), str(path))
     def smpcopy(self, src, dst):       self.send("/ph/smpcopy", int(src), int(dst))
     def clearcell(self, t, cell):      self.send("/ph/clearcell", int(t), int(cell))
+    def stepfxcycle(self, t, cell, n): self.send("/ph/stepfxcycle", int(t), int(cell), int(n))
     def steplock(self, t, cell, note, vel, pan):
         self.send("/ph/steplock", int(t), int(cell), float(note), float(vel), float(pan))
     def stepmacro(self, t, cell, pairs):

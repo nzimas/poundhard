@@ -64,6 +64,7 @@ const EDIT_CYC0 = 16;       /* row 3: the cycle-frequency selector, shown only w
 const CYC_ON = 21;          /* the divider this step uses */
 const CYC_OFF = 116;        /* the other choices, dim */
 const STEPFX_ON = 5;        /* red: an FX locked onto the selected step(s) */
+const STEPFX_DIM = 68;      /* dark red: the unselected slots of the FX-interval row */
 const STEPFX_SEL = 1;       /* bright red: a step currently selected under Shift */
 const STEPFX_MARK = 68;     /* dark red: a step that carries FX but isn't selected */
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -186,6 +187,7 @@ let stepPan = new Array(N_STEPS).fill(0.0);
 let stepMacro = new Array(N_STEPS).fill(0.5);   /* per-step voice-macro lock position */
 let editLiving = new Array(N_STEPS).fill(false); /* which steps are LIVING (self-transforming) */
 let editPeriod = new Array(N_STEPS).fill(4);     /* per-step transform period (cycles) */
+let editFxCycle = new Array(N_STEPS).fill(1);    /* how often a step's FX are applied, in plays */
 let recHeld = false;                             /* Rec button held -> pad marks a living step */
 /* HEAT macro (default view, bottom-row first pad): short press toggles; when on, ~heatPct
  * of every sequenced track's hits become living. Hold the pad + knob1 sets heatPct. */
@@ -489,6 +491,12 @@ function renderLEDs() {
                  * step (pink — the living colour — so it can't be read as the FX row) */
                 const every = editPeriod[stepEditCell] || 1;
                 color = ((c - EDIT_FX0) + 1 === every) ? LIVE_ON : LIVE_DIM;
+            } else if (c >= EDIT_FX0 && stepEditCell >= 0 && editFx[stepEditCell] >= 0
+                       && !stepSel.length) {
+                /* a step WITH FX is held: row 4 is how often those FX apply, in plays of
+                 * the step — the red-spectrum equivalent of the living interval above */
+                const every = editFxCycle[stepEditCell] || 1;
+                color = ((c - EDIT_FX0) + 1 === every) ? STEPFX_ON : STEPFX_DIM;
             } else if (c >= EDIT_FX0) {                            /* row 4: per-step FX */
                 let k = c - EDIT_FX0;
                 /* while steps are selected, show which FX those steps carry (red); the
@@ -560,18 +568,22 @@ function drawStepParam() {
     else if (knobShow === 'sfres') drawParamBig('STEP RESO', '' + Math.round(stepFres[c] * 100), 'uni', clampf(stepFres[c], 0, 1));
     else if (knobShow === 'sftype') drawParamBig('STEP FILTER', stepFtype[c] ? 'HP' : 'LP', 'uni', stepFtype[c] ? 1 : 0);
     else {
-        var cyc = editCycle[c] || 1, lp = editPeriod[c] || 1;
+        var cyc = editCycle[c] || 1, lp = editPeriod[c] || 1, fc = editFxCycle[c] || 1;
         clear_screen();
         print(0, 2, 'STEP ' + (c + 1) + (editLiving[c] ? ' *LIVE*' : ''), 2);
         /* the cycle divider is the headline when it isn't 1 — it changes WHETHER the step
          * plays this time round, which matters more than any of its locks. For a living
          * step, say how often it transforms too: row 4 counts ITS PLAYS, not bars. */
         print(0, 30, editLiving[c] ? ('1 IN ' + cyc + '  LIVE 1 IN ' + lp)
+                    /* a step whose FX don't fire every play: say BOTH intervals, the same
+                     * way the living case does — the product is what you actually hear */
+                    : (editFx[c] >= 0 && fc > 1) ? ('1 IN ' + cyc + '  FX 1 IN ' + fc)
                     : (cyc > 1) ? ('PLAYS 1 IN ' + cyc)
                     : (noteName(stepNote[c]) + ' v' + velMidi(stepVel[c]) + ' ' + panLbl(stepPan[c])), 2);
         print(0, 54, editLiving[c] ? 'row3 = plays   row4 = live'
+                    : (editFx[c] >= 0 ? 'row3 = plays   row4 = fx every'
                     : ((editType === 'SAMPLE') ? 'row3 cyc  k4/5 win  k6/7/8 filt'
-                                               : 'row3 cyc   k4/5/6 filter'), 1);
+                                               : 'row3 cyc   k4/5/6 filter')), 1);
     }
 }
 function hzLbl(f) { return (f >= 1000) ? ((f / 1000).toFixed(f >= 10000 ? 0 : 1) + 'k') : ('' + Math.round(f)); }
@@ -845,6 +857,7 @@ function readStatus() {
         if (s.edit.stepStart) stepStart = s.edit.stepStart;
         if (s.edit.stepEnd) stepEnd = s.edit.stepEnd;
         if (s.edit.period) editPeriod = s.edit.period;
+        if (s.edit.fxCycle) editFxCycle = s.edit.fxCycle;
     }
     var seSig = (editTrack >= 0 && !fxView) ? ('E' + stepSel.join(',') + '|' + editFx.join(',') + (lenArm ? '!' : '')) : '';
     var fxSig = fxView ? ('X' + fxHeld + '|' + fxTop.join('.') + '|' + fxBypass.map(function (b) { return b ? '1' : '0'; }).join('') + '|' + fxOn.map(function (a) { return a.join(','); }).join(';')) : '';
@@ -888,6 +901,7 @@ globalThis.init = function () {
     trackLen = new Array(N_TRACKS).fill(EDIT_STEPS);
     editSteps = new Array(N_STEPS).fill(0); editName = ''; editType = '';
     editLiving = new Array(N_STEPS).fill(false); editPeriod = new Array(N_STEPS).fill(4); recHeld = false;
+    editFxCycle = new Array(N_STEPS).fill(1);
     editFx = new Array(N_STEPS).fill(-1); editCycle = new Array(N_STEPS).fill(1);
     stepSel = []; lenArm = false;
     stepNote = new Array(N_STEPS).fill(60); stepVel = new Array(N_STEPS).fill(1.0); stepPan = new Array(N_STEPS).fill(0.0);
@@ -1283,6 +1297,20 @@ globalThis.onMidiMessageInternal = function (data) {
             editPeriod[stepEditCell] = every;                      /* optimistic */
             sendCmd('liveperiod', -1, { p: { track: editTrack, cell: stepEditCell, x: every } });
             showAction(every === 1 ? 'LIVE EVERY PLAY' : ('LIVE 1 IN ' + every));
+            ledDirty = true; screenDirty = true;
+            return;
+        }
+        /* Row 4 while a step WITH FX is held = how often those FX are applied, counted in
+         * PLAYS of the step, so it multiplies with row 3 exactly as the living interval
+         * does. Same gesture, same row, same meaning — a step can play dry most times and
+         * wet occasionally. (A living step keeps row 4 for its transform: that case is
+         * handled above and wins, since a step can be both.) */
+        if (stepEditCell >= 0 && !editLiving[stepEditCell] && editFx[stepEditCell] >= 0
+                && cell >= EDIT_FX0) {
+            const every = (cell - EDIT_FX0) + 1;
+            editFxCycle[stepEditCell] = every;                     /* optimistic */
+            sendCmd('stepfxcycle', -1, { p: { track: editTrack, cell: stepEditCell, x: every } });
+            showAction(every === 1 ? 'FX EVERY PLAY' : ('FX 1 IN ' + every));
             ledDirty = true; screenDirty = true;
             return;
         }

@@ -211,6 +211,7 @@ class Controller:
                     or tr.step_pan[cell] is not None):
                 self.bridge.steplock(t, cell, tr.eff_note(cell), tr.eff_vel(cell), tr.eff_pan(cell))
             self.bridge.stepfx(t, cell, tr.step_fx[cell])
+            self.bridge.stepfxcycle(t, cell, tr.step_fxcycle[cell])
             self.bridge.stepcycle(t, cell, tr.step_cycle[cell])
             self.bridge.stepsmp(t, cell,
                                 -1.0 if tr.step_start[cell] is None else tr.step_start[cell],
@@ -608,7 +609,8 @@ class Controller:
         "assign", "randtrack", "mute", "solo", "stepset", "steptoggle", "clearpat", "stepfx",
         "setlen", "savepat", "loadpat", "patdel", "patpaste", "genvar", "randpat",
         "fxassign", "fxbypass", "loadproj", "loadauto", "marklive",
-        "steppaste", "rowpaste", "stepcycle", "trackfilter", "stepwindow", "stepfilter",
+        "steppaste", "rowpaste", "stepcycle", "stepfxcycle", "trackfilter", "stepwindow",
+        "stepfilter",
         "stepgen", "trackcopy",
     })
     # Commands that change no persisted state — they don't mark the project dirty.
@@ -683,6 +685,11 @@ class Controller:
                                          st.tracks[t].eff_vel(cell), st.tracks[t].eff_pan(cell))
                     self.bridge.stepmacro(t, cell, [])
                     self.bridge.stepratchet(t, cell, 1)
+        elif cmd == "stepfxcycle":             # row 4 on a held step WITH fx: how often it goes wet
+            t = int(p.get("track", st.edit_track))
+            cell = int(p.get("cell", -1))
+            if 0 <= t < N_TRACKS and 0 <= cell < N_STEPS:
+                self.bridge.stepfxcycle(t, cell, st.set_step_fxcycle(t, cell, int(p.get("x", 1))))
         elif cmd == "liveperiod":              # knob 4 while holding a living step: X cycles
             t = int(p.get("track", st.edit_track))
             cell = int(p.get("cell", -1))
@@ -1083,6 +1090,8 @@ class Controller:
                 # and which are firing (transformed) this cycle (transient model)
                 "living": list(et.step_living),
                 "fx": list(et.step_fx),        # per-step FX mask (-1 = no lock)
+                "fxCycle": list(et.step_fxcycle),  # how often that mask is applied, in plays
+
                 "cycle": list(et.step_cycle),  # fire every Nth pattern repetition
                 # effective per-step SAMPLE window (the step's own lock, else the track's)
                 # effective per-step filter (its own lock, else the track's)

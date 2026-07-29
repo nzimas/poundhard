@@ -127,6 +127,10 @@ class Track:
     # PER-STEP FX: bitmask over the 8 insert slots, -1 = no lock (use the track's chain).
     # Performance data like the other step locks, so it survives kit regeneration.
     step_fx: list = field(default_factory=lambda: [-1] * N_STEPS)
+    # PER-STEP FX CYCLE: how often the step's FX mask is APPLIED, counted in plays of the
+    # step — so it multiplies with step_cycle exactly like a living step's period does.
+    # 1 = every play. A step can therefore play dry most times and wet occasionally.
+    step_fxcycle: list = field(default_factory=lambda: [1] * N_STEPS)
     # CYCLE FREQUENCY: how often a step is allowed to fire, in pattern repetitions.
     # 1 = every cycle (the default), 4 = once every four times the pattern comes round.
     # It is what lets a 16-step pattern evolve over a much longer span than 16 steps.
@@ -192,6 +196,7 @@ class Track:
                 "transpose": self.transpose,
                 "step_ratchet": list(self.step_ratchet), "step_send": list(self.step_send),
                 "step_fx": list(self.step_fx),
+                "step_fxcycle": list(self.step_fxcycle),
                 "step_cycle": list(self.step_cycle),
                 "step_start": list(self.step_start),
                 "step_filt": [None if v is None else list(v) for v in self.step_filt],
@@ -224,6 +229,8 @@ class Track:
         t.step_ratchet = ([int(x) for x in d.get("step_ratchet", [])][:N_STEPS] + [1] * N_STEPS)[:N_STEPS]
         t.step_send = ([int(x) for x in d.get("step_send", [])][:N_STEPS] + [0] * N_STEPS)[:N_STEPS]
         t.step_fx = ([int(x) for x in d.get("step_fx", [])][:N_STEPS] + [-1] * N_STEPS)[:N_STEPS]
+        t.step_fxcycle = ([max(1, min(8, int(x))) for x in d.get("step_fxcycle", [])][:N_STEPS]
+                          + [1] * N_STEPS)[:N_STEPS]
         t.step_cycle = ([max(1, min(8, int(x))) for x in d.get("step_cycle", [])][:N_STEPS]
                         + [1] * N_STEPS)[:N_STEPS]
         raw = d.get("step_filt", [])
@@ -653,6 +660,14 @@ class Project:
             tr.step_lbase[cell] = None
             tr.step_active[cell] = False
         return tr.step_living[cell]
+
+    def set_step_fxcycle(self, track: int, cell: int, every: int) -> int:
+        """How often a step's FX mask is applied, in PLAYS OF THIS STEP (1-8, the row-4
+        pads) — the same shape as set_step_period, and it multiplies with the step's own
+        playback divider the same way. A step on every 2nd cycle with an FX interval of 3
+        goes wet every 6th cycle."""
+        self.tracks[track].step_fxcycle[cell] = max(1, min(8, int(every)))
+        return self.tracks[track].step_fxcycle[cell]
 
     def set_step_period(self, track: int, cell: int, period: int) -> int:
         """How often the living transform fires, counted in PLAYS OF THIS STEP (1-8, the
