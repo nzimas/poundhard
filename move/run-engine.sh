@@ -32,6 +32,9 @@ export PH_THREADS="${PH_THREADS:-3}"
 # Engine config (44.1k = the Move shadow rate; mono-in/stereo-out).
 export PH_SR=44100
 export PH_CHANNELS=2
+# INPUTS: 2 (microphone) + 32 (the CSOUND engine's 16 stereo track returns over JACK).
+# The extra ports cost nothing when no track uses the engine.
+export PH_INPUTS=34
 export PH_BLOCK=128                 # match the shadow JACK period (128)
 # Telemetry / handshake target = the local headless controller.
 export CONTROLLER_HOST=127.0.0.1
@@ -77,3 +80,10 @@ for p in $(pgrep -f "$PH/bin/sclang"); do taskset -pc 0 "$p" >/dev/null 2>&1; do
 for p in $(pgrep -f "jackd -R") $(pgrep -f "$PH/bin/scsynth") $(pgrep -f "$PH/bin/supernova"); do
     echo "[engine] $(cat /proc/$p/comm 2>/dev/null) sched: $(chrt -p $p 2>/dev/null | tr '\n' ' ')"
 done
+
+# CSOUND (engine 20) — its own JACK client, feeding supernova's inputs 3-34. Started AFTER
+# the server so its ports exist to connect to. A failure here is not fatal: every other
+# engine keeps working, only Csound tracks go silent.
+if [ -x "$PH/run-csound.sh" ]; then
+    "$PH/run-csound.sh" || echo "[engine] csound engine unavailable (see logs/csound.log)"
+fi

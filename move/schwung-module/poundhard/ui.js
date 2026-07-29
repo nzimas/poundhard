@@ -99,6 +99,7 @@ const SHUF_ON = 14, SHUF_ALT = 20, SHUF_IDLE = 87;  /* cyan pulse (on) / dim tea
  * DRUM=yellow, RINGS=cyan, BUCHLOID=magenta, FM7=green, MOLLY=blue. A track with
  * events PULSES bright<->dim at its sequence pace; muted/empty tracks sit steady dim. */
 const TYPE_COL = {
+    CSOUND:   [29, 111],  /* Turquoise / DeepTeal — the Csound realtime macro-synth */
     DRUM:     [7, 74],    /* VividYellow / VeryDarkYellow */
     RINGS:    [14, 87],   /* Cyan / DarkTeal */
     BUCHLOID: [21, 107],  /* HotMagenta / DarkPurple */
@@ -126,7 +127,7 @@ const TYPE_COL = {
  * Short-press = audition, Shift+pad = regenerate, hold pad + tap a track = assign. */
 const ENGINE_TYPES = ['DRUM', 'FM7', 'BUCHLOID', 'MOLLY', 'RINGS', 'BEN', 'NOIZEOP',
     'ICARUS', 'PLAITS', 'SHAKER', 'MEMBRANE', 'MALLET', 'BOWED', 'PLUCK', 'TUBE', 'CHAOS',
-    'WTABLE', 'BYTEBEAT', 'SAMPLE'];
+    'WTABLE', 'BYTEBEAT', 'SAMPLE', 'CSOUND'];
 const N_ENGINES = ENGINE_TYPES.length;
 
 /* ---- runtime state (mirrors status.json) ---- */

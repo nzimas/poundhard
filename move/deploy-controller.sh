@@ -4,6 +4,7 @@
 #   - controller/vendor/pythonosc -> .../controller/vendor/pythonosc
 #   - supercollider/*.scd + move/sc/ph-boot.scd -> .../sc
 #   - run-*.sh / stop-stack.sh  -> /data/UserData/poundhard
+#   - csound/ph-engine.orc      -> .../csound/orc  (the CSOUND engine's orchestra)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
@@ -38,7 +39,10 @@ scp "$BB/ByteBeat.sc" "$BB/ByteBeatController.sc" "root@$HOST:$EXT/"
 ssh "root@$HOST" "chown ableton:users $DEST/plugins/ByteBeat.so $EXT/*.sc"
 
 echo "-> launch scripts"
-scp "$HERE/run-engine.sh" "$HERE/run-controller.sh" "$HERE/run-stack.sh" "$HERE/stop-stack.sh" "root@$HOST:$DEST/"
+scp "$HERE/run-engine.sh" "$HERE/run-controller.sh" "$HERE/run-stack.sh" "$HERE/stop-stack.sh" "$HERE/run-csound.sh" "root@$HOST:$DEST/"
+# the CSOUND engine's orchestra — code, not runtime, so it ships with the controller
+ssh "root@$HOST" "mkdir -p $DEST/csound/orc"
+scp "$HERE/../csound/ph-engine.orc" "root@$HOST:$DEST/csound/orc/"
 ssh "root@$HOST" "chmod +x $DEST/run-*.sh $DEST/stop-stack.sh; chown -R ableton:users $DEST"
 # Re-grant scsynth RT caps AFTER chown (chown clears file capabilities). Harmless
 # if the bundle isn't there yet (deploy-bundle.sh sets them too).

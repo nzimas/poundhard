@@ -15,6 +15,10 @@
 #
 #   csound output_3+2t / output_4+2t   ->   supernova input_3+2t / input_4+2t   (track t)
 #
+# The port PREFIX is set explicitly (-+jack_outportname): Csound's default prefix is
+# `outport`, so the ports would be poundhard_cs:outport1.. and every connection by name
+# would fail — which is exactly what happened before it was pinned.
+#
 # The connections are made explicitly with ph-jackconnect rather than left to Csound's
 # auto-connect, which wires by port enumeration order and would silently mis-route all 32
 # channels the day another client joins the graph.
@@ -29,7 +33,7 @@ export LD_LIBRARY_PATH=$CS/lib:$PH/lib
 export PATH=$CS/bin:$PH/bin:$PATH
 
 # already running? (idempotent — the stack launcher may be re-run)
-pgrep -f "csound.*ph-engine" >/dev/null 2>&1 && { echo "[csound] already running"; exit 0; }
+pgrep -f "jack_client=poundhard_cs" >/dev/null 2>&1 && { echo "[csound] already running"; exit 0; }
 
 [ -f "$CS/orc/ph-engine.orc" ] || { echo "[csound] no orchestra at $CS/orc — not installed"; exit 1; }
 
@@ -43,16 +47,18 @@ SCO
 echo "[csound] starting (jack client 'poundhard_cs', UDP 11000)"
 csound \
   -+rtaudio=jack -odac -+jack_client=poundhard_cs \
+  -+jack_outportname=output_ \
   -b128 -B1024 --sample-rate=44100 --nchnls=34 \
   --port=11000 --nodisplays -d -m0 \
   "$CS/orc/ph-engine.orc" "$CS/orc/ph-run.sco" </dev/null > "$CSLOG" 2>&1 &
 CSPID=$!
 echo "[csound] pid=$CSPID (log: $CSLOG)"
 
-# wait for its JACK ports to exist before connecting
+# Wait for it to be up before connecting. The marker is the UDP server line, NOT the port
+# listing — `-m0` suppresses the listing, so waiting on that just burned the timeout.
 i=0
 while [ $i -lt 40 ]; do
-    grep -q "Jack output ports" "$CSLOG" 2>/dev/null && break
+    grep -q "UDP server started" "$CSLOG" 2>/dev/null && break
     kill -0 "$CSPID" 2>/dev/null || { echo "[csound] died on startup:"; tail -n 15 "$CSLOG"; exit 1; }
     i=$((i+1)); sleep 0.25
 done

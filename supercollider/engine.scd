@@ -17,7 +17,7 @@
 
 ~nTracks = 16;
 ~maxSteps = 32;
-~typeDefs = [\phDrum, \phFm7, \phBuchloid, \phMolly, \phRings, \phBen, \phNoizeop, \phIcarus, \phPlaits, \phShaker, \phMembrane, \phMallet, \phBowed, \phPluck, \phTube, \phChaos, \phWtable, \phBytebeat, \phSampleVoice];  // /ph/track type index (-1 = empty/unassigned)
+~typeDefs = [\phDrum, \phFm7, \phBuchloid, \phMolly, \phRings, \phBen, \phNoizeop, \phIcarus, \phPlaits, \phShaker, \phMembrane, \phMallet, \phBowed, \phPluck, \phTube, \phChaos, \phWtable, \phBytebeat, \phSampleVoice, \phCsound];  // /ph/track type index (-1 = empty/unassigned)
 // DRUM is split into per-mode defs (chosen from the track's `mode` param at spawn).
 ~drumDefs = [\phDrumKick, \phDrumSnare, \phDrumHat, \phDrumMetal, \phDrumClap, \phDrumTom, \phDrumNoise];
 
@@ -271,6 +271,41 @@
 
 // Make sure track `t` has its persistent bytebeat voice, parsed with the track's current
 // expression. Returns the synth (or nil before the graph exists).
+// ---- CSOUND (engine 20) -----------------------------------------------------------
+// Csound is a separate JACK client writing a stereo pair per track into supernova's
+// inputs. Two halves: a PERSISTENT SC voice carrying that pair onto the track bus (so
+// the FX chain, filter, sends and master all apply), and a score event fired at Csound
+// over UDP per hit. Nothing spawns per hit on this side — the audio is already flowing.
+~csAddr  = NetAddr("127.0.0.1", 11000);        // Csound's UDP server (--port=11000)
+~csVoice = Array.fill(~nTracks, { nil });
+~csEnsure = { |t|
+	((~ready == true) and: { ~csVoice[t].isNil }).if {
+		var syn = Synth.tail(~gTrackVoices[t] ? ~gVoices, \phCsound, [
+			\out, ~trackBus[t].index,
+			// inputs 0-1 are the microphone; the Csound pairs start at 2
+			\in, 2 + (2 * t),
+			\amp, (~pstore[t][\amp] ? 0.85),
+			\pan, (~pstore[t][\pan] ? 0.0)]);
+		syn.register;
+		syn.onFree({ ~csVoice[t] = nil });
+		~csVoice[t] = syn;
+	};
+	~csVoice[t];
+};
+~csFree = { |t| ~csVoice[t].notNil.if { ~csVoice[t].free; ~csVoice[t] = nil } };
+// Fire one note. A $-prefixed line on Csound's UDP port is a score event (a bare line is
+// compiled as orchestra code and errors; `&` is silently ignored) — this is the whole
+// note path, so it has to be exactly right.
+~csHit = { |t, nn, vv, params, dur|
+	var arch = ((params[\arch] ? 0).round.clip(0, 9)).asInteger;
+	var freq = nn.midicps;
+	var m = (1..8).collect { |i| (params[("m" ++ i).asSymbol] ? 0.5).clip(0, 1) };
+	var line = "$i" ++ (11 + arch) ++ " 0 " ++ dur.clip(0.02, 12)
+		++ " " ++ t ++ " " ++ freq ++ " " ++ vv.clip(0, 2)
+		++ " " ++ m.join(" ") ++ "\n";
+	~csAddr.sendRaw(line);
+};
+
 ~bbEnsure = { |t|
 	((~ready == true) and: { ~bbVoice[t].isNil }).if {
 		var syn = Synth.tail(~gTrackVoices[t] ? ~gVoices, \phBytebeat,
@@ -358,6 +393,16 @@
 				voice.set(*([\note, nn, \vel, vv] ++ merged.getPairs ++ [\t_trig, 1]));
 			};
 		};
+		// CSOUND does not spawn either: its audio comes from another process. Update the
+		// carrier voice's mixer position for this hit, then fire the note at Csound.
+		(def == \phCsound).if {
+			var voice = ~csEnsure.(t);
+			voice.notNil.if {
+				voice.set(\amp, (merged[\amp] ? 0.85) * vv, \pan, (merged[\pan] ? 0.0),
+					\out, (merged[\out] ? ~trackBus[t].index));
+				~csHit.(t, nn, vv, merged, (merged[\dur] ? 0.9));
+			};
+		};
 		args = [\note, nn, \vel, vv] ++ merged.getPairs;
 		(def == \phSampler).if {
 			args = args ++ [\buf, ~sampBuf[t].notNil.if({ ~sampBuf[t].bufnum }, { ~silentBuf.bufnum })];
@@ -373,7 +418,7 @@
 		// goes to the serial shared group instead. Mirrors merged[\out] above.
 		// SAMPLE voices go in the SERIAL shared group, not the per-track ParGroup child: they
 		// read a shared buffer, and the identical synth+args only sounded from there.
-		(def != \phBytebeat).if {          // bytebeat was triggered above; everything else spawns
+		((def != \phBytebeat) and: { def != \phCsound }).if {   // both are persistent voices, handled above
 			syn = Synth(def, args,
 				(((~stepSend[t][step] ? 0) > 0) || (def == \phSampleVoice)).if(
 					{ ~gSharedVoices }, { ~gTrackVoices[t] }));
@@ -831,7 +876,7 @@
 	// forget them here so the next hit rebuilds (and re-parses) them.
 	OSCdef(\phPanic, { |m|
 		~stopSeq.value; ~gVoices.notNil.if { ~gVoices.deepFree }; ~trackVoices.do { |l| l.clear };
-		~nTracks.do { |t| ~bbVoice[t] = nil }; ~bbPrevVoice = nil; ~bbPrevExpr = nil;
+		~nTracks.do { |t| ~bbVoice[t] = nil; ~csVoice[t] = nil }; ~bbPrevVoice = nil; ~bbPrevExpr = nil;
 	}, '/ph/panic'),
 	OSCdef(\phRecStart, { |m| ~recStart.value(m[1].asString); }, '/ph/recstart'),
 	OSCdef(\phRecStop,  { |m| ~recStop.value; }, '/ph/recstop'),
@@ -841,9 +886,13 @@
 ];
 
 // ================= boot =================
-~boot = { |sr = 44100, block = 128, channels = 2|
+~boot = { |sr = 44100, block = 128, channels = 2, inputs|
 	s.options.numOutputBusChannels = channels;
-	s.options.numInputBusChannels = channels;
+	// INPUTS are no longer the same count as outputs: 0-1 are the microphone, 2-33 are the
+	// CSOUND engine's 16 stereo track returns over JACK. Defaulting this to `channels`
+	// silently un-did boot.scd's setting and left supernova with 2 inputs, so every one of
+	// the 32 Csound connections failed.
+	s.options.numInputBusChannels = inputs ? channels;
 	s.options.sampleRate = sr;
 	s.options.blockSize = block;
 	s.options.memSize = 256 * 1024;

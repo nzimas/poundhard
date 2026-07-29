@@ -101,7 +101,7 @@ TYPE_INDEX = {"EMPTY": -1, "DRUM": 0, "FM7": 1, "BUCHLOID": 2, "MOLLY": 3,
               "RINGS": 4, "BEN": 5, "NOIZEOP": 6, "ICARUS": 7, "PLAITS": 8,
               "SHAKER": 9, "MEMBRANE": 10, "MALLET": 11, "BOWED": 12,
               "PLUCK": 13, "TUBE": 14, "CHAOS": 15, "WTABLE": 16, "BYTEBEAT": 17,
-              "SAMPLE": 18}
+              "SAMPLE": 18, "CSOUND": 19}
 
 
 def _wt_sprite_count() -> int:
@@ -840,6 +840,45 @@ BYTEBEAT = VoiceSpec(
     ],
 )
 
+# CSOUND — engine 20. Csound runs as its own JACK client and writes a stereo pair per
+# track into supernova's inputs; an SC voice reads that pair onto the track bus, so this
+# engine goes through the per-track filter, the FX chain, the living-FX sends and the
+# master like any other. `arch` selects one of ten synthesis architectures (each a hybrid
+# of generators and processors, not an oscillator with effects after it) and m1..m8 are
+# eight normalised macros whose MEANING depends on the architecture — which is the point:
+# the same eight knobs the voice macro, the chaos macro and the living steps already
+# sweep drive a completely different instrument in each one.
+# --------------------------------------------------------------------------- #
+# MUST match the instrument numbers in csound/ph-engine.orc (instr 11 + arch).
+CS_ARCH_COUNT = 10
+CS_ARCH_NAMES = ["fmmetal", "granclouds", "modalstrike", "chaosdrone", "waveguide",
+                 "spectral", "phasedist", "noisemachine", "additive", "padwave"]
+_cs_hi = float(CS_ARCH_COUNT - 1)
+CSOUND = VoiceSpec(
+    type="CSOUND",
+    role="Csound realtime macro-synth: ten hybrid architectures, metallic and inharmonic.",
+    synthdef="phCsound",
+    params=[
+        # architecture selector — an instrument index, not a synth arg (engine intercepts)
+        P("csound.arch", "Architecture", rmin=0.0, rmax=_cs_hi, default=0.0,
+          musical=(0.0, _cs_hi), modulatable=False, macro=False,
+          randomize=RandomizePolicy.WIDE),
+        P("csound.m1", "Shape 1", default=0.4, musical=(0.05, 0.9)),
+        P("csound.m2", "Shape 2", default=0.4, musical=(0.05, 0.9)),
+        P("csound.m3", "Shape 3", default=0.5, musical=(0.05, 0.95)),
+        P("csound.m4", "Shape 4", default=0.5, musical=(0.05, 0.95)),
+        P("csound.m5", "Shape 5", default=0.4, musical=(0.05, 0.9)),
+        P("csound.m6", "Shape 6", default=0.4, musical=(0.05, 0.9)),
+        P("csound.m7", "Shape 7", default=0.35, musical=(0.0, 0.85)),
+        P("csound.m8", "Shape 8", default=0.35, musical=(0.0, 0.85)),
+        # how long the Csound note runs. The architectures have their own release tails,
+        # so this is the note's LENGTH, not its decay.
+        P("csound.dur", "Duration", unit="s", rmin=0.05, rmax=8.0, default=0.9,
+          curve=Curve.EXP, formatter="float2", musical=(0.12, 3.0)),
+        *_COMMON_TAIL("csound", ampd=0.85, ampmus=(0.6, 1.15)),
+    ],
+)
+
 # --------------------------------------------------------------------------- #
 # SAMPLE — the capture engine. Holding its palette pad and tapping another engine's pad
 # threshold-records that engine's output, runs the take through a freshly assembled Csound
@@ -876,7 +915,7 @@ SAMPLE = VoiceSpec(
 VOICES: dict[str, VoiceSpec] = {v.type: v for v in
                                 (DRUM, FM7, BUCHLOID, MOLLY, RINGS, BEN, NOIZEOP, ICARUS,
                                  PLAITS, SHAKER, MEMBRANE, MALLET, BOWED, PLUCK, TUBE, CHAOS,
-                                 WTABLE, BYTEBEAT, SAMPLE)}
+                                 WTABLE, BYTEBEAT, SAMPLE, CSOUND)}
 
 
 def param_spec(voice_type: str, pid: str):

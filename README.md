@@ -41,6 +41,7 @@ runtime, so **Schwung is the only thing it needs on the device**.
   - [Tracks view](#tracks-view-default)
   - [Edit view](#edit-view-per-track)
     - [Cycle frequency](#cycle-frequency)
+    - [CSOUND — engine 20](#csound--engine-20)
     - [Copying a track](#copying-a-track)
     - [Generating a sequence](#generating-a-sequence)
     - [Transposing](#transposing)
@@ -459,6 +460,47 @@ step — so the two rows multiply (see [Living steps](#living-steps--the-heat-bu
 The counters reset when the transport starts, so a divided step lands on the downbeat and
 then every Nth repetition after it. The divider travels with the step: it is saved with the
 pattern, carried by the [copy gestures](#edit-view-per-track), and cleared with the pattern.
+
+#### CSOUND — engine 20
+
+Csound, running for real and in realtime. Not the offline opcode graph the SAMPLE engine
+mangles captures through — a synthesis engine that generates sound from nothing, with ten
+architectures behind one contract:
+
+| | |
+|---|---|
+| **fmmetal** | inharmonic phase modulation into a waveshaper and modal resonators — struck metal that is pitched but never harmonic |
+| **granclouds** | granular over an inharmonic wavetable, spectrally blurred, thrown through a feedback delay network |
+| **modalstrike** | a noise burst into six detuned modes; the excitation is gone in milliseconds and the body is the sound |
+| **chaosdrone** | feedback FM at sample rate — below a threshold a harmonic timbre, above it period-doubling into genuine chaos |
+| **waveguide** | plucked and bowed models pushed past their polite range, into an FDN body |
+| **spectral** | analysis, warping and resynthesis as the instrument — the electroacoustic one |
+| **phasedist** | phase distortion and hard waveshaping, with deliberate quantisation artefacts |
+| **noisemachine** | correlated noise through steep dynamic filters, gated hard |
+| **additive** | inharmonic partials, each with its own decay and a slow random walk |
+| **padwave** | PADsynth wavetables, cross-modulated and diffused |
+
+A track's sound is an architecture plus **eight normalised macros** whose meaning changes
+completely from one architecture to the next. That is deliberate: it means the voice macro,
+the chaos macro, per-step macro locks and living-step transforms all drive this engine
+without knowing anything about it. Re-roll the sound (**Shift + Track 1**) and you land on
+a different architecture, not a variation of the same one.
+
+The processing is *inside* the voices — dynamic filters, resonator banks, spectral blur,
+waveshapers, ring and cross modulation, frequency shifting, delay networks and diffusion,
+stereo imaging, random and chaotic modulation — rather than bolted on afterwards.
+
+**How it is plumbed.** Csound runs as a separate JACK client and writes one stereo pair per
+track into supernova's inputs; an SC voice carries that pair onto the track bus. So a
+Csound track is an ordinary PoundHard track: the per-track filter, the 8-slot FX chain, the
+living-FX sends, mute, solo and the master all apply. Measured on the device: a 12 kHz
+highpass on the track filter drops a Csound track by **31 dB**, and muting it gives digital
+silence — it is genuinely inside the signal path, not mixed in beside it.
+
+Notes fire as `$`-prefixed score events over Csound's UDP port. supernova boots with 34
+input channels: 1-2 are the microphone, 3-34 are the 16 stereo returns. The runtime is a
+second bundle (`move/build-csound.sh`) — the Csound previously on the device was an offline
+build with no JACK module, able to render the SAMPLE mangler's files and nothing else.
 
 #### Copying a track
 

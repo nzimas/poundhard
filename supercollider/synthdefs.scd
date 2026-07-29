@@ -854,7 +854,26 @@
 	//
 	// `res` 0..1 maps exponentially to Q 0.7..14 (rq = 1/Q). At the top the peak is sharp,
 	// so the output is soft-clipped — that bounds the peak without touching the passband.
-	SynthDef(\phTrackFilter, { |in = 16, out = 16, cutoff = 18000, res = 0.0, type = 0,
+	// CSOUND (engine 20) — the SC end of the Csound engine. Csound itself runs as a separate
+// JACK client and writes one stereo pair per track into supernova's inputs; this voice is
+// what carries that pair onto the track bus, which is what makes a Csound track a normal
+// PoundHard track: per-track filter, FX chain, living-FX sends, mixer, master.
+//
+// PERSISTENT, one per Csound track, like the bytebeat voice — the audio is already
+// flowing from another process, so there is nothing to spawn per hit. A hit sets this
+// synth's pan/amp and fires a score event at Csound over UDP.
+SynthDef(\phCsound, { |out = 16, in = 2, amp = 0.85, pan = 0.0, gate = 1|
+	// SoundIn counts from the first hardware input: inputs 0-1 are the microphone, so
+	// track t's Csound pair is 2 + 2t. Lagged pan/amp — these change per hit and a step
+	// lock must not click.
+	var sig = SoundIn.ar([in, in + 1]);
+	var a = Lag.kr(amp, 0.008);
+	var p = Lag.kr(pan.clip(-1, 1), 0.008);
+	var wide = [sig[0] * (1 - p.max(0)), sig[1] * (1 + p.min(0))];
+	Out.ar(out, ~killbad.(wide * a));
+}).add;
+
+SynthDef(\phTrackFilter, { |in = 16, out = 16, cutoff = 18000, res = 0.0, type = 0,
 		glide = 0.03|
 		var dry = In.ar(in, 2);
 		// EVERY control is SLEWED AT AUDIO RATE, because per-step filter locks change these

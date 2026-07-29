@@ -226,7 +226,7 @@ def gen_kit(seed: int | None = None) -> dict:
 # --------------------------------------------------------------------------- #
 PALETTE_ENGINES = ["DRUM", "FM7", "BUCHLOID", "MOLLY", "RINGS", "BEN", "NOIZEOP",
                    "ICARUS", "PLAITS", "SHAKER", "MEMBRANE", "MALLET", "BOWED",
-                   "PLUCK", "TUBE", "CHAOS", "WTABLE", "BYTEBEAT", "SAMPLE"]
+                   "PLUCK", "TUBE", "CHAOS", "WTABLE", "BYTEBEAT", "SAMPLE", "CSOUND"]
 
 # a canonical note per drum mode, so an auditioned/assigned drum sits in register
 # (mode order matches catalog DRUM enum: kick snare hihat metal clap tom noise)
@@ -683,6 +683,72 @@ PALETTE_ROLES["BYTEBEAT"] = BYTEBEAT_ROLES["BB GLITCH"]
 _BB_WEIGHTS = {"BB DRONE": 2, "BB GLITCH": 3, "BB BASS": 2, "BB CHIRP": 3}
 
 
+# CSOUND (engine 20) — one role per architecture. The architecture IS the instrument, so
+# re-rolling a Csound track's sound means landing on a different one of the ten, with the
+# eight macros banded to that architecture's musical range. name, arch, note(choices,
+# octave), duration band, then the eight macro bands.
+# --------------------------------------------------------------------------- #
+_CS_SPEC = [
+    # struck metal: inharmonic PM into resonators. Short, bright, pitched.
+    ("CS METAL",  0, ((0, 3, 7, 10), 0),   (0.15, 1.2),
+     [(0.1, 0.6), (0.2, 0.8), (0.15, 0.95), (0.3, 0.9), (0.1, 0.7), (0.2, 0.8),
+      (0.3, 0.9), (0.2, 0.85)]),
+    # grain clouds: dense, spectrally blurred texture. Long.
+    ("CS GRAIN",  1, ((0, 5, 7), 0),       (0.5, 4.0),
+     [(0.3, 0.9), (0.2, 0.85), (0.2, 0.9), (0.1, 0.7), (0.15, 0.8), (0.2, 0.9),
+      (0.2, 0.8), (0.0, 0.5)]),
+    # noise-excited mode bank: percussive, metallic, decays on its own.
+    ("CS STRIKE", 2, ((0, 3, 5, 7, 10), 0), (0.2, 1.6),
+     [(0.0, 0.4), (0.2, 0.9), (0.3, 0.95), (0.1, 0.8), (0.1, 0.7), (0.0, 0.6),
+      (0.2, 0.9), (0.2, 0.9)]),
+    # feedback-FM chaos: unstable, industrial. Kept mid-length so it can develop.
+    ("CS CHAOS",  3, ((0, 7), -12),        (0.3, 2.5),
+     [(0.25, 0.95), (0.1, 0.8), (0.2, 0.85), (0.2, 0.9), (0.2, 0.9), (0.3, 0.95),
+      (0.1, 0.7), (0.0, 0.6)]),
+    # waveguide models pushed hard, into their own feedback body.
+    ("CS WGUIDE", 4, ((0, 5, 7, 12), 0),   (0.25, 2.2),
+     [(0.2, 0.9), (0.2, 0.85), (0.1, 0.8), (0.2, 0.9), (0.1, 0.8), (0.2, 0.9),
+      (0.0, 0.8), (0.1, 0.7)]),
+    # analysis / resynthesis: the electroacoustic one. Long and evolving.
+    ("CS SPECTRAL", 5, ((0, 3, 7), 0),     (0.6, 5.0),
+     [(0.2, 0.9), (0.15, 0.8), (0.2, 0.9), (0.2, 0.85), (0.2, 0.9), (0.15, 0.8),
+      (0.2, 0.9), (0.2, 0.9)]),
+    # phase distortion + deliberate quantisation artefacts. Short, digital, nasty.
+    ("CS PHASE",  6, ((0, 1, 5, 7), 0),    (0.08, 0.9),
+     [(0.05, 0.5), (0.1, 0.9), (0.2, 0.9), (0.1, 0.8), (0.2, 0.9), (0.1, 0.8),
+      (0.0, 0.7), (0.0, 0.75)]),
+    # rhythmic noise: correlated noise through steep filters, gated hard.
+    ("CS NOISE",  7, ((0, 5, 7), 0),       (0.05, 0.7),
+     [(0.0, 0.35), (0.1, 0.8), (0.2, 0.95), (0.0, 0.7), (0.1, 0.85), (0.2, 0.9),
+      (0.2, 0.9), (0.1, 0.8)]),
+    # inharmonic additive: slow, evolving, tonal-but-wrong.
+    ("CS ADD",    8, ((0, 3, 7, 10), 0),   (0.6, 5.0),
+     [(0.3, 0.9), (0.1, 0.8), (0.1, 0.7), (0.2, 0.9), (0.2, 0.9), (0.2, 0.85),
+      (0.2, 0.9), (0.2, 0.9)]),
+    # PADsynth wavetables, cross-modulated and diffused. Wide pads.
+    ("CS PAD",    9, ((0, 5, 7, 12), -12), (0.8, 6.0),
+     [(0.3, 0.95), (0.1, 0.7), (0.1, 0.8), (0.1, 0.7), (0.2, 0.9), (0.2, 0.9),
+      (0.2, 0.9), (0.2, 0.9)]),
+]
+
+
+def _cs_role(spec) -> Role:
+    name, arch, note, dur, macros = spec
+    bands = {"csound.arch": (float(arch), float(arch) + 0.99),
+             "csound.dur": dur}
+    for i, band in enumerate(macros):
+        bands["csound.m%d" % (i + 1)] = band
+    return Role(name, "CSOUND", note_choices=note[0], octave=note[1],
+                bands=bands, vel=(0.8, 1.05))
+
+
+CSOUND_ROLES: dict[str, Role] = {s[0]: _cs_role(s) for s in _CS_SPEC}
+PALETTE_ROLES["CSOUND"] = CSOUND_ROLES["CS METAL"]
+# weighted so the palette pad lands on the engine's most characteristic voices most often
+_CS_WEIGHTS = {"CS METAL": 3, "CS GRAIN": 3, "CS STRIKE": 3, "CS CHAOS": 3, "CS WGUIDE": 2,
+               "CS SPECTRAL": 2, "CS PHASE": 3, "CS NOISE": 3, "CS ADD": 2, "CS PAD": 2}
+
+
 # SAMPLE plays back whatever was just captured + mangled, so its "sound" is playback
 # shaping only — kept gentle so the mangled character comes through rather than being
 # re-processed into mush.
@@ -751,6 +817,10 @@ def gen_palette_voice(engine: str, rng: random.Random | None = None,
         names = list(_BB_WEIGHTS)
         name = rng.choices(names, weights=[_BB_WEIGHTS[n] for n in names])[0]
         return gen_voice(BYTEBEAT_ROLES[name], rng)  # gen_voice picks a random expression
+    if engine == "CSOUND":
+        names = list(_CS_WEIGHTS)
+        name = rng.choices(names, weights=[_CS_WEIGHTS[n] for n in names])[0]
+        return gen_voice(CSOUND_ROLES[name], rng)    # the architecture is the sound
     voice = gen_voice(PALETTE_ROLES[engine], rng)
     if engine == "DRUM":                       # put the drum in register for its mode
         if drum_mode is not None and 0 <= int(drum_mode) <= 6:

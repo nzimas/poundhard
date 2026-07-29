@@ -49,6 +49,32 @@ ssh "root@$HOST" "
   getcap $DEST/bin/scsynth $DEST/bin/supernova $DEST/bin/jackd
 "
 
+# ---- CSOUND runtime (engine 20) --------------------------------------------------- #
+# A second self-contained bundle: the realtime Csound that the CSOUND engine runs as a
+# JACK client. The Csound previously on the device was an OFFLINE build (no librtjack,
+# a partial opcode set) — it could render the SAMPLE mangler's files and nothing else.
+CSBUNDLE="$HERE/bundle/poundhard-csound.tar.gz"
+if [ -f "$CSBUNDLE" ]; then
+  echo "Installing Csound runtime ($(du -h "$CSBUNDLE" | cut -f1)) -> $DEST/csound"
+  ssh "root@$HOST" "rm -rf $DEST/csound.new && mkdir -p $DEST/csound.new"
+  ssh "root@$HOST" "tar -C $DEST/csound.new -xzf -" < "$CSBUNDLE"
+  ssh "root@$HOST" "
+    set -e
+    # keep whatever orchestra the controller already shipped
+    [ -d $DEST/csound/orc ] && cp -a $DEST/csound/orc $DEST/csound.new/csound/ || true
+    rm -rf $DEST/csound && mv $DEST/csound.new/csound $DEST/csound && rm -rf $DEST/csound.new
+    mkdir -p $DEST/csound/orc
+    chown -R ableton:users $DEST/csound
+    chmod +x $DEST/csound/bin/csound $DEST/csound/bin/ph-jackconnect
+    # Csound joins the realtime graph beside jackd and supernova and needs the same
+    # privileges, or its JACK callback runs at normal priority and XRuns the whole graph.
+    setcap cap_ipc_lock,cap_sys_nice=eip $DEST/csound/bin/csound
+    getcap $DEST/csound/bin/csound
+  "
+else
+  echo "WARNING: no Csound bundle ($CSBUNDLE) — run move/build-csound.sh; engine 20 will not sound"
+fi
+
 # PREFLIGHT — run each RT binary with an EMPTY environment. That is exactly the situation
 # the loader puts a capped binary in, so if a library is unreachable by RPATH alone it
 # fails HERE, at deploy time, instead of silently leaving the device on 'starting...'.
