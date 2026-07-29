@@ -158,6 +158,7 @@ class EngineBridge:
     def smpwrite(self, path):          self.send("/ph/smpwrite", str(path))
     def smpload(self, path):           self.send("/ph/smpload", str(path))
     def smpassign(self, t, path):      self.send("/ph/smpassign", int(t), str(path))
+    def smpcopy(self, src, dst):       self.send("/ph/smpcopy", int(src), int(dst))
     def steplock(self, t, cell, note, vel, pan):
         self.send("/ph/steplock", int(t), int(cell), float(note), float(vel), float(pan))
     def stepmacro(self, t, cell, pairs):

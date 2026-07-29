@@ -41,6 +41,7 @@ runtime, so **Schwung is the only thing it needs on the device**.
   - [Tracks view](#tracks-view-default)
   - [Edit view](#edit-view-per-track)
     - [Cycle frequency](#cycle-frequency)
+    - [Copying a track](#copying-a-track)
     - [Generating a sequence](#generating-a-sequence)
     - [Transposing](#transposing)
     - [The project's scale](#the-projects-scale)
@@ -120,8 +121,9 @@ runtime, so **Schwung is the only thing it needs on the device**.
   [Living steps & the HEAT button](#living-steps--the-heat-button)).
 - **Copy gestures** — hold **Copy** and a step with data goes to the clipboard, an empty
   one receives it; hold Copy and press **Track 1 / Track 2** to grab or paste a whole
-  **row** of eight steps. Everything travels: locks, living flags, ratchets, FX masks and
-  cycle dividers.
+  **row** of eight steps; hold Copy and press two **tracks** to duplicate an entire track,
+  engine, sound, sample and all. Everything travels: locks, living flags, ratchets, FX
+  masks and cycle dividers.
 - **Re-roll a track's sound** in place with **Shift + Track 1** while it's open —
   a fresh sound within its assigned engine. Patterns, mutes and locks survive.
 - **Patterns are self-contained** — engines, every parameter, FX, mutes and sequences.
@@ -379,6 +381,7 @@ in its engine colour.
 | **Hold the SAMPLE pad + tap an engine pad** | **capture** that engine: it auditions and is threshold-recorded, then mangled through a Csound opcode graph |
 | **Hold the SAMPLE pad + tap a step button** | assign the mangled take to that track (the track gets its own copy; the pad is **released** for the next capture) |
 | **Hold the DRUM pad + tap a pad to its right** | **audition** that pad's fixed drum type (kick · snare · hihat · metal · clap · tom · noise, in DRUM's own colour); **lift to commit** it to the engine |
+| **Copy + step button, then another step button** | **duplicate a whole track** — see [Copying a track](#copying-a-track) |
 | **Step button — tap** | mute / unmute that track |
 | **Step button — double-tap** | **solo** that track (double-tap again to un-solo) |
 | **Step button — long-press** | open that track in the [Edit view](#edit-view-per-track) |
@@ -456,6 +459,32 @@ step — so the two rows multiply (see [Living steps](#living-steps--the-heat-bu
 The counters reset when the transport starts, so a divided step lands on the downbeat and
 then every Nth repetition after it. The divider travels with the step: it is saved with the
 pattern, carried by the [copy gestures](#edit-view-per-track), and cleared with the pattern.
+
+#### Copying a track
+
+**Hold Copy, press the track you want, then press where you want it.** The clone lands
+immediately. Keep holding Copy and press more tracks to spread the same source across
+several at once; releasing Copy forgets it. The grabbed source burns violet while the hold
+is live, and the screen says which half of the gesture you're in.
+
+Everything comes across, because a track is more than its notes: the engine and every one
+of its parameters, the sound, the sample (the clone gets its **own copy** of the buffer,
+not a shared reference), the sequence, every per-step lock — pitch, velocity, pan, macro,
+FX mask, cycle divider, sample window, filter, ratchet, send — living marks with their
+intervals and current transforms, the track filter, the transpose, length, rate, mute, the
+FX chain and its bypass, and the voice-macro position with its randomised directions.
+
+Then the two go their own way. Nothing is shared: assign a different engine to the clone,
+generate it a new sequence, load another sample, rewrite its effects, replace the sound
+outright — the original does not move. That is the whole point. Duplicate the track you
+like, keep it as the reference, and take the copy somewhere you might not want to come
+back from.
+
+One thing deliberately does *not* travel: **HEAT** marks. HEAT is a live overlay backed by
+a snapshot taken when it engaged, and a track created afterwards isn't in that snapshot —
+carrying its marks across would leave cells that toggling HEAT off could never restore. The
+clone gets those steps as they were underneath. Hand-placed and generated living steps come
+across in full.
 
 #### Generating a sequence
 
@@ -1227,7 +1256,7 @@ command is dispatched until the engine reports ready.
 | engine palette | `audition`, `palettegen`, `assign`, `randtrack`, `genkit`, `drumaudition` / `drummode` (DRUM type picker), `smparm` (arm the SAMPLE capture) |
 | tracks | `mute`, `solo`, `trackset` (pitch/amp/pan/rate), `voicemacro`, `voiceparam` (one named voice param — SAMPLE's window knobs), `trackfilter` (cutoff/res/type), `note`, `setlen`, `clearpat` |
 | steps | `stepset` / `steptoggle`, `steplock`, `stepmacro`, `stepfx` (per-step FX mask), `stepcycle` (fire every Nth repetition), `stepwindow` (per-step sample slice), `stepfilter` (per-step filter lock), `marklive` / `liveperiod` (living steps — the period is in PLAYS of the step, 1-8) |
-| clipboard | `stepcopy` / `steppaste`, `rowcopy` / `rowpaste` (the Copy-button gestures) |
+| clipboard | `stepcopy` / `steppaste`, `rowcopy` / `rowpaste`, `trackcopy` (the Copy-button gestures) |
 | generation | `stepgen` (a new sequence for one track, scale-aware) |
 | transpose | `transpose` (semitone offset for one track's sequence) |
 | FX | `fxassign`, `fxbypass`, `fxmacro`, `fxwet` |

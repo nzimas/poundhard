@@ -729,8 +729,9 @@
 			~stepNote[t][c] = nil; ~stepVel[t][c] = nil; ~stepPan[t][c] = nil;
 			~stepMacro[t][c] = nil; ~stepRatchet[t][c] = 1; ~stepSend[t][c] = 0;
 			~stepStart[t][c] = nil; ~stepEnd[t][c] = nil; ~stepCycle[t][c] = 1;
-			~stepFilt[t][c] = nil;
+			~stepFilt[t][c] = nil; ~stepFx[t][c] = -1;
 		};
+		~rebuildFx.(t);                             // the per-step FX locks just went away
 	}, '/ph/clearlocks'),
 	OSCdef(\phVel,  { |m| ~vel[m[1].asInteger.clip(0, ~nTracks - 1)] = m[2].asFloat; }, '/ph/vel'),
 	OSCdef(\phSamp, { |m| ~sampLoad.(m[1].asInteger.clip(0, ~nTracks - 1), m[2].asInteger); }, '/ph/samp'),
@@ -802,6 +803,30 @@
 		});
 		~smpPad.notNil.if { ~smpPad.free; ~smpPad = nil };   // pad released for the next take
 	}, '/ph/smpassign'),
+	// /ph/smpcopy <src> <dst>: give the destination track its OWN copy of the source track's
+	// sample. A COPY, not a shared reference — the two tracks must be able to diverge, and a
+	// later re-assign or free on one must not pull the buffer out from under the other.
+	OSCdef(\phSmpCopy, { |m|
+		var a = m[1].asInteger.clip(0, ~nTracks - 1), b = m[2].asInteger.clip(0, ~nTracks - 1);
+		var src = ~smpBuf[a];
+		(a != b).if {
+			src.notNil.if({
+				// Allocate, WAIT for the server, then copy, then WAIT again before the track
+				// points at it. An alloc completion-message can\'t be used here: it is built
+				// (and its side effects run) before /b_alloc is even sent, so the copy would
+				// race the allocation and land on a buffer that does not exist yet.
+				fork {
+					var nb = Buffer.alloc(s, src.numFrames, src.numChannels);
+					s.sync;
+					src.copyData(nb);
+					s.sync;
+					{ var old = ~smpBuf[b]; ~smpBuf[b] = nb; old.notNil.if { old.free } }.value;
+				};
+			}, {
+				~smpBuf[b].notNil.if { ~smpBuf[b].free; ~smpBuf[b] = nil };
+			});
+		};
+	}, '/ph/smpcopy'),
 	// PANIC frees everything under ~gVoices, which includes the persistent bytebeat voices —
 	// forget them here so the next hit rebuilds (and re-parses) them.
 	OSCdef(\phPanic, { |m|

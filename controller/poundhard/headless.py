@@ -604,7 +604,7 @@ class Controller:
         "setlen", "savepat", "loadpat", "patdel", "patpaste", "genvar", "randpat",
         "fxassign", "fxbypass", "loadproj", "loadauto", "marklive",
         "steppaste", "rowpaste", "stepcycle", "trackfilter", "stepwindow", "stepfilter",
-        "stepgen",
+        "stepgen", "trackcopy",
     })
     # Commands that change no persisted state — they don't mark the project dirty.
     _NO_STATE = frozenset({
@@ -771,6 +771,25 @@ class Controller:
                             self._push_living_cell(t, c)
                     self._gen_note = "%s %d/%d%s" % (info["algo"], info["hits"], info["steps"],
                                                      " L%d" % info["living"] if info["living"] else "")
+        elif cmd == "trackcopy":               # Copy + source track + destination track
+            src = int(p.get("src", -1)); dst = int(p.get("dst", -1))
+            if st.copy_track(src, dst):
+                # rebuild the destination from nothing: drop its locks and its whole FX chain
+                # first, or the clone would inherit leftovers the source never had
+                self.bridge.clearlocks(dst)
+                for fx in range(N_FX):
+                    self.bridge.fxassign(dst, fx, False)
+                self.bridge.push_track(dst, st.tracks[dst])
+                self._push_step_cell(dst)
+                for fx in st.track_fx[dst]:
+                    self.bridge.fxassign(dst, fx, True)
+                self.bridge.fxbypass(dst, st.fx_bypass[dst])
+                for c in range(N_STEPS):       # living cells carry a transform right now
+                    if st.tracks[dst].step_living[c]:
+                        self._push_living_cell(dst, c)
+                if st.tracks[dst].type == "SAMPLE":
+                    self.bridge.smpcopy(src, dst)   # the engine gives it its OWN buffer
+                self._push_mutes()
         elif cmd == "transpose":               # Shift + jog wheel: shift the sequence in semitones
             t = int(p.get("track", st.edit_track))
             if 0 <= t < N_TRACKS:

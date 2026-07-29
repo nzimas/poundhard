@@ -78,6 +78,7 @@ const LIVE_ON = 23, LIVE_DIM = 109; /* NeonPink / DeepMagenta — a LIVING (self
 /* 8 distinct FX pad colours (canonical chain order: OD AMP CRSH RING FLNG CLDS RESO GREY) */
 const FX_COLORS = [3, 27, 14, 21, 31, 30, 16, 18];   /* …GREY=blue, VERB=violet */
 const BYPASS_COLOR = 118;           /* light grey: a track whose FX are bypassed (visible) */
+const COPY_SRC_COLOR = 21;          /* violet: the track a Copy hold has grabbed as the source */
 const N_FX = 8;
 const FX_CELL0 = 24;                /* FX pads occupy the bottom row (cells 24..31) */
 /* DRUM TYPE PICKER: hold the DRUM palette pad (cell 0) and the 7 pads to its right
@@ -200,6 +201,7 @@ let shiftHeld = false, masterTouched = false;
 /* Pattern-view modifiers: X (Delete) + pad = delete & close the gap; Copy + pad = copy,
  * then further pads paste while Copy stays down. Releasing Copy forgets the clipboard. */
 let deleteHeld = false, copyHeld = false, copyArmed = false;
+let trackClipSrc = -1;              /* Copy + track = grab; the next track press clones onto it */
 /* Copy-button clipboard in the EDIT view: `clipStep` = a step is held, `rowArmed` = the
  * current Copy hold has already grabbed a row (so the next row press pastes). */
 let clipStep = false, clipRow = false, rowArmed = false;
@@ -382,7 +384,7 @@ function fxTrackColor(c) {
 /* Push the 16 step-button LEDs, only re-sending the ones whose colour changed. */
 function renderStepButtons() {
     for (let t = 0; t < N_TRACKS; t++) {
-        var col = stepColor(t);
+        var col = (copyHeld && t === trackClipSrc) ? COPY_SRC_COLOR : stepColor(t);
         if (col !== lastStepCol[t]) { setLED(STEP_BASE + t, col); lastStepCol[t] = col; }
     }
 }
@@ -718,9 +720,18 @@ function drawScreen() {
     overlay = null;
     if (!ready) { print(0, 12, 'POUNDHARD', 2); print(0, 40, engine ? 'booting engine...' : 'starting...', 1); return; }
     if (editTrack < 0) {
+        /* a Copy hold takes over the whole screen: the gesture has two halves and the
+         * player needs to see which half they're in without looking at the LEDs */
+        if (copyHeld) {
+            print(0, 6, trackClipSrc >= 0 ? ('COPY T' + (trackClipSrc + 1)) : 'COPY TRACK', 2);
+            print(0, 34, trackClipSrc >= 0 ? 'tap a track to clone onto'
+                                           : 'tap the track to copy', 1);
+            print(0, 50, trackClipSrc >= 0 ? ('from ' + (names[trackClipSrc] || types[trackClipSrc])) : '', 1);
+            return;
+        }
         print(0, 6, 'POUNDHARD', 2);
         print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : '') + (shufOn ? '  SHUF' : ''), 1);
-        print(0, 44, 'pad=hear  shift+pad=gen', 1);
+        print(0, 44, 'pad=hear  shift+pad=gen  copy=dup', 1);
         print(0, 56, 'k8=chaos  heat=btm-left pad', 1);
     } else if (lenArm) {
         /* Shift + master touch: the next pad sets the pattern length. */
@@ -1075,6 +1086,24 @@ globalThis.onMidiMessageInternal = function (data) {
             ledDirty = true; screenDirty = true;
             return;
         }
+        /* COPY + track + track = clone a whole track onto another. The first track press of
+         * a Copy hold GRABS the source; the next one clones onto the track pressed and the
+         * hold stays armed with the same source, so one grab can populate several tracks. */
+        if (copyHeld && !fxView) {
+            if (trackClipSrc < 0) {
+                if (types[t] && types[t] !== 'EMPTY') { trackClipSrc = t; showAction('COPY T' + (t + 1)); }
+                else showAction('T' + (t + 1) + ' EMPTY');
+            } else if (trackClipSrc === t) {
+                showAction('T' + (t + 1) + ' IS THE SOURCE');
+            } else {
+                sendCmd('trackcopy', t, { p: { src: trackClipSrc, dst: t } });
+                types[t] = types[trackClipSrc]; names[t] = names[trackClipSrc];   /* optimistic */
+                muted[t] = muted[trackClipSrc];
+                showAction('T' + (trackClipSrc + 1) + ' -> T' + (t + 1));
+            }
+            ledDirty = true; screenDirty = true;
+            return;
+        }
         if (fxView) {                                     /* FX view: step button = mute only */
             muted[t] = !muted[t]; sendCmd('mute', t); ledDirty = true; screenDirty = true;
         } else {
@@ -1374,7 +1403,7 @@ globalThis.onMidiMessageInternal = function (data) {
         if (d1 === MoveCopy) {
             copyHeld = d2 > 0;
             if (!copyHeld && copyArmed) { copyArmed = false; sendCmd('patclipclear', -1); }
-            if (!copyHeld) rowArmed = false;   /* a fresh hold grabs a row again */
+            if (!copyHeld) { rowArmed = false; trackClipSrc = -1; }   /* a fresh hold grabs again */
             if (editTrack >= 0) screenDirty = true;
             screenDirty = true;
             return;

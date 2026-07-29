@@ -639,6 +639,41 @@ class Project:
         self.tracks[track].step_period[cell] = max(1, min(8, int(period)))
         return self.tracks[track].step_period[cell]
 
+    # -- copy a whole track -------------------------------------------------- #
+    def copy_track(self, src: int, dst: int) -> bool:
+        """Make `dst` an exact, INDEPENDENT clone of `src`. Returns False if it can't.
+
+        Everything a track is: engine and its params, note/velocity/sample, the sequence and
+        every per-step lock (pitch, velocity, pan, macro, FX mask, cycle divider, sample
+        window, filter, ratchet, send), living marks with their intervals and current
+        transforms, the track filter, transpose, length, rate, mute, the FX chain and its
+        bypass, and the voice-macro position with its randomised directions.
+
+        Deep-copied, so the two tracks share nothing afterwards — re-assigning the engine,
+        generating a new sequence or editing any step on one cannot reach the other. The
+        SAMPLE buffer lives in the engine and is duplicated there (`/ph/smpcopy`); the
+        controller only owns the state below.
+        """
+        if not (0 <= src < N_TRACKS and 0 <= dst < N_TRACKS) or src == dst:
+            return False
+        self.tracks[dst] = copy.deepcopy(self.tracks[src])
+        self.track_fx[dst] = list(self.track_fx[src])
+        self.fx_bypass[dst] = self.fx_bypass[src]
+        self.voice_macro[dst] = self.voice_macro[src]
+        self.voice_dir[dst] = dict(self.voice_dir[src])
+        # HEAT is a live overlay owned by a snapshot taken when it engaged, and the clone is
+        # not in that snapshot — carrying its marks across would leave cells no toggle-off
+        # could restore. The clone gets the steps as they were underneath.
+        d = self.tracks[dst]
+        for c in range(N_STEPS):
+            if d.step_heat[c]:
+                self._revert_living_cell(dst, c)
+                d.step_heat[c] = False
+                d.step_living[c] = False
+                d.step_active[c] = False
+                d.step_lbase[c] = None
+        return True
+
     # -- transpose ---------------------------------------------------------- #
     def transpose_track(self, track: int, delta: int) -> int:
         """Shift a whole sequence by semitones (Shift + jog). Returns the new total, -24..+24.
