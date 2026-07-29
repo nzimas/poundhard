@@ -40,6 +40,24 @@ if ! pgrep -f "$PH/bin/sclang" >/dev/null 2>&1; then
     nohup sh "$PH/run-engine.sh" > "$LOGS/stack_engine.log" 2>&1 &
 fi
 
+# CSOUND (engine 20): its own JACK client, feeding supernova's inputs 3-34. Launched from
+# HERE rather than from run-engine.sh, which runs under `set -e` and exits on the first
+# non-zero command — so the launch at its tail was simply never reached and engine 20 came
+# up silent with nothing in the log to explain it. Waits for supernova's ports to exist,
+# since there is nothing to connect to before that.
+if [ -x "$PH/run-csound.sh" ]; then
+    (
+        i=0
+        while [ $i -lt 90 ]; do
+            pgrep -x supernova >/dev/null 2>&1 && break
+            pgrep -x scsynth   >/dev/null 2>&1 && break
+            i=$((i+1)); sleep 1
+        done
+        sleep 3                      # let the server finish registering its input ports
+        sh "$PH/run-csound.sh"
+    ) > "$LOGS/csound_start.log" 2>&1 &
+fi
+
 # Suspend-detection flag (mirrors RNBO): mark that shadow JACK is up.
 echo 1 > /data/UserData/schwung/jack_running 2>/dev/null
 

@@ -81,9 +81,3 @@ for p in $(pgrep -f "jackd -R") $(pgrep -f "$PH/bin/scsynth") $(pgrep -f "$PH/bi
     echo "[engine] $(cat /proc/$p/comm 2>/dev/null) sched: $(chrt -p $p 2>/dev/null | tr '\n' ' ')"
 done
 
-# CSOUND (engine 20) — its own JACK client, feeding supernova's inputs 3-34. Started AFTER
-# the server so its ports exist to connect to. A failure here is not fatal: every other
-# engine keeps working, only Csound tracks go silent.
-if [ -x "$PH/run-csound.sh" ]; then
-    "$PH/run-csound.sh" || echo "[engine] csound engine unavailable (see logs/csound.log)"
-fi

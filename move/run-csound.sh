@@ -33,10 +33,15 @@ export LD_LIBRARY_PATH=$CS/lib:$PH/lib
 export PATH=$CS/bin:$PH/bin:$PATH
 
 # already running? (idempotent — the stack launcher may be re-run)
-# Match the PROCESS NAME, not the command line: a -f match also hits the shell that holds
-# the same arguments, so a leftover wrapper made this guard report "already running" and
-# Csound was never restarted.
-pgrep -x csound >/dev/null 2>&1 && { echo "[csound] already running"; exit 0; }
+# NEVER trust an existing instance. Csound loses its JACK client when jackd restarts but
+# the process can linger, and a lingering one is worthless: it holds no ports and makes no
+# sound. Treating it as "already running" is exactly how the engine came back silent after
+# a restart, so any instance is replaced rather than adopted.
+if pgrep -x csound >/dev/null 2>&1; then
+    echo "[csound] replacing an existing instance"
+    killall -9 csound 2>/dev/null
+    sleep 1
+fi
 
 [ -f "$CS/orc/ph-engine.orc" ] || { echo "[csound] no orchestra at $CS/orc — not installed"; exit 1; }
 
@@ -71,7 +76,13 @@ sleep 1
 if "$CS/bin/ph-jackconnect" poundhard_cs 3 supernova 3 32; then
     echo "[csound] track pairs wired into supernova inputs 3-34"
 else
-    echo "[csound] WARNING: some connections failed — see above"
+    # A partial wiring is worse than none: some tracks sound and others are mysteriously
+    # silent. Retry once — the usual cause is connecting before supernova's ports settle.
+    echo "[csound] connect failed, retrying once"
+    sleep 2
+    "$CS/bin/ph-jackconnect" poundhard_cs 3 supernova 3 32 \
+        && echo "[csound] track pairs wired on retry" \
+        || echo "[csound] WARNING: engine 20 will be silent — connections failed"
 fi
 
 # Keep Csound off the display core (3) and out of the way of the SC DSP threads.
