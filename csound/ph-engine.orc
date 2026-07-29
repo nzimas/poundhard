@@ -1,0 +1,409 @@
+; PoundHard — the CSOUND engine (engine 20), realtime.
+;
+; Csound runs as its own JACK client and writes ONE STEREO PAIR PER TRACK into
+; supernova's input ports. An SC voice reads that pair straight onto the track bus, so a
+; Csound track goes through PoundHard's per-track filter, its 8-slot FX chain, the
+; living-FX sends, the mixer and the master exactly like every other engine. Nothing here
+; talks to the hardware.
+;
+; CONTRACT — every architecture takes the same p-fields, so the controller can treat them
+; interchangeably and a track's "sound" is just (architecture, eight macro values):
+;   p4  track index 0-15   (output pair = channels 3+2*track, 4+2*track)
+;   p5  frequency (Hz)
+;   p6  amplitude 0-2
+;   p7..p14   eight macro parameters, each normalised 0-1
+;
+; The macros mean something different in each architecture — that is the point. They are
+; the eight knobs the rest of PoundHard already knows how to sweep, randomise and lock per
+; step, so the Csound engine gets the voice macro, the chaos macro and living-step
+; transforms for free.
+;
+; DESIGN. Not one synthesis method with variations: ten architectures, each a hybrid of
+; generators and processors wired as one instrument rather than a synth with effects bolted
+; on. The palette leans metallic, inharmonic, granular and unstable — IDM, rhythmic noise,
+; industrial and electroacoustic textures — and avoids anything that reads as a vintage
+; analogue emulation. Digital artefacts (aliasing, quantisation, feedback on the edge of
+; blowing up) are used deliberately, and bounded so they stay musical.
+
+sr      = 44100
+ksmps   = 64
+0dbfs   = 1
+
+; ---- tables ---------------------------------------------------------------------------
+giSine    ftgen 0, 0, 16384, 10, 1
+giTri     ftgen 0, 0, 16384, 10, 1, 0, 0.111, 0, 0.04, 0, 0.02
+; an inharmonic, metallic partial set — the engine's house timbre
+giBell    ftgen 0, 0, 16384, 10, 1, 0.4, 0.7, 0.2, 0.55, 0.15, 0.3, 0.1, 0.25
+; a deliberately bright, aliasing-prone table for phase distortion and waveshaping
+giSaw     ftgen 0, 0, 16384, 10, 1, 0.5, 0.333, 0.25, 0.2, 0.167, 0.143, 0.125, 0.111, 0.1
+; Chebyshev transfer function for waveshaping (distort/powershape partner)
+giCheb    ftgen 0, 0, 16384, 13, 1, 1, 0, 1, 0, 0.6, 0, 0.4, 0, 0.25
+; grain envelope: a short, asymmetric window keeps clouds gritty rather than smooth
+giGrEnv   ftgen 0, 0, 8192, 20, 6, 1
+; a frozen block of uniform noise. Read back by a phasor it becomes PERIODIC noise — the
+; metallic, looping grain of a shift register, and unlike a live generator it repeats
+; exactly, so it locks to the pulse instead of hissing over it.
+giNoiseT  ftgen 0, 0, 4096, 21, 1
+; PADsynth: a spectrally-smeared, inharmonic wavetable built once at load
+giPad     ftgen 0, 0, 262144, "padsynth", 220, 40, 1.6, 1, 1.2, 1, 0.6, 0.9, 0.3, 0.7, 0.2
+
+; ---- helpers --------------------------------------------------------------------------
+; A per-note random modulator: every hit lands somewhere slightly different, which is what
+; keeps a repeated step from sounding like a sample.
+opcode PhJit, k, kk
+  kdepth, krate xin
+  kj   jitter kdepth, krate * 0.4, krate * 2.2
+  xout kj
+endop
+
+; Stereo imaging from ONE mono source: a short Haas offset plus opposed spectral tilt.
+; Cheaper and less mushy than a reverb, and it keeps the transient centred.
+opcode PhWide, aa, ak
+  ain, kw xin
+  adl  vdelay3 ain, kw * 11, 24
+  aL   =  ain * (1 - kw * 0.35) + adl * (kw * 0.55)
+  aR   =  ain * (1 - kw * 0.15) - adl * (kw * 0.35)
+  aLh  butterhp aL, 120 + kw * 200
+  aRl  butterlp aR, 9000 - kw * 3000
+  xout aL * 0.7 + aLh * 0.3, aR * 0.7 + aRl * 0.3
+endop
+
+; A small feedback delay network: four irrational-ratio taps, cross-fed. Used INSIDE the
+; voices as a resonant body, not as a reverb hung off the end.
+opcode PhFDN, aa, akk
+  ain, ktime, kfb xin
+  aL   init 0
+  aR   init 0
+  ad1  vdelay3 ain + aL * kfb * 0.7, ktime * 1000, 500
+  ad2  vdelay3 ain + aR * kfb * 0.7, ktime * 1414, 500
+  ad3  vdelay3 ad1 * 0.6 + ad2 * 0.4, ktime * 1732, 500
+  ad4  vdelay3 ad2 * 0.6 - ad1 * 0.4, ktime * 2236, 500
+  aL   =  butterlp(ad1 + ad3, 6500)
+  aR   =  butterlp(ad2 + ad4, 6500)
+  xout aL, aR
+endop
+
+; NOISE, tamed. `fractalnoise` at a high beta is a random WALK: it wanders off DC and its
+; RMS keeps growing, so a voice built on it drifts louder the longer it runs and its level
+; depends on beta. DC-block it, then hold it to a fixed RMS against a white reference — now
+; beta changes the COLOUR and nothing else.
+opcode PhNoise, a, kk
+  kamp, kbeta xin
+  araw  fractalnoise 1, kbeta
+  adc   dcblock2 araw
+  aref  rand 0.5
+  anrm  balance adc, aref
+  xout  anrm * kamp * 2
+endop
+
+; CHAOS. Feedback FM: an oscillator phase-modulated by its OWN previous sample. Below a
+; threshold it is a harmonic timbre; above it the loop period-doubles and then breaks into
+; genuine chaos — the industrial route to noise that still tracks pitch. setksmps 1 is what
+; makes it real: at block rate the feedback is 64 samples stale and the route to chaos is
+; lost. tanh bounds the loop so it can never run away. (Csound's own `lorenz` NaNs in this
+; build at every step size and argument order tried, so the attractor is built here.)
+opcode PhChaos, a, akk
+  ain, kfreq, kfb xin
+  setksmps 1
+  aprev init 0
+  aph   phasor kfreq
+  aval  tablei aph + tanh(aprev * kfb) * 0.5, giSine, 1, 0, 1
+  aprev =  aval + ain * 0.3
+  xout  aval
+endop
+
+; The one exit point. Every architecture ends here: shared safety (DC, limiting, the
+; amplitude envelope's tail) and the per-track channel routing live in exactly one place.
+opcode PhOut, 0, aaii
+  aL, aR, itrack, ichan xin
+  aLd  dcblock2 aL
+  aRd  dcblock2 aR
+  aLc  clip aLd, 0, 0.95
+  aRc  clip aRd, 0, 0.95
+       outch ichan, aLc, ichan + 1, aRc
+endop
+
+; ---- the keep-alive -------------------------------------------------------------------
+; Every note arrives over UDP as a $-prefixed score event, so the score itself holds
+; nothing but this: one instrument running for a century, purely so the performance never
+; ends. Without it Csound reaches the end of its score and exits.
+instr 999
+endin
+
+; =======================================================================================
+; 11 — FMMETAL. Phase modulation with deliberately inharmonic ratios into a waveshaper and
+; a modal resonator: struck-metal timbres that are pitched but never harmonic.
+; =======================================================================================
+instr 11
+  itrack = p4
+  ichan  = itrack * 2 + 3
+  ifq    = p5
+  kenv   transegr p6, 0.002, 0, p6, 0.1 + p7 * 2.5, -4 - p8 * 6, 0
+  kratio = 1.41 + p9 * 5.6                      ; irrational by default -> inharmonic
+  kindex = (0.5 + p10 * 9) * kenv               ; index tracks the envelope: bright attack
+  kdet   PhJit 0.02 + p11 * 0.1, 3 + p12 * 9
+  amod   poscil kindex * ifq, ifq * kratio * (1 + kdet), giSine
+  ; TRUE phase modulation: the modulator is added to the carrier's phase ramp, not to its
+  ; frequency. poscil's phase input is i-rate only, so the phasor is written out.
+  aphs   phasor ifq
+  acar   tablei aphs + amod / sr, giSine, 1, 0, 1
+  ash    powershape acar, 1 + p13 * 6
+  awv    distort1 ash, p13 * 2.5, 0.2 + p13 * 0.5, 0, 0
+  amod2  mode awv, ifq * (1.7 + p9 * 3), 8 + p14 * 300
+  amod3  mode awv, ifq * (3.1 + p9 * 5), 6 + p14 * 200
+  knorm  = 1 / (1 + p14 * 8)                     ; the resonators' gain rides on their Q
+  amix   = (awv * (1 - p14 * 0.5) + (amod2 * 0.5 + amod3 * 0.35) * knorm) * kenv
+  aL, aR PhWide amix, 0.2 + p11 * 0.7
+  iTrim  = 0.070  ; peak-matched: measured raw, then scaled to ~0.6 (the limiter catches excursions)
+  PhOut aL * iTrim, aR * iTrim, itrack, ichan
+endin
+
+; =======================================================================================
+; 12 — GRANCLOUDS. Granular over the inharmonic wavetable, spectrally blurred, then thrown
+; through the FDN. Grain rate and pitch scatter are the two knobs that matter.
+; =======================================================================================
+instr 12
+  itrack = p4
+  ichan  = itrack * 2 + 3
+  ifq    = p5
+  kenv   transegr p6, 0.005 + p7 * 0.2, 1, p6, 0.2 + p7 * 3, -3, 0
+  kdens  = 8 + p8 * 900
+  kspred = p9 * 0.9
+  kpitch PhJit p10 * 0.5, 2 + p11 * 12
+  ;      cps  phs  freq-dev       phase-dev  grain dur           density  maxovr  wave    window  frpow prpow
+  agr    grain3 ifq, 0, kspred * 400, kpitch, 0.004 + p12 * 0.09, kdens, 40, giBell, giGrEnv, 0, 0
+  fsig   pvsanal agr, 1024, 256, 1024, 1
+  fblur  pvsblur fsig, 0.02 + p13 * 0.4, 0.5
+  fsc    pvscale fblur, 1 + p14 * 0.5
+  ares   pvsynth fsc
+  amix   = (agr * (1 - p13 * 0.6) + ares * (0.4 + p13 * 0.9)) * kenv * 0.5
+  adL, adR PhFDN amix, 0.02 + p12 * 0.1, p11 * 0.6
+  aL     = amix * 0.6 + adL * 0.5
+  aR     = amix * 0.6 + adR * 0.5
+  iTrim  = 0.725  ; peak-matched: measured raw, then scaled to ~0.6 (the limiter catches excursions)
+  PhOut aL * iTrim, aR * iTrim, itrack, ichan
+endin
+
+; =======================================================================================
+; 13 — MODALSTRIKE. A noise burst driving a bank of six detuned modes. Pure resonator
+; synthesis: the excitation is gone in milliseconds and the body is the whole sound.
+; =======================================================================================
+instr 13
+  itrack = p4
+  ichan  = itrack * 2 + 3
+  ifq    = p5
+  kexc   transegr 1, 0.0005 + p7 * 0.02, -6, 0
+  anoise PhNoise 1, 0.5 + p8 * 1.8
+  aexc   = anoise * kexc * p6
+  kq     = 20 + p9 * 900
+  kspr   = 1 + p10 * 2.4                        ; how far the modes fan out
+  a1     mode aexc, ifq, kq
+  a2     mode aexc, ifq * (1.5 * kspr), kq * 0.8
+  a3     mode aexc, ifq * (2.31 * kspr), kq * 0.65
+  a4     mode aexc, ifq * (3.87 * kspr), kq * 0.5
+  a5     mode aexc, ifq * (5.19 * kspr), kq * 0.4
+  a6     mode aexc, ifq * (7.41 * kspr), kq * 0.3
+  ; mode's gain is PROPORTIONAL TO Q, so a bank at Q=900 is ~20x a bank at Q=20 and no
+  ; fixed output trim can level the two. Normalise against Q here instead.
+  knorm  = 1 / (1 + kq * 0.15)     ; measured: mode's gain is ~Q/7
+  amix   = (a1 + a2 * 0.8 + a3 * 0.6 + a4 * 0.45 + a5 * 0.3 + a6 * 0.2) * knorm
+  ash    powershape amix * (1 + p11 * 3), 1 + p11 * 4
+  kring  = 40 + p12 * 3000
+  arm    poscil 1, kring, giSine
+  amod   = ash * (1 - p12 * 0.7) + ash * arm * (p12 * 0.9)
+  kbody  transegr p6, 0.01, 0, p6, 0.3 + p13 * 4, -3, 0
+  aL, aR PhWide amod * kbody * 0.4, 0.15 + p14 * 0.8
+  iTrim  = 0.005  ; peak-matched: measured raw, then scaled to ~0.6 (the limiter catches excursions)
+  PhOut aL * iTrim, aR * iTrim, itrack, ichan
+endin
+
+; =======================================================================================
+; 14 — CHAOSDRONE. A Lorenz attractor as the audio source, tamed by a resonant filter and
+; ring-modulated. Unstable by construction; the envelope is what makes it a hit.
+; =======================================================================================
+instr 14
+  itrack = p4
+  ichan  = itrack * 2 + 3
+  ifq    = p5
+  kenv   transegr p6, 0.004, 0, p6, 0.15 + p7 * 3.5, -3, 0
+  kfb    = 0.5 + p8 * 7.5                        ; below ~1.5 harmonic, above it chaotic
+  anz    PhNoise 0.05 * p9, 1.4                  ; a little noise into the loop keeps it moving
+  achaos PhChaos anz, ifq, kfb
+  asrc   = achaos * 0.7
+  kcf    PhJit 0.4, 0.5 + p10 * 8
+  kcut   = ifq * (1 + p11 * 7) * (1 + kcf * 0.5)
+  aflt   moogladder asrc, kcut, 0.2 + p12 * 0.72
+  arm    poscil 1, ifq * (0.5 + p13 * 4), giSine
+  amod   = aflt * (1 - p13 * 0.6) + aflt * arm * (p13 * 0.8)
+  areal, aimag hilbert amod
+  ashm   poscil 1, p14 * 400, giSine
+  ashc   poscil 1, p14 * 400, giSine, 0.25
+  ashift = areal * ashc - aimag * ashm           ; frequency shifter: inharmonic smear
+  amix   = (amod * (1 - p14) + ashift * p14) * kenv
+  aL, aR PhWide amix, 0.3 + p9 * 0.6
+  iTrim  = 3.500  ; peak-matched: measured raw, then scaled to ~0.6 (the limiter catches excursions)
+  PhOut aL * iTrim, aR * iTrim, itrack, ichan
+endin
+
+; =======================================================================================
+; 15 — WAVEGUIDE. Plucked/bowed waveguide models pushed past their polite range, into a
+; feedback delay network that acts as the instrument's body.
+; =======================================================================================
+instr 15
+  itrack = p4
+  ichan  = itrack * 2 + 3
+  ifq    = p5
+  kenv   transegr p6, 0.002, 0, p6, 0.2 + p7 * 3, -3.5, 0
+  apl    repluck 0.1 + p8 * 0.85, 1, ifq, 0.1 + p9 * 0.8, 0.5, \
+                 PhNoise(0.6, 1 + p10 * 1.5)
+  abw    wgbow 0.4, ifq * (1 + p11 * 0.02), 1.5 + p11 * 3, 0.1 + p12 * 0.8, \
+               0.05 + p9 * 0.4, 6 + p10 * 8
+  amix   = apl * (1 - p13) + abw * p13
+  ash    distort1 amix, p14 * 3, 0.3, 0, 0
+  adL, adR PhFDN ash * 0.5, 0.004 + p12 * 0.06, 0.3 + p14 * 0.55
+  aL     = (ash * 0.5 + adL * 0.7) * kenv
+  aR     = (ash * 0.5 + adR * 0.7) * kenv
+  iTrim  = 0.790  ; peak-matched: measured raw, then scaled to ~0.6 (the limiter catches excursions)
+  PhOut aL * iTrim, aR * iTrim, itrack, ichan
+endin
+
+; =======================================================================================
+; 16 — SPECTRAL. Generate wide, then rebuild it in the frequency domain: analysis, warping
+; and resynthesis are the instrument. Where the electroacoustic textures come from.
+; =======================================================================================
+instr 16
+  itrack = p4
+  ichan  = itrack * 2 + 3
+  ifq    = p5
+  kenv   transegr p6, 0.01 + p7 * 0.3, 1, p6, 0.3 + p7 * 3, -2.5, 0
+  abuz   gbuzz 0.4, ifq, 6 + p8 * 30, 1, 0.4 + p9 * 0.55, giSine
+  anz    PhNoise 0.25 * p10, 1.2
+  asrc   = abuz + anz
+  fsig   pvsanal asrc, 1024, 256, 1024, 1
+  fsc    pvscale fsig, 0.5 + p11 * 2.5, 1, 1
+  fbl    pvsblur fsc, 0.01 + p12 * 0.35, 0.4
+  fmo    pvsmooth fbl, 0.02 + p13 * 0.6, 0.02 + p13 * 0.6
+  ares   pvsynth fmo
+  kcut   = 200 + p14 * 9000
+  aflt   zdf_2pole ares, kcut, 0.5 + p12 * 4, 0
+  amix   = aflt * kenv * 0.8
+  aL, aR PhWide amix, 0.4 + p9 * 0.5
+  iTrim  = 2.496  ; peak-matched: measured raw, then scaled to ~0.6 (the limiter catches excursions)
+  PhOut aL * iTrim, aR * iTrim, itrack, ichan
+endin
+
+; =======================================================================================
+; 17 — PHASEDIST. Phase distortion and hard waveshaping — the digital-artefact architecture.
+; Aliasing here is the instrument, not a defect, so it is shaped rather than suppressed.
+; =======================================================================================
+instr 17
+  itrack = p4
+  ichan  = itrack * 2 + 3
+  ifq    = p5
+  kenv   transegr p6, 0.001, 0, p6, 0.06 + p7 * 1.6, -5, 0
+  aph    phasor ifq
+  kbend  = 0.05 + p8 * 0.9                       ; where the phase ramp breaks
+  ; The two-segment phase warp, written BRANCHLESS — Csound has no a-rate conditional, and
+  ; min/max reproduce the break point exactly: below it the first term is the whole value,
+  ; above it the first term saturates at 0.5 and the second takes over.
+  abend  = a(kbend)                              ; min/max need matching rates
+  azero  = a(0)
+  awarp  = min(aph, abend) / (2 * kbend) + max(aph - abend, azero) / (2 * (1 - kbend))
+  aosc   tablei awarp, giSaw, 1, 0, 1
+  kfold  = 1 + p9 * 12
+  afold  = tanh(aosc * kfold) / tanh(kfold)
+  acheb  chebyshevpoly afold, 0, 1, p10 * 0.9, p10 * 0.5, p11 * 0.6
+  kq     = 1 + p12 * 20
+  ares   streson acheb, ifq * (1 + p13 * 3), 0.6 + p12 * 0.35
+  kbits  = 16 - p14 * 13
+  astep  = floor(ares * (2 ^ kbits)) / (2 ^ kbits)   ; deliberate quantisation artefacts
+  amix   = (ares * (1 - p14) + astep * p14) * kenv * 0.5
+  aL, aR PhWide amix, 0.2 + p10 * 0.6
+  iTrim  = 0.457  ; peak-matched: measured raw, then scaled to ~0.6 (the limiter catches excursions)
+  PhOut aL * iTrim, aR * iTrim, itrack, ichan
+endin
+
+; =======================================================================================
+; 18 — NOISEMACHINE. The rhythmic-noise architecture: correlated noise sources through
+; steep dynamic filters, gated hard. Pitch is a filter centre, not an oscillator.
+; =======================================================================================
+instr 18
+  itrack = p4
+  ichan  = itrack * 2 + 3
+  ifq    = p5
+  kenv   transegr p6, 0.0005, 0, p6, 0.03 + p7 * 0.9, -6 - p8 * 4, 0
+  afr    PhNoise 0.7, 0.2 + p9 * 2.2             ; beta sweeps white -> brown
+  aph    phasor 40 + p10 * 3000                  ; periodic noise: metallic, pitched grit
+  alf    tablei aph, giNoiseT, 1, 0, 1
+  asrc   = afr * (1 - p11) + alf * p11
+  kgl    PhJit 0.5, 1 + p12 * 20
+  kcut   = ifq * (1 + p13 * 6) * (1 + kgl * 0.6)
+  a1     zdf_2pole asrc, kcut, 2 + p12 * 12, 0
+  a2     zdf_2pole asrc, kcut * 2.7, 3 + p12 * 14, 2
+  amix   = a1 * 0.7 + a2 * 0.5
+  ash    distort1 amix, 1 + p14 * 5, 0.4, 0, 0
+  agate  = ash * kenv
+  adL, adR PhFDN agate * 0.35, 0.003 + p13 * 0.03, p14 * 0.5
+  aL     = agate + adL * 0.5
+  aR     = agate + adR * 0.5
+  iTrim  = 0.066  ; peak-matched: measured raw, then scaled to ~0.6 (the limiter catches excursions)
+  PhOut aL * iTrim, aR * iTrim, itrack, ichan
+endin
+
+; =======================================================================================
+; 19 — ADDITIVE. Sixteen partials on an inharmonic series, each with its own decay and a
+; slow random walk — the evolving-texture architecture.
+; =======================================================================================
+instr 19
+  itrack = p4
+  ichan  = itrack * 2 + 3
+  ifq    = p5
+  kenv   transegr p6, 0.004 + p7 * 0.2, 1, p6, 0.4 + p7 * 4, -2.5, 0
+  kstr   = 1 + p8 * 1.6                          ; partial stretch: 1 = harmonic
+  kwalk  PhJit p9 * 0.03, 0.2 + p10 * 2
+  ; written out rather than looped: each partial keeps its OWN decay rate, which is what
+  ; makes the spectrum evolve instead of just fading
+  a1  poscil 1.00, ifq * (1 * kstr) * (1 + kwalk), giSine
+  a2  poscil 0.70, ifq * (2.03 * kstr) * (1 + kwalk * 1.2), giSine
+  a3  poscil 0.52, ifq * (3.11 * kstr), giSine
+  a4  poscil 0.40, ifq * (4.22 * kstr) * (1 + kwalk * 0.8), giSine
+  a5  poscil 0.32, ifq * (5.37 * kstr), giSine
+  a6  poscil 0.26, ifq * (6.55 * kstr) * (1 + kwalk * 1.4), giSine
+  a7  poscil 0.21, ifq * (7.76 * kstr), giSine
+  a8  poscil 0.17, ifq * (9.01 * kstr) * (1 + kwalk), giSine
+  k1  transegr 1, 0.3 + p11 * 3.0, -2, 0
+  k2  transegr 1, 0.25 + p11 * 2.2, -3, 0
+  k3  transegr 1, 0.2 + p11 * 1.6, -3.5, 0
+  k4  transegr 1, 0.15 + p11 * 1.1, -4, 0
+  amix = (a1 * k1 + a2 * k2 + a3 * k3 + a4 * k4 + a5 * k1 * 0.6 \
+          + a6 * k2 * 0.5 + a7 * k3 * 0.4 + a8 * k4 * 0.3) * 0.25
+  ash  powershape amix, 1 + p12 * 3
+  kcut = 300 + p13 * 9000
+  aflt butterlp ash, kcut
+  aL, aR PhWide aflt * kenv, 0.3 + p14 * 0.6
+  iTrim  = 3.366  ; peak-matched: measured raw, then scaled to ~0.6 (the limiter catches excursions)
+  PhOut aL * iTrim, aR * iTrim, itrack, ichan
+endin
+
+; =======================================================================================
+; 20 — PADWAVE. The PADsynth table (spectrally smeared, inharmonic) read as a wavetable,
+; cross-modulated with itself and diffused. Wide, evolving, synthetic.
+; =======================================================================================
+instr 20
+  itrack = p4
+  ichan  = itrack * 2 + 3
+  ifq    = p5
+  kenv   transegr p6, 0.01 + p7 * 0.4, 1, p6, 0.3 + p7 * 4, -2, 0
+  kdet   PhJit 0.01 + p8 * 0.06, 0.3 + p9 * 3
+  a1     poscil 0.5, ifq * (1 + kdet), giPad
+  a2     poscil 0.5, ifq * (1 - kdet) * (1 + p10 * 0.01), giPad
+  axm    poscil 1, ifq * (0.5 + p11 * 3.5), giSine
+  across = (a1 + a2) * (1 - p12 * 0.7) + (a1 * axm + a2) * (p12 * 0.9)
+  kcut   = 400 + p13 * 8000
+  aflt   zdf_2pole across, kcut, 0.7 + p13 * 3, 0
+  adL, adR PhFDN aflt * 0.4, 0.03 + p14 * 0.12, 0.4 + p14 * 0.45
+  aL     = (aflt * 0.6 + adL * 0.8) * kenv
+  aR     = (aflt * 0.6 + adR * 0.8) * kenv
+  iTrim  = 2.673  ; peak-matched: measured raw, then scaled to ~0.6 (the limiter catches excursions)
+  PhOut aL * iTrim, aR * iTrim, itrack, ichan
+endin

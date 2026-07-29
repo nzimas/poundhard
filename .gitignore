@@ -19,3 +19,6 @@ logs/
 ipc/
 share/status.json
 share/control.json
+
+# the unpacked Csound bundle — the tracked artefact is the tarball beside it
+move/bundle/csound/
