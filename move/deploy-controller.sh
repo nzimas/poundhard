@@ -43,7 +43,23 @@ scp "$HERE/run-engine.sh" "$HERE/run-controller.sh" "$HERE/run-stack.sh" "$HERE/
 # the CSOUND engine's orchestra — code, not runtime, so it ships with the controller
 ssh "root@$HOST" "mkdir -p $DEST/csound/orc"
 scp "$HERE/../csound/ph-engine.orc" "root@$HOST:$DEST/csound/orc/"
-ssh "root@$HOST" "chmod +x $DEST/run-*.sh $DEST/stop-stack.sh; chown -R ableton:users $DEST"
+# Chown ONLY what this script ships. `chown -R ableton:users $DEST` used to run here, and
+# chown CLEARS file capabilities — so deploying the controller silently stripped cap_sys_nice
+# off jackd, which then ran SCHED_OTHER, which meant libjack could not promote supernova's
+# callback either. The whole audio chain quietly dropped out of realtime and XRan, with
+# nothing in this script's output to say so.
+ssh "root@$HOST" "
+  chmod +x $DEST/run-*.sh $DEST/stop-stack.sh
+  chown ableton:users $DEST/run-*.sh $DEST/stop-stack.sh
+  chown -R ableton:users $DEST/controller $DEST/sc $DEST/csound/orc
+  # belt and braces: re-assert the RT capabilities every deploy, so they can never be
+  # missing after one, whatever else touched these files.
+  setcap cap_ipc_lock,cap_sys_nice,cap_sys_resource=eip $DEST/bin/scsynth
+  setcap cap_ipc_lock,cap_sys_nice,cap_sys_resource=eip $DEST/bin/supernova
+  setcap cap_ipc_lock,cap_sys_nice=eip $DEST/bin/jackd
+  [ -x $DEST/csound/bin/csound ] && setcap cap_ipc_lock,cap_sys_nice=eip $DEST/csound/bin/csound
+  getcap $DEST/bin/jackd $DEST/bin/supernova $DEST/csound/bin/csound
+"
 # Re-grant scsynth RT caps AFTER chown (chown clears file capabilities). Harmless
 # if the bundle isn't there yet (deploy-bundle.sh sets them too).
 ssh "root@$HOST" "setcap cap_ipc_lock,cap_sys_nice,cap_sys_resource=eip $DEST/bin/scsynth 2>/dev/null; getcap $DEST/bin/scsynth 2>/dev/null || true"

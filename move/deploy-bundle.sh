@@ -68,6 +68,9 @@ if [ -f "$CSBUNDLE" ]; then
     chmod +x $DEST/csound/bin/csound $DEST/csound/bin/ph-jackconnect
     # Csound joins the realtime graph beside jackd and supernova and needs the same
     # privileges, or its JACK callback runs at normal priority and XRuns the whole graph.
+    # Csound's binaries are RPATH'd to this short symlink, because a capability-carrying
+    # binary never sees LD_LIBRARY_PATH (see build-csound.sh).
+    ln -sfn $DEST/csound/lib /data/UserData/pcslib
     setcap cap_ipc_lock,cap_sys_nice=eip $DEST/csound/bin/csound
     getcap $DEST/csound/bin/csound
   "

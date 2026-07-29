@@ -33,7 +33,10 @@ export LD_LIBRARY_PATH=$CS/lib:$PH/lib
 export PATH=$CS/bin:$PH/bin:$PATH
 
 # already running? (idempotent — the stack launcher may be re-run)
-pgrep -f "jack_client=poundhard_cs" >/dev/null 2>&1 && { echo "[csound] already running"; exit 0; }
+# Match the PROCESS NAME, not the command line: a -f match also hits the shell that holds
+# the same arguments, so a leftover wrapper made this guard report "already running" and
+# Csound was never restarted.
+pgrep -x csound >/dev/null 2>&1 && { echo "[csound] already running"; exit 0; }
 
 [ -f "$CS/orc/ph-engine.orc" ] || { echo "[csound] no orchestra at $CS/orc — not installed"; exit 1; }
 

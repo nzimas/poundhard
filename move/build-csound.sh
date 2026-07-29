@@ -97,6 +97,23 @@ CSRC
 gcc -O2 -o /out/bin/ph-jackconnect /tmp/phjc.c -ljack
 echo "--- ph-jackconnect built"
 
+# RPATH. Csound carries RT capabilities on the device (it joins the realtime graph beside
+# jackd and supernova), and glibc runs a capability-carrying binary in secure-execution
+# mode where LD_LIBRARY_PATH is DISCARDED. Without a baked-in path Csound cannot find
+# libcsound64 at all — it is a straight choice between "starts" and "runs realtime", and
+# an RPATH is how you get both. Same trick, and the same short symlink, as the SC bundle.
+# DT_RPATH (not RUNPATH): RPATH propagates to transitively-loaded libraries, RUNPATH
+# does not, and the opcode plugins are dlopened.
+apt-get install -y -qq patchelf >/dev/null 2>&1
+for f in /out/bin/csound /out/lib/*.so* /out/plugins/*.so; do
+  # BOTH paths: pcslib is Csound's own lib dir, phlib is PoundHard's — librtjack.so needs
+  # libjack from there, and libjack is deliberately NOT vendored into the Csound bundle
+  # (it must be the same build the running jackd speaks). Miss it and the JACK module
+  # silently fails to load, which surfaces as "could not connect to JACK server".
+  patchelf --force-rpath --set-rpath /data/UserData/pcslib:/data/UserData/phlib "$f" 2>/dev/null || true
+done
+echo "--- rpath on csound: $(patchelf --print-rpath /out/bin/csound)"
+
 echo "--- csound:"; /out/bin/csound --version 2>&1 | head -n 2
 echo "--- plugins: $(ls /out/plugins | wc -l)"
 echo "--- realtime modules:"; ls /out/plugins | grep -E '^librt|^libvirtual'
