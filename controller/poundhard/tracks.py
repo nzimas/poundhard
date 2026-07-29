@@ -67,6 +67,25 @@ DRUM_TRACKS = 6            # tracks 0..5 are DRUM; 6..15 are the other generator
 UNDO_LEVELS = 20           # depth of the global undo stack (discrete actions)
 
 
+def _step_field_defaults() -> tuple[tuple[str, ...], dict]:
+    """Every per-step field on Track, and the value one slot holds by default.
+
+    Read off a pristine Track rather than written out by hand — the single source of truth
+    for "what does an empty step look like", used by clear_step and clear_pattern.
+    """
+    from dataclasses import fields as _fields
+    proto = Track()
+    names, defaults = [], {}
+    for f in _fields(Track):
+        if not f.name.startswith("step_"):
+            continue
+        val = getattr(proto, f.name)
+        if isinstance(val, list) and len(val) == N_STEPS:
+            names.append(f.name)
+            defaults[f.name] = val[0]
+    return tuple(names), defaults
+
+
 def _clamp_note(n: int) -> int:
     return max(0, min(127, int(n)))
 
@@ -233,6 +252,9 @@ class Track:
 _FX_LAYOUT = 2
 _FX_V1_TO_V2 = {0: 0, 1: 1, 2: 2, 3: 3, 5: 4, 6: 5, 7: 6}   # 4 (FLNG) no longer exists
 
+
+
+_STEP_FIELDS_ALL, _STEP_DEFAULTS = _step_field_defaults()
 
 class Project:
     def __init__(self) -> None:
@@ -976,7 +998,25 @@ class Project:
     def toggle_step(self, track: int, cell: int) -> int:
         tr = self.tracks[track]
         tr.pattern[cell] ^= 1
+        if tr.pattern[cell] == 0:
+            self.clear_step(track, cell)     # a deleted step leaves nothing behind
         return tr.pattern[cell]
+
+    def clear_step(self, track: int, cell: int) -> None:
+        """Reset one step slot to the track's defaults — EVERYTHING it held.
+
+        Deleting a step used to remove only the hit, leaving its pitch, velocity, pan,
+        macro, FX mask, cycle divider, filter, sample window, ratchet, send and living
+        mark sitting in the slot. Drawing a new step there inherited all of it, which is
+        both surprising and impossible to undo by hand.
+
+        The field list is derived from the dataclass defaults rather than written out, so
+        a per-step parameter added later is cleared here automatically instead of quietly
+        becoming the next instance of this bug.
+        """
+        tr = self.tracks[track]
+        for name in _STEP_FIELDS_ALL:
+            getattr(tr, name)[cell] = _STEP_DEFAULTS[name]
 
     def toggle_mute(self, track: int) -> bool:
         self.tracks[track].muted = not self.tracks[track].muted
@@ -1050,16 +1090,13 @@ class Project:
         return self.set_scale(root, name)
 
     def clear_pattern(self, track: int) -> None:
+        # Same story as clear_step, one slot at a time: the hand-written list here missed
+        # the living marks, the macro locks, ratchets, sends and transform overrides, so a
+        # cleared pattern was not actually empty.
         tr = self.tracks[track]
         tr.pattern = [0] * N_STEPS
-        tr.step_note = [None] * N_STEPS
-        tr.step_vel = [None] * N_STEPS
-        tr.step_pan = [None] * N_STEPS
-        tr.step_fx = [-1] * N_STEPS
-        tr.step_cycle = [1] * N_STEPS
-        tr.step_start = [None] * N_STEPS
-        tr.step_end = [None] * N_STEPS
-        tr.step_filt = [None] * N_STEPS
+        for cell in range(N_STEPS):
+            self.clear_step(track, cell)
 
     def eff_start(self, track: int, cell: int) -> float:
         tr = self.tracks[track]

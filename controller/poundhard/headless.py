@@ -251,6 +251,11 @@ class Controller:
         self.bridge.stepratchet(t, c, tr.step_ratchet[c])
         self.bridge.stepsend(t, c, tr.step_send[c])
 
+    def _clear_engine_cell(self, t: int, c: int) -> None:
+        """Wipe one step slot in the engine — the mirror of Project.clear_step."""
+        self.bridge.clearcell(t, c)
+        self.bridge.stepmacro(t, c, [])
+
     def _reset_engine_cell(self, t: int, c: int) -> None:
         """Reset a cell in the engine to its plain, untransformed state (after unmarking)."""
         tr = self.state.tracks[t]
@@ -859,22 +864,28 @@ class Controller:
             cell = int(p.get("cell", arg))
             on = 1 if int(p.get("on", 0)) else 0
             if 0 <= t < N_TRACKS and 0 <= cell < N_STEPS:
+                was = st.tracks[t].pattern[cell]
                 st.tracks[t].pattern[cell] = on
+                if on == 0 and was:            # deleting a step empties its whole slot
+                    st.clear_step(t, cell)
+                    self._clear_engine_cell(t, cell)
                 self.bridge.stepset(t, cell, on)
         elif cmd == "steptoggle":              # legacy relative toggle
             t = int(p.get("track", st.edit_track))
             cell = int(p.get("cell", arg))
             if 0 <= t < N_TRACKS and 0 <= cell < N_STEPS:
-                on = st.toggle_step(t, cell)
+                on = st.toggle_step(t, cell)   # clears the slot itself when it turns off
+                if on == 0:
+                    self._clear_engine_cell(t, cell)
                 self.bridge.stepset(t, cell, on)
         elif cmd == "clearpat":
             t = int(arg)
             if 0 <= t < N_TRACKS:
                 st.clear_pattern(t)
                 self.bridge.pattern(t, st.tracks[t].pattern)
-                for c in range(N_STEPS):        # drop the per-step FX locks + cycle dividers
-                    self.bridge.stepfx(t, c, -1)
-                    self.bridge.stepcycle(t, c, 1)
+                self.bridge.clearlocks(t)       # every lock, not just fx + cycle
+                for c in range(N_STEPS):
+                    self.bridge.stepmacro(t, c, [])
         elif cmd == "run":
             st.running = bool(int(arg))
             self.bridge.run(st.running)

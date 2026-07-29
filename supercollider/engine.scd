@@ -814,6 +814,20 @@
 				\vMix, m[4].asFloat, \vRoom, m[5].asFloat, \vDamp, m[6].asFloat);
 		};
 	}, '/ph/livingfx'),
+	// /ph/clearcell <track> <cell>: wipe ONE step slot's locks. Deleting a step has to leave
+	// nothing behind, and pushing the track's current defaults into the slot instead would
+	// leave a real lock there that merely happens to match — it would stop following the
+	// track the moment its note or filter changed.
+	OSCdef(\phClearCell, { |m|
+		var t = m[1].asInteger.clip(0, ~nTracks - 1);
+		var c = m[2].asInteger.clip(0, ~maxSteps - 1);
+		var before = ~stepFxNeed.(t);
+		~stepNote[t][c] = nil; ~stepVel[t][c] = nil; ~stepPan[t][c] = nil;
+		~stepMacro[t][c] = nil; ~stepRatchet[t][c] = 1; ~stepSend[t][c] = 0;
+		~stepStart[t][c] = nil; ~stepEnd[t][c] = nil; ~stepCycle[t][c] = 1;
+		~stepFilt[t][c] = nil; ~stepFx[t][c] = -1;
+		(~stepFxNeed.(t) != before).if { ~rebuildFx.(t) };
+	}, '/ph/clearcell'),
 	OSCdef(\phClearLocks, { |m|                     // wipe all per-step locks for a track (pattern load)
 		var t = m[1].asInteger.clip(0, ~nTracks - 1);
 		~maxSteps.do { |c|
