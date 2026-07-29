@@ -32,9 +32,11 @@ export PH_THREADS="${PH_THREADS:-3}"
 # Engine config (44.1k = the Move shadow rate; mono-in/stereo-out).
 export PH_SR=44100
 export PH_CHANNELS=2
-# INPUTS: 2 (microphone) + 32 (the CSOUND engine's 16 stereo track returns over JACK).
+# INPUTS: 2 (microphone) + 32 (the CSOUND engine's 16 stereo track returns) + 2 more,
+# the engine's AUDITION pair — the palette pad has to be able to make a sound on a track
+# that does not exist yet.
 # The extra ports cost nothing when no track uses the engine.
-export PH_INPUTS=34
+export PH_INPUTS=36
 export PH_BLOCK=128                 # match the shadow JACK period (128)
 # Telemetry / handshake target = the local headless controller.
 export CONTROLLER_HOST=127.0.0.1

@@ -497,8 +497,10 @@ living-FX sends, mute, solo and the master all apply. Measured on the device: a 
 highpass on the track filter drops a Csound track by **31 dB**, and muting it gives digital
 silence — it is genuinely inside the signal path, not mixed in beside it.
 
-Notes fire as `$`-prefixed score events over Csound's UDP port. supernova boots with 34
-input channels: 1-2 are the microphone, 3-34 are the 16 stereo returns. The runtime is a
+Notes fire as `$`-prefixed score events over Csound's UDP port. supernova boots with 36
+input channels: 1-2 are the microphone, 3-34 are the 16 stereo returns, and 35-36 are the
+audition pair the palette pad plays through — the engine has to be able to make a sound on
+a track that does not exist yet. The runtime is a
 second bundle (`move/build-csound.sh`) — the Csound previously on the device was an offline
 build with no JACK module, able to render the SAMPLE mangler's files and nothing else.
 

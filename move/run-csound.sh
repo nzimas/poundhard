@@ -8,8 +8,9 @@
 # engine — which is the whole reason for wiring it this way instead of letting Csound talk
 # to the hardware.
 #
-# CHANNEL MAP. supernova boots with 34 inputs: 1-2 are the microphone (untouched), 3-34
-# are the 16 Csound track pairs. Csound's own channels 1-2 are dead — its JACK module
+# CHANNEL MAP. supernova boots with 36 inputs: 1-2 are the microphone (untouched), 3-34
+# are the 16 Csound track pairs, and 35-36 are the AUDITION pair ("track 16") the palette
+# pad plays through. Csound's own channels 1-2 are dead — its JACK module
 # auto-connects the first two to the hardware playback ports and there is no flag to stop
 # it, so they are left silent and the tracks start at channel 3.
 #
@@ -56,7 +57,7 @@ echo "[csound] starting (jack client 'poundhard_cs', UDP 11000)"
 csound \
   -+rtaudio=jack -odac -+jack_client=poundhard_cs \
   -+jack_outportname=output_ \
-  -b128 -B1024 --sample-rate=44100 --nchnls=34 \
+  -b128 -B1024 --sample-rate=44100 --nchnls=36 \
   --port=11000 --nodisplays -d -m0 \
   "$CS/orc/ph-engine.orc" "$CS/orc/ph-run.sco" </dev/null > "$CSLOG" 2>&1 &
 CSPID=$!
@@ -73,14 +74,14 @@ done
 sleep 1
 
 # 32 channels: csound output_3..34 -> supernova input_3..34
-if "$CS/bin/ph-jackconnect" poundhard_cs 3 supernova 3 32; then
-    echo "[csound] track pairs wired into supernova inputs 3-34"
+if "$CS/bin/ph-jackconnect" poundhard_cs 3 supernova 3 34; then
+    echo "[csound] track pairs + audition wired into supernova inputs 3-36"
 else
     # A partial wiring is worse than none: some tracks sound and others are mysteriously
     # silent. Retry once — the usual cause is connecting before supernova's ports settle.
     echo "[csound] connect failed, retrying once"
     sleep 2
-    "$CS/bin/ph-jackconnect" poundhard_cs 3 supernova 3 32 \
+    "$CS/bin/ph-jackconnect" poundhard_cs 3 supernova 3 34 \
         && echo "[csound] track pairs wired on retry" \
         || echo "[csound] WARNING: engine 20 will be silent — connections failed"
 fi

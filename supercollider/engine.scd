@@ -293,6 +293,22 @@
 	~csVoice[t];
 };
 ~csFree = { |t| ~csVoice[t].notNil.if { ~csVoice[t].free; ~csVoice[t] = nil } };
+// AUDITION. The palette pad must make a sound on a track that does not exist yet, so the
+// engine keeps a 17th stereo pair ("track 16", supernova inputs 35-36) purely for preview,
+// carried to the MASTER bus rather than a track bus. Without this, auditioning the Csound
+// engine spawned a passthrough with no note behind it and was silent every time — which is
+// exactly what trying out a new engine looks like.
+~csPrevVoice = nil;
+~csPrevEnsure = {
+	((~ready == true) and: { ~csPrevVoice.isNil }).if {
+		var syn = Synth.tail(~gSharedVoices, \phCsound,
+			[\out, ~masterBus.index, \in, 2 + (2 * 16), \amp, 0.9, \pan, 0.0]);
+		syn.register;
+		syn.onFree({ ~csPrevVoice = nil });
+		~csPrevVoice = syn;
+	};
+	~csPrevVoice;
+};
 // Fire one note. A $-prefixed line on Csound's UDP port is a score event (a bare line is
 // compiled as orchestra code and errors; `&` is silently ignored) — this is the whole
 // note path, so it has to be exactly right.
@@ -584,6 +600,17 @@
 			var def = (typeIdx == 0).if(
 				{ ~drumDefs[mode.clip(0, 6)] },
 				{ ~typeDefs[typeIdx.clip(0, ~typeDefs.size - 1)] });
+			(def == \phCsound).if({
+				// CSOUND audition: nothing spawns — fire the note at Csound on the preview
+				// pair and make sure the carrier voice exists to bring it back in.
+				var pd = IdentityDictionary.new, j = 0;
+				while { j < pairs.size } { pd[pairs[j]] = pairs[j + 1]; j = j + 2 };
+				~csPrevEnsure.value;
+				~csPrevVoice.notNil.if {
+					~csPrevVoice.set(\amp, 0.9 * vv);
+					~csHit.(16, nn, vv, pd, (pd[\dur] ? 0.9));
+				};
+			}, {
 			(def == \phWtable).if({
 				// WTABLE audition: wt1/wt2 are sprite selectors, not synth args. Load
 				// them into the preview slots, strip them from the args, then spawn once
@@ -641,6 +668,7 @@
 							{ [\buf, ~smpPad.notNil.if({ ~smpPad.bufnum }, { ~silentBuf.bufnum })] }, { [] })
 						++ pairs, ~gSharedVoices);
 				});
+			});
 			});
 		};
 	}, '/ph/preview'),
