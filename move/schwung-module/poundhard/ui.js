@@ -169,6 +169,7 @@ let chaosPos = 0.5;
 let patView = false, projView = false;
 let patFilled = new Array(N_STEPS).fill(false), patCur = -1, patPending = -1;
 let projFilled = new Array(N_STEPS).fill(false);
+let projCur = -1;                   /* which project is LOADED (-1 = none) */
 let autoSave = false;               /* an autosave recovery file exists (Shift+Menu restores) */
 /* RECORDER view (Shift + Track3): 8 pads = 8 recording slots. */
 let recView = false;
@@ -401,7 +402,13 @@ function renderLEDs() {
                 else if (c === recSlot && recState === 'tail') color = (phase % 20 < 10) ? 28 : 66;      /* amber: capturing tail */
                 else if (c === recSlot && recState === 'armed') color = (phase % 30 < 15) ? 28 : Black;   /* amber blink */
                 else color = recSlots[c] ? BrightGreen : 124;       /* green = has a take / dark-grey empty */
-            } else if (projView) color = projFilled[c] ? 16 : 95;   /* RoyalBlue filled / DarkBlue empty */
+            } else if (projView) {
+                /* THE LOADED PROJECT is white and breathing — every other slot is flat
+                 * blue, so which one you are in reads at a glance and from across the
+                 * room, without opening anything. */
+                if (c === projCur) color = trackPulseOn(0) ? White : 118;
+                else color = projFilled[c] ? 16 : 95;               /* RoyalBlue filled / DarkBlue empty */
+            }
             else if (c === patPending) color = trackPulseOn(0) ? White : 50;  /* queued: pulse periwinkle */
             /* current slot: White when it holds a pattern, LightGrey when it's an empty
              * slot you've SELECTED as the destination for the next generate/write. */
@@ -667,8 +674,9 @@ function drawSlots() {
     if (projView) {
         var np = 0; for (var i = 0; i < 32; i++) np += projFilled[i] ? 1 : 0;
         print(0, 6, 'PROJECTS', 2);
-        print(0, 30, np + '/32 saved', 1);
-        print(0, 44, 'tap=load  shift+pad=save', 1);
+        print(0, 30, np + '/32 saved' + (projCur >= 0 ? ('   IN ' + (projCur + 1)) : '   unsaved'), 1);
+        print(0, 44, projCur >= 0 ? 'tap=load  shift+pad=save'
+                                  : 'not saved yet - shift+pad', 1);
         print(0, 56, autoSave ? 'sh+Menu = restore autosave' : 'autosave: none yet', 1);
     } else {
         var n = 0; for (var j = 0; j < 32; j++) n += patFilled[j] ? 1 : 0;
@@ -794,6 +802,7 @@ function readStatus() {
     kitName = s.kit || '';
     if (Array.isArray(s.patFilled)) patFilled = s.patFilled;
     if (Array.isArray(s.projFilled)) projFilled = s.projFilled;
+    if (s.projCur != null) projCur = s.projCur;
     if (s.autoSave != null) autoSave = !!s.autoSave;
     if (s.heat != null && !heatHeld) heatOn = !!s.heat;             /* don't fight a live toggle */
     if (s.shuffle != null && !shufHeld) shufOn = !!s.shuffle;
@@ -921,6 +930,7 @@ globalThis.init = function () {
     seqBeats = 0; lastPulseMs = 0; wasRunning = false; lastStepCol = new Array(N_TRACKS).fill(-1);
     patView = false; projView = false; patCur = -1; patPending = -1;
     patFilled = new Array(N_STEPS).fill(false); projFilled = new Array(N_STEPS).fill(false);
+    projCur = -1;
     recView = false; recSlots = new Array(8).fill(false); recSlot = -1; recState = 'idle'; recElapsed = 0;
     solo = -1; lastTapAt = new Array(N_TRACKS).fill(0);
 };

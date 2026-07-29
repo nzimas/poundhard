@@ -91,6 +91,7 @@ class Controller:
         self.bridge.on_amp = self._on_amp      # master level while recording -> ends the tail
         self._quiet_since: float | None = None
         self._proj_slots = [False] * N_PATTERNS  # which project files exist on disk (cached)
+        self._proj_cur = -1                      # which project slot is LOADED (-1 = none)
         self._dirty = False                      # state changed since the last autosave
         self._autosaved = False                  # a recovery file exists (for the UI)
         # SAMPLE engine capture lifecycle: idle -> armed -> recording -> processing -> ready.
@@ -125,7 +126,15 @@ class Controller:
         from . import webserver
         webserver.serve(WEB_PORT, RECORDINGS_DIR, N_RECORDINGS)
         # Fresh session: all 16 tracks start EMPTY (no engine, silent) — the user
-        # builds a rig by assigning engines from the palette. Stopped, no patterns.
+        # builds a rig by assigning engines from the palette.
+        #
+        # But there is ALWAYS a pattern. PoundHard used to open with no pattern at all and
+        # `pattern_cur = -1`, so the pattern view showed 32 dead slots and the first thing
+        # you had to do was save one before anything could be written down. Slot 1 is
+        # seeded with the empty machine and made current, so whatever you play, generate or
+        # assign lands somewhere from the first press — and is carried into a project when
+        # you save one, because saving folds the live state into its own slot first.
+        self.state.save_pattern(0)
         self._autosaved = AUTOSAVE_FILE.exists()
         self.bridge.start(on_ready=self._on_ready)
         for fn in (self._control_loop, self._status_loop, self._handshake_loop,
@@ -389,6 +398,7 @@ class Controller:
             tmp.write_text(json.dumps(self.state.project_to_dict()))
             tmp.replace(path)
             self._proj_slots[slot] = True
+            self._proj_cur = slot                # saving makes it the project you are in
         except OSError:
             pass
 
@@ -428,6 +438,10 @@ class Controller:
             return
         self.state.pattern_pending = -1
         self.state.project_from_dict(d)
+        # a project with no patterns is still a project you have to be able to work in
+        if all(p is None for p in self.state.patterns):
+            self.state.save_pattern(0)
+        self._proj_cur = slot                    # this is the project you are now in
         self._push_all()
 
     # -- performance recording --------------------------------------------- #
@@ -1036,6 +1050,7 @@ class Controller:
             "patCur": st.pattern_cur,
             "patPending": st.pattern_pending,
             "projFilled": list(self._proj_slots),
+            "projCur": self._proj_cur,           # which project is loaded (-1 = none)
             "autoSave": self._autosaved,       # a recovery file exists (Shift+Menu restores it)
             "heat": self._heat_on,             # HEAT macro engaged
             "heatPct": round(self._heat_pct, 3),

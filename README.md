@@ -541,6 +541,19 @@ the very threads waiting on it, which is where the XRuns came from. The runtime 
 second bundle (`move/build-csound.sh`) — the Csound previously on the device was an offline
 build with no JACK module, able to render the SAMPLE mangler's files and nothing else.
 
+#### There is always a pattern
+
+PoundHard opens with **pattern 1 already live**, even with no project loaded. It used to
+open on nothing — 32 dead slots and `no current pattern` — so the first thing you had to do
+was save an empty pattern before any of the work could be written down.
+
+That startup pattern is a real one: assign engines, draw or generate steps, set parameters,
+and it all lands in slot 1 from the first press. When you eventually **save a project**, the
+live state is folded into its own slot first, so the temporary pattern and everything in it
+becomes pattern 1 of that project — nothing is lost in the transition from "just playing"
+to "this is a piece". Loading a project that somehow contains no patterns seeds one the
+same way, so there is no route back to a blank state.
+
 #### Copying a track
 
 **Hold Copy, press the track you want, then press where you want it.** The clone lands
@@ -857,12 +870,20 @@ Patterns are **entirely self-contained** — loading one restores the whole mach
 **Menu** opens the project view — the same 32-slot grid for whole projects,
 which persist to disk.
 
+**The project you are in is white and breathing**, against the flat blue of every other
+slot, and the screen names it (`IN 7`) or says `unsaved` when you have not saved yet. Every
+slot used to look identical, so the only way to find out which project was loaded was to
+load one and see what happened.
+
 | Control | Action |
 |---|---|
 | **Shift + pad** | save the whole project to that slot |
 | **Pad — tap** | load that project (restores every pattern and the live state) |
 | **Shift + Menu** | restore the **autosave** recovery file (see below) |
 | **Knob 1** | tempo of the selected pattern |
+
+The highlight follows both loading *and* saving: saving to a slot puts you **in** that
+project, so a fresh piece stops being "unsaved" the moment you write it down.
 
 | Control | Action |
 |---|---|
