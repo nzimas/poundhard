@@ -12,7 +12,23 @@
 // SAMPLER. Output is stereo (the Move shadow-JACK sink is 2ch).
 ~buildDefs = { |nchan = 2|
 	~spread = { |sig, pan = 0| Pan2.ar(sig, pan.clip(-1, 1)) };
-	~killbad = { |sig| LeakDC.ar(sig).clip2(4) };
+	// STEAL ENVELOPE. The per-track voice cap steals the oldest voice when a new hit needs a
+// slot, and it did that with `.free` — destroying the node instantly, wherever its envelope
+// happened to be. On a short percussive voice that is inaudible. On a long resonator it is a
+// step straight to zero, i.e. a CLICK, on EVERY hit: a RINGS track with a 2.9 s decay and a
+// hit every 0.5 s needs eight overlapping voices and is allowed three, so five are cut mid-
+// ring per bar. Feed that into a granular delay and a reverb and it reads as bursts of
+// crackle rather than as one click, which is exactly how it was reported.
+//
+// `\steal.kr(1)` is a NamedControl: it declares a `steal` control on whichever SynthDef this
+// is called from, so every voice gains one without editing them one by one. The cull sets it
+// to 0 and the voice fades over 25 ms and frees itself. The voice's own doneAction still
+// stands, so a voice that is never stolen frees exactly as before.
+~voiceOut = { |out, sig|
+	Out.ar(out, sig * EnvGen.kr(Env.asr(0, 1, 0.025, \sin), \steal.kr(1), doneAction: 2));
+};
+
+~killbad = { |sig| LeakDC.ar(sig).clip2(4) };
 
 	// STK rawwave path: the STK physical-model UGens (ModalBar / BandedWG / etc.) load
 	// excitation wavetables (e.g. marmstk1.raw) from this directory. Run once at boot
@@ -75,7 +91,7 @@
 			sig = Select.ar((downsample.clip(0, 1) > 0.01), [sig, Latch.ar(sig, Impulse.ar(dsr))]);
 			sig = LeakDC.ar(sig) * v * amp;
 			Line.kr(0, 1, ampDecay.clip(0.004, 4).max(noiseDecay.clip(0.004, 3)) + 0.25, doneAction: 2);
-			Out.ar(out, ~killbad.(~spread.(sig, pan)));
+			~voiceOut.(out, ~killbad.(~spread.(sig, pan)));
 		}).add;
 	};
 	~mkDrum.(\phDrumKick, { |e|
@@ -163,7 +179,7 @@
 		sig = LPF.ar(sig, fcut);
 		sig = LeakDC.ar(sig) * v * amp * 0.5;
 		Line.kr(0, 1, attack.clip(0.0005, 2) + decay.clip(0.01, 8) + 0.2, doneAction: 2);
-		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+		~voiceOut.(out, ~killbad.(~spread.(sig, pan)));
 	}).add;
 
 	// ================= BUCHLOID (complex osc, self-freeing) =================
@@ -189,7 +205,7 @@
 		sig = RLPF.ar(sig, fc, (1 - (res.clip(0, 1) * 0.9)).clip(0.05, 1));
 		sig = LeakDC.ar(sig) * v * amp * 0.6;
 		Line.kr(0, 1, attack.clip(0.001, 4) + decay.clip(0.01, 8) + 0.2, doneAction: 2);
-		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+		~voiceOut.(out, ~killbad.(~spread.(sig, pan)));
 	}).add;
 
 	// ================= SAMPLER (slice, self-freeing) =================
@@ -224,7 +240,7 @@
 		sig = (sig * (1 + (drive.clip(0.1, 4) * 3))).tanh;
 		sig = LeakDC.ar(sig) * aEnv * v * amp * 0.6 * (hasBuf.asInteger);
 		Line.kr(0, 1, attack.clip(0.0005, 2) + decay.clip(0.005, 6) + 0.2, doneAction: 2);
-		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+		~voiceOut.(out, ~killbad.(~spread.(sig, pan)));
 	}).add;
 
 	// ================= MOLLY (Molly-the-Poly analogue voice, gate-triggered) =====
@@ -277,7 +293,7 @@
 		cho = Mix(DelayC.ar(sig, 0.06, LFNoise2.kr([0.5, 0.7]).range(0.004, 0.02))) * 0.7;
 		sig = XFade2.ar(sig, cho, (chorus * 2 - 1)) * amp * v;
 		Line.kr(0, 1, glen + aRel.clip(0.001, 8) + 0.15, doneAction: 2);
-		Out.ar(out, ~killbad.(~spread.(LeakDC.ar(sig), pan)));
+		~voiceOut.(out, ~killbad.(~spread.(LeakDC.ar(sig), pan)));
 	}).add;
 
 	// ================= RINGS (Mutable Instruments resonator, gate-triggered) =====
@@ -309,7 +325,7 @@
 			var aEnv = EnvGen.ar(Env([0, 1, 1, 0], [0.004, life, rel], [0, 0, -3]));
 			var s = LeakDC.ar(mono) * aEnv * v * amp * 0.9;
 			Line.kr(0, 1, life + rel + 0.15, doneAction: 2);
-			Out.ar(out, ~killbad.(~spread.(s, pan)));   // Pan2 mono -> stereo; robust, live-settable pan
+			~voiceOut.(out, ~killbad.(~spread.(s, pan)));   // Pan2 mono -> stereo; robust, live-settable pan
 		}).add;
 
 	// ----- PLAITS: the real MiPlaits UGen (v7b1/mi-UGens) -------------------
@@ -358,7 +374,7 @@
 			Env.new([0, 1, 1, 0], [atk, (life - atk - rel).max(0.02), rel], [\sin, \lin, \sin]),
 			doneAction: 2);
 		var s = LeakDC.ar(mono) * trim * amp * aEnv;
-		Out.ar(out, ~killbad.(~spread.(s, pan)));
+		~voiceOut.(out, ~killbad.(~spread.(s, pan)));
 	}).add;
 
 	// ================= BEN — Benjolin (Rob Hordijk) chaotic generative voice ==========
@@ -411,7 +427,7 @@
 		aEnv = EnvGen.ar(Env([0, 1, 1, 0], [0.004, (life - 0.12).max(0.02), 0.12], [0, 0, -3]));
 		sig = LeakDC.ar(sig) * aEnv * v * amp;
 		Line.kr(0, 1, life + 0.2, doneAction: 2);
-		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+		~voiceOut.(out, ~killbad.(~spread.(sig, pan)));
 	}).add;
 
 	// ----- NOIZEOP: faithful port of deeg's NoizeOp Norns engine ------------
@@ -468,7 +484,7 @@
 		aEnv = EnvGen.ar(Env([0, 1, 1, 0], [0.004, (life - 0.12).max(0.02), 0.12], [0, 0, -3]));
 		sig = LeakDC.ar(sig) * aEnv * v * amp;
 		Line.kr(0, 1, life + 0.2, doneAction: 2);
-		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+		~voiceOut.(out, ~killbad.(~spread.(sig, pan)));
 	}).add;
 
 	// ----- ICARUS: faithful port of schollz's Icarus Norns engine -----------
@@ -524,7 +540,7 @@
 		snd = Mix.ar([Pan2.ar(snd[0], -1 + (2 * pan.clip(-1, 1)), 1), Pan2.ar(snd[1], 1 + (2 * pan.clip(-1, 1)), 1)]);
 		snd = snd * v * amp * gain.max(0.01);
 		Line.kr(0, 1, life, doneAction: 2);
-		Out.ar(out, ~killbad.(snd));
+		~voiceOut.(out, ~killbad.(snd));
 	}).add;
 
 	// ================= SHAKER — STK Shakers (sc3-plugins), self-freeing ==============
@@ -543,7 +559,7 @@
 			decay.clip(0, 128), objects.clip(0, 128), rf);
 		sig = sig * aEnv * v * amp * 4.5;    // STK Shakers output is low — bring it up to engine level
 		Line.kr(0, 1, atk + (dec * 1.5) + 0.3, doneAction: 2);
-		Out.ar(out, ~killbad.(~spread.(LeakDC.ar(sig), pan)));
+		~voiceOut.(out, ~killbad.(~spread.(LeakDC.ar(sig), pan)));
 	}).add;
 
 	// ================= MEMBRANE — 2D waveguide struck membrane (sc3-plugins) =========
@@ -561,7 +577,7 @@
 		sig = LeakDC.ar(sig) * v * amp * 2.0;
 		DetectSilence.ar(sig, 0.0003, 0.15, doneAction: 2);
 		Line.kr(0, 1, 8.0, doneAction: 2);
-		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+		~voiceOut.(out, ~killbad.(~spread.(sig, pan)));
 	}).add;
 
 	// ================= MALLET — STK ModalBar (sc3-plugins), self-freeing ============
@@ -580,7 +596,7 @@
 		sig = LeakDC.ar(sig) * aEnv * v * amp * 4.0;
 		DetectSilence.ar(sig, 0.0003, 0.1, doneAction: 2);
 		Line.kr(0, 1, decay.clip(0.05, 6) + 1.0, doneAction: 2);
-		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+		~voiceOut.(out, ~killbad.(~spread.(sig, pan)));
 	}).add;
 
 	// ================= BOWED — STK BandedWG (sc3-plugins), self-freeing =============
@@ -598,7 +614,7 @@
 		sig = LeakDC.ar(sig) * aEnv * v * amp * 4.0;
 		DetectSilence.ar(sig, 0.0003, 0.12, doneAction: 2);
 		Line.kr(0, 1, decay.clip(0.05, 8) + 1.5, doneAction: 2);
-		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+		~voiceOut.(out, ~killbad.(~spread.(sig, pan)));
 	}).add;
 
 	// ================= PLUCK — DWG plucked stiff string (sc3-plugins), self-freeing =====
@@ -616,7 +632,7 @@
 		sig = LeakDC.ar(sig) * v * amp * 1.5;
 		DetectSilence.ar(sig, 0.0003, 0.1, doneAction: 2);
 		Line.kr(0, 1, decay.clip(0.05, 8) + 2.0, doneAction: 2);
-		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+		~voiceOut.(out, ~killbad.(~spread.(sig, pan)));
 	}).add;
 
 	// ================= TUBE — TwoTube waveguide (sc3-plugins), self-freeing =============
@@ -637,7 +653,7 @@
 		sig = LeakDC.ar(sig) * aEnv * v * amp * 1.5;
 		DetectSilence.ar(sig, 0.0003, 0.12, doneAction: 2);
 		Line.kr(0, 1, decay.clip(0.05, 6) + 1.5, doneAction: 2);
-		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+		~voiceOut.(out, ~killbad.(~spread.(sig, pan)));
 	}).add;
 
 	// ================= CHAOS — chaotic-map oscillator (core UGens), self-freeing =========
@@ -663,7 +679,7 @@
 		sig = RLPF.ar(sig, cutoff.clip(40, 16000), (1 - (res.clip(0, 1) * 0.9)).clip(0.05, 1));
 		sig = LeakDC.ar(sig) * aEnv * v * amp * 2.8;   // chaotic maps have low RMS — bring up
 		Line.kr(0, 1, attack.clip(0.0005, 2) + decay.clip(0.01, 8) + 0.2, doneAction: 2);
-		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+		~voiceOut.(out, ~killbad.(~spread.(sig, pan)));
 	}).add;
 
 	// ================= WTABLE — Ableton Wavetable rebuild (uses Move's own sprites) =====
@@ -712,7 +728,7 @@
 			[RLPF.ar(sig, fcut, rq), BPF.ar(sig, fcut, rq), RHPF.ar(sig, fcut, rq)]);
 		sig = (sig * (1 + (drive.clip(0.1, 6) * 1.5))).tanh;
 		sig = LeakDC.ar(sig) * aEnv * v * amp * 1.4;
-		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+		~voiceOut.(out, ~killbad.(~spread.(sig, pan)));
 	}).add;
 
 	// ================= BYTEBEAT — midouest's ByteBeat UGen (real plugin) ================
@@ -788,7 +804,7 @@
 		sig = RLPF.ar(sig, cutoff.clip(60, 18000), rq);
 		sig = (sig * (1 + (drive.clip(0.1, 6) * 1.2))).tanh;
 		sig = LeakDC.ar(sig) * aEnv * v * amp * 1.3;
-		Out.ar(out, ~killbad.(~spread.(sig, pan)));
+		~voiceOut.(out, ~killbad.(~spread.(sig, pan)));
 	}).add;
 
 	// THRESHOLD CAPTURE: listens on a bus and only starts writing once the signal actually

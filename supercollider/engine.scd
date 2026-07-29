@@ -475,7 +475,11 @@
 			syn.register;
 			syn.onFree({ lst.remove(syn) });
 			lst.add(syn);
-			while ({ lst.size > ~maxPoly }) { lst.removeAt(0).free };
+			// Steal the oldest voice by RELEASING it, not destroying it. `.free` cut the
+			// node dead wherever its envelope was, which on a long resonator is a click on
+			// every hit (see ~voiceOut in synthdefs.scd). 25 ms is inaudible as a fade and
+			// still frees the slot well before the next hit needs it.
+			while ({ lst.size > ~maxPoly }) { lst.removeAt(0).set(\steal, 0) };
 		};
 	};
 };
