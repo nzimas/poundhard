@@ -897,25 +897,41 @@ SynthDef(\phCsound, { |out = 16, in = 2, amp = 0.85, pan = 0.0, gate = 1|
 //
 // Nothing here touches a track: the capture reads the master bus and the playback writes to
 // it, so the pattern, the tracks and the mixer are untouched by construction.
-SynthDef(\phChurnCap, { |in = 16, buf = 0, dur = 1.2|
+SynthDef(\phChurnCap, { |in = 0, buf = 0, dur = 1.2, gain = 0.4|
 	// Straight time-bounded capture — no threshold arming. Churn wants a slice of whatever
 	// is happening right now, including the quiet parts; waiting for a transient would only
 	// ever hand CDP the loud material and the ornaments would all sound like hits.
-	var sig = In.ar(in, 2).sum * 0.5;
+	//
+	// The gain is headroom, not taste. The buffer is written as int16, so anything at or
+	// over full scale is CLIPPED into the fragment itself and every transform downstream
+	// inherits it. A mix sitting on the limiter is exactly that, so the capture is taken
+	// well below it and the level is put back later by the controller's level-matching.
+	// It also has to survive the TRANSFORM: waveset multiply, bounce and the spectral
+	// resynths all come back louder than they went in, so the fragment needs room for that
+	// too, not just for the mix.
+	var sig = In.ar(in, 2).sum * 0.5 * gain;
 	RecordBuf.ar(sig, buf, loop: 0, doneAction: 2);
 	Line.kr(0, 1, dur, doneAction: 2);
 }).add;
 
-SynthDef(\phChurnVoice, { |out = 0, buf = 0, amp = 0.5, pan = 0, rate = 1, atk = 0.005, rel = 0.06|
+SynthDef(\phChurnVoice, { |out = 0, buf = 0, amp = 0.5, pan = 0, rate = 1, atk = 0.005, rel = 0.06, hp = 180|
 	// A transformed fragment, played once. The short fade at both ends is not cosmetic: CDP
 	// output starts and ends wherever the transform left it, and dropping that straight onto
 	// the master is a click — the same lesson as the voice-steal fix.
 	var frames = BufFrames.kr(buf);
 	var dur = (frames / BufSampleRate.kr(buf)) / rate.abs.max(0.05);
-	var sig = PlayBuf.ar(1, buf, rate * BufRateScale.kr(buf), doneAction: 2);
+	var raw = PlayBuf.ar(1, buf, rate * BufRateScale.kr(buf), doneAction: 2);
 	var env = EnvGen.ar(Env.new([0, 1, 1, 0], [atk, (dur - atk - rel).max(0.01), rel], \sin),
 		doneAction: 2);
-	Out.ar(out, ~killbad.(~spread.(sig * env * amp, pan)));
+	// An ornament has no business in the sub. Everything below `hp` is stripped: it is where
+	// the kick lives, so leaving it in both muddies the low end and hands the ornament a
+	// low-frequency blob to distort into. DC is removed for the same reason — CDP transforms
+	// can leave an offset, and an offset ornament eats headroom before it makes a sound.
+	var clean = HPF.ar(LeakDC.ar(raw), hp.clip(40, 800));
+	// and a ceiling of its own, so a hot ornament can never be what pushes the master into
+	// its limiter
+	var sig = (clean * env * amp).tanh * 0.9;
+	Out.ar(out, ~killbad.(~spread.(sig, pan)));
 }).add;
 
 SynthDef(\phTrackFilter, { |in = 16, out = 16, cutoff = 18000, res = 0.0, type = 0,

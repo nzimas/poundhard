@@ -161,7 +161,10 @@ def _w_average(j, src, out):
 # TIME / PITCH — varispeed and brassage. Keeps a recognisable relation to the source.
 def _t_speed(j, src, out):
     # away from 1.0 in either direction, but never so far the fragment stops being material
-    r = j.rng.choice([j.rng.uniform(0.4, 0.8), j.rng.uniform(1.25, 2.4)])
+    # The downward end is deliberately shallower than the upward one. Slowing a fragment
+    # that contains a kick drags an already low, already loud transient lower and longer,
+    # which is the farting blob rather than an ornament.
+    r = j.rng.choice([j.rng.uniform(0.65, 0.88), j.rng.uniform(1.25, 2.4)])
     return j.run("modify", "speed", "1", src, out, round(r, 4), out=out) and _ok(out)
 
 
@@ -265,6 +268,31 @@ def peak(path) -> float:
         return max(abs(v) for v in xs) / 32768.0
     except Exception:
         return 0.0
+
+
+def clipped(path, frac: float = 0.0008) -> bool:
+    """Is this file clipped? True if more than `frac` of its samples sit at full scale.
+
+    A CDP transform can be a big gain: waveset multiply, bounce and the spectral resynths
+    routinely come back louder than they went in, and the output is written as int16, so the
+    excess is not headroom lost — it is hard clipping baked into the file. On low-frequency
+    material, which on any normal pattern means the kick, that reads as a farting buzz.
+    Nothing downstream can undo it, so a clipped ornament is thrown away rather than played.
+    """
+    import struct
+    import wave
+    try:
+        w = wave.open(str(path))
+        n = min(w.getnframes(), 44100 * 4)
+        d = w.readframes(n)
+        w.close()
+        if not d:
+            return False
+        xs = struct.unpack("<%dh" % (len(d) // 2), d[:len(d) // 2 * 2])
+        hot = sum(1 for v in xs if v >= 32700 or v <= -32700)
+        return hot > max(8, len(xs) * frac)
+    except Exception:
+        return False
 
 
 def gaps(project, rng: random.Random | None = None) -> list[int]:

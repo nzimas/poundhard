@@ -420,6 +420,12 @@ class Controller:
                     continue
                 if churn.peak(out) < 0.004:        # and the transform can silence it too
                     continue
+                if churn.clipped(out):
+                    # A transform that came back clipped is distortion, not ornamentation,
+                    # and no amount of level-matching downstream can undo it.
+                    print("[poundhard] churn: discarded a clipped ornament (%s)" % desc,
+                          flush=True)
+                    continue
                 self.bridge.churnload(out, slot)
                 time.sleep(0.25)                 # let the buffer read land
                 # LEVEL-MATCH. CDP output ranges over tens of dB between transforms, so a
@@ -470,11 +476,12 @@ class Controller:
         amp = g * random.uniform(0.55, 0.95)
         pan = random.uniform(-0.85, 0.85)
         rate = random.choice((1.0, 1.0, 0.5, 2.0, 1.5))
+        hp = random.uniform(140.0, 320.0)          # keep every ornament out of the kick's way
 
         def fire():
-            self.bridge.churnplay(slot, amp, pan, rate)
-            print("[poundhard] churn PLAY slot %d step %d amp %.2f rate %.2g"
-                  % (slot + 1, step, amp, rate), flush=True)
+            self.bridge.churnplay(slot, amp, pan, rate, hp)
+            print("[poundhard] churn PLAY slot %d step %d amp %.2f rate %.2g hp %d"
+                  % (slot + 1, step, amp, rate, hp), flush=True)
             with self._churn_lock:
                 if self._churn_ready.get(slot, 0) > 0:
                     self._churn_ready[slot] -= 1

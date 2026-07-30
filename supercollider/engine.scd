@@ -913,14 +913,17 @@
 			var dur = (m[2] ? 1.2).asFloat.clip(0.2, 4.0);
 			~churnCapBuf.notNil.if { ~churnCapBuf.free };
 			~churnCapBuf = Buffer.alloc(s, (dur * s.sampleRate).asInteger, 1, { |b|
-				// HEAD OF ~gMaster, not ~gSend. The per-track sends that sum every track bus
-				// into the master are at the TAIL of ~gSend, so at its head the master bus
-				// still holds the zero ~gClear writes each block — the capture recorded
-				// digital silence, CDP faithfully transformed silence into silence, and
-				// Churn played silence. ~gMaster runs after the whole of ~gSend, so here the
-				// master is fully summed (and still pre-limiter).
-				var syn = Synth.head(~gMaster, \phChurnCap,
-					[\in, ~masterBus.index, \buf, b.bufnum, \dur, dur]);
+				// POST-LIMITER, on bus 0, in ~recGroup — exactly where the performance
+				// recorder taps. Two reasons, both learned the hard way:
+				//   * ~gSend's HEAD is before the per-track sends sum into the master, so the
+				//     bus still holds the zero ~gClear writes each block. That capture was
+				//     digital silence.
+				//   * ~gMaster's head is after the sum but BEFORE the limiter, where a dense
+				//     mix runs at or over full scale. Writing that to an int16 buffer clips
+				//     it, and clipped low-frequency material — a kick — is the farting buzz
+				//     that gets reported. Past the limiter the signal is bounded.
+				var syn = Synth.head(~recGroup, \phChurnCap,
+					[\in, 0, \buf, b.bufnum, \dur, dur]);
 				syn.register;
 				syn.onFree({
 					b.write(path, "wav", "int16", -1, 0, false,
@@ -949,7 +952,8 @@
 				\out, ~masterBus.index, \buf, ~churnBuf[slot].bufnum,
 				\amp, (m[2] ? 0.5).asFloat.clip(0, 2),
 				\pan, (m[3] ? 0).asFloat.clip(-1, 1),
-				\rate, (m[4] ? 1).asFloat.clip(0.25, 4)]);
+				\rate, (m[4] ? 1).asFloat.clip(0.25, 4),
+				\hp, (m[5] ? 180).asFloat.clip(40, 800)]);
 		};
 	}, '/ph/churnplay'),
 	// /ph/churnclear: toggling Churn off frees everything it made. Nothing else to undo —
