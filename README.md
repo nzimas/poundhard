@@ -118,6 +118,13 @@ runtime, so **Schwung is the only thing it needs on the device**.
 - **Transpose a sequence** from the jog wheel without disturbing anything else in it.
 - **A multimode filter on every track** (cutoff / resonance / LP-HP) that keeps its bass
   and its level as resonance rises — see [Track filter](#track-filter).
+- **Five non-destructive performance modifiers** on the bottom row — **HEAT**, **SHUFFLE**,
+  **QUAKE**, **CHURN** and **BREAK**. None of them edits a pattern: every one is an overlay
+  the engine plays instead, so a single sequence can evolve all night and switching them off
+  gives you back exactly what you programmed.
+- **Per-parameter step randomizers** — Shift + touch a control to animate that one
+  parameter (velocity, pan, pitch, macro, filter) while the rest of the sequence holds
+  still. See [Per-parameter step randomizers](#per-parameter-step-randomizers).
 - **Living steps** — mark steps (or hit **HEAT** for the whole rig) and they
   **transform themselves** as you play: ratchets, timbre lurches, pitch leaps, pan
   throws and per-step delay/reverb. A live-performance engine (see
@@ -458,7 +465,9 @@ the jog/knobs/cursors edit that track's settings — all in one place.
 | **Shift + bottom row** | add / remove that effect on every selected step |
 | **Shift + master knob touch + pad** | set that pad as the **last step** (polymeter, up to 16) |
 | **Shift + touch the volume knob + Track 1** | **generate a new sequence** for this track — rhythm, velocities, pans, pitches, cycle dividers and living steps (see [Generating a sequence](#generating-a-sequence)) |
-| **Shift + jog wheel** | **transpose the sequence**, one semitone per detent, ±24 (see [Transposing](#transposing)) |
+| **Shift + jog wheel — turn** | **transpose the sequence**, one semitone per detent, ±24 (see [Transposing](#transposing)) |
+| **Shift + jog wheel — touch** | toggle the **pitch randomizer**. Touch and turn are separate events, so this and the transpose above never collide (see [Per-parameter step randomizers](#per-parameter-step-randomizers)) |
+| **Shift + touch any knob** | toggle the **randomizer** for the parameter that knob edits — velocity, pan, macro, filter cutoff, resonance, sample window. Turning the knob still edits the value |
 | **Jog wheel** | track pitch (re-pitches ringing voices live) |
 | **Knob 1 / 2** | track volume / pan |
 | **Knob 3** | **voice macro** — one knob sweeps every timbral param of the voice, each in a random direction; the directions re-roll whenever the track's sound is regenerated |
@@ -1589,10 +1598,11 @@ command is dispatched until the engine reports ready.
 | steps | `stepset` / `steptoggle`, `steplock`, `stepmacro`, `stepfx` (per-step FX mask), `stepcycle` (fire every Nth repetition), `stepwindow` (per-step sample slice), `stepfilter` (per-step filter lock), `marklive` / `liveperiod` (living steps — the period is in PLAYS of the step, 1-8) |
 | clipboard | `stepcopy` / `steppaste`, `rowcopy` / `rowpaste`, `trackcopy` (the Copy-button gestures) |
 | generation | `stepgen` (a new sequence for one track, scale-aware) |
-| performance | `heat`, `shuffle`, `quake` (the three temporary overlays) |
+| performance | `heat`, `shuffle`, `quake`, `churn`, `break` + `breakint` (the five temporary overlays) |
+| randomizers | `steprand` (toggle one per-step parameter's randomizer), `randdebug` |
 | transpose | `transpose` (semitone offset for one track's sequence) |
 | FX | `fxassign`, `fxbypass`, `fxmacro`, `fxwet` |
-| macros | `heat` / `heatpct`, `shuffle`, `chaos` / `chaosreset` |
+| macros | `heat` / `heatpct`, `shuffle`, `quake`, `churn`, `break`, `chaos` / `chaosreset` |
 | patterns & projects | `savepat` / `loadpat`, `patdel`, `patcopy` / `patpaste` / `patclipclear`, `genvar`, `randpat`, `saveproj` / `loadproj`, `loadauto` |
 | transport & system | `run`, `editenter` / `editexit`, `recpad`, `undo`, `panic` |
 
@@ -1611,10 +1621,12 @@ and `stepFcut / stepFres / stepFtype` (the effective per-step filter), plus the 
 `scale` (`{root, name}`, or null until something pitched establishes it).
 
 Also the pattern/project state (`patFilled / patCur / patPending / projFilled`), the
-`autoSave` flag, the HEAT / SHUFFLE / chaos macro state (`heat / heatPct / shuffle /
-chaos`), the SAMPLE capture state (`smpState / smpSrc / smpChain`), the recorder
+`autoSave` flag, `projCur` (which project is loaded) and `canUndo / canRedo`, the five
+performance modifiers (`heat / heatPct / shuffle / quake / churn / brk / brkEvery / brkNow`)
+and the chaos macro (`chaos`), the SAMPLE capture state (`smpState / smpSrc / smpChain`), the recorder
 (`recState / recSlot / recSlots / recElapsed / recAmp`), and `clipStep / clipRow` — whether
-the Copy-gesture clipboard is holding a step or a row.
+the Copy-gesture clipboard is holding a step or a row. The edit block also carries `rand`,
+the list of per-step randomizers live on the open track.
 
 ### OSC (controller → engine, sclang langPort 57120)
 
@@ -1638,7 +1650,11 @@ carries nothing into the next step drawn there) ·
 `/ph/smparm t thresh` (arm the threshold capture) · `/ph/smpwrite \"path\"` · `/ph/smpload \"path\"` ·
 `/ph/smpassign t \"path\"` (give the track its OWN buffer, release the pad) ·
 `/ph/smpcopy src dst` (duplicate a track's sample buffer — a COPY, so the two tracks can
-diverge; what Copy-track sends) · back: `/ph/smprec`
+diverge; what Copy-track sends) ·
+`/ph/churncap "path" dur` (record `dur` seconds of the master POST-limiter and write a
+finalised WAV — the file appearing is the completion signal) ·
+`/ph/churnload "path" slot` · `/ph/churnplay slot amp pan rate hp` · `/ph/churnclear` ·
+back: `/ph/smprec`
 `/ph/smpdone` `/ph/smpwritten` `/ph/smpready` ·
 `/ph/mute` · `/ph/note` · `/ph/vel` · `/ph/length` · `/ph/rate` · `/ph/edittrack` ·
 `/ph/fxassign` · `/ph/fxbypass` · `/ph/fxset` · `/ph/fxclear` · `/ph/recstart "path"` ·
