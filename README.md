@@ -42,6 +42,7 @@ runtime, so **Schwung is the only thing it needs on the device**.
   - [Edit view](#edit-view-per-track)
     - [Cycle frequency](#cycle-frequency)
     - [CSOUND — engine 20](#csound--engine-20)
+    - [Per-parameter step randomizers](#per-parameter-step-randomizers)
     - [Copying a track](#copying-a-track)
     - [Generating a sequence](#generating-a-sequence)
     - [Transposing](#transposing)
@@ -558,6 +559,56 @@ live state is folded into its own slot first, so the temporary pattern and every
 becomes pattern 1 of that project — nothing is lost in the transition from "just playing"
 to "this is a piece". Loading a project that somehow contains no patterns seeds one the
 same way, so there is no route back to a blank state.
+
+#### Per-parameter step randomizers
+
+**Shift + touch a control** in the edit view toggles a randomizer for whatever per-step
+parameter that control edits. Each one is independent, stays on until you switch it off,
+and generates a fresh set of values **every pattern cycle**.
+
+| Touch (with Shift) | Randomizes |
+|---|---|
+| **Knob 1** | velocity |
+| **Knob 2** | pan |
+| **Knob 3** | voice macro |
+| **Knob 4 / 5** (SAMPLE tracks) | sample window start / end |
+| **Knob 4 / 5** (or 6 / 7 on SAMPLE) | filter cutoff / resonance |
+| **Jog wheel — touch** | pitch |
+
+Touch, not turn: the jog's touch and its turn are separate events, so **Shift + touching**
+the jog toggles the pitch randomizer while **Shift + turning** it still
+[transposes](#transposing). Turning any knob still edits its value as before.
+
+A big `VELOCITY RANDOMIZER / ON` takes the screen for a moment on every toggle, and the
+edit view carries a persistent `RND VEL PAN PIT` line, so you never have to toggle one to
+find out whether it is on. A control that edits no per-step data says `NO RANDOMIZER`
+rather than switching on something with no audible effect.
+
+**Every parameter has its own algorithm**, because "randomise" means something different
+for each one — and all of them vary around the value you programmed rather than replacing
+it, which is what keeps the sequence recognisable:
+
+- **velocity** moves each hit by a bounded ratio around its *own* value, so a step written
+  loud stays the loud one and the phrasing survives; the occasional hit is ghosted.
+- **pan** draws every step from one slow contour across the bar, with a fresh phase and
+  width each cycle. Independent random pans read as a fault in the signal path; a sweep
+  reads as movement.
+- **pitch** moves in *scale degrees* around the programmed note and quantises to the
+  project's [scale](#the-projects-scale), so the line keeps its shape and every result
+  belongs to the piece.
+- **cutoff** varies as a *ratio*, because cutoff is heard logarithmically — a linear jitter
+  is inaudible at the top and slams shut at the bottom.
+- **resonance** gets a deliberately tighter range than the rest and never reaches the top of
+  the control.
+- **sample start and end** move together whatever you touched, because a start past its end
+  is not a variation, it is silence.
+
+**Non-destructive.** The programmed values are never written — the randomizer is an overlay
+pushed at the engine, so switching it off re-pushes your own sequence exactly, and switching
+one off leaves every other one running.
+
+> There is no per-step **microtiming** parameter in PoundHard, so there is no randomizer for
+> it. The step grid is the timing; groove would have to be added as a per-step field first.
 
 #### Copying a track
 

@@ -226,6 +226,17 @@ let trackClipSrc = -1;              /* Copy + track = grab; the next track press
  * current Copy hold has already grabbed a row (so the next row press pastes). */
 let clipStep = false, clipRow = false, rowArmed = false;
 let scaleLabel = '';                /* the project's key, once something pitched sets it */
+/* which per-step randomizers are live on the open track (mirrored from status) */
+let randOn = [];
+/* the knob a control maps to -> the per-step parameter it randomizes. A control that edits
+ * no per-step data is absent on purpose: the gesture says so rather than switching on
+ * something with no audible effect. */
+const RAND_OF = { vol: 'vel', pan: 'pan', macro: 'macro', fcut: 'fcut', fres: 'fres',
+                  start: 'start', end: 'end' };
+const RAND_LABEL = { vel: 'VELOCITY', pan: 'PAN', pitch: 'PITCH', macro: 'MACRO',
+                     fcut: 'FILTER CUTOFF', fres: 'RESONANCE',
+                     start: 'SAMPLE START', end: 'SAMPLE END' };
+let randMsg = null, randMsgUntil = 0;   /* the big ON/OFF readout */
 let seq = 0, cmdQueue = [];
 let tempoLocal = 120, tempoDirty = false, controlDirty = false;
 /* pad hold -> per-step param lock */
@@ -344,6 +355,20 @@ function sendCmd(cmd, arg, extra) {
      * write loads the SD card and raises the odds of the read-stall that freezes us.
      * The queue + seq dedup on the controller make batching lossless. */
     controlDirty = true;
+}
+/* The big ON/OFF readout, in the same oversized treatment as every other value screen. */
+function bigRand(name, state) {
+    randMsg = [name, state]; randMsgUntil = phase + 26; screenDirty = true;
+}
+function toggleRand(param) {
+    if (editTrack < 0) return;
+    /* optimistic, so the message is instant; status confirms and drives the indicator */
+    var i = randOn.indexOf(param);
+    var now = (i < 0);
+    if (now) randOn = randOn.concat([param]); else randOn = randOn.filter(function (x) { return x !== param; });
+    sendCmd('steprand', -1, { p: { track: editTrack, param: param } });
+    bigRand((RAND_LABEL[param] || param.toUpperCase()) + ' RANDOMIZER', now ? 'ON' : 'OFF');
+    ledDirty = true;
 }
 function showAction(label) { overlay = label; overlayUntil = phase + 24; screenDirty = true; }
 
@@ -754,6 +779,14 @@ function drawScreen() {
     /* giant TEMPO readout while knob 1 is touched (tracks view + project view) */
     /* Giant TEMPO readout while knob 1 is touched — tracks, PATTERN and project views.
      * Tempo is per-pattern, so in the pattern view this is the selected pattern's BPM. */
+    /* the randomizer toggle takes the screen for a moment, in the house treatment */
+    if (randMsg && phase < randMsgUntil) {
+        clear_screen();
+        print(0, 0, randMsg[0], 1);
+        drawBig(randMsg[1], 14, 10);
+        return;
+    }
+    if (randMsg) { randMsg = null; }
     if (knobShow === 'trans' && editTrack >= 0) { drawTransBig(); return; }
     if (knobShow === 'tempo' && !fxView && !recView && editTrack < 0 && stepEditCell < 0) { drawTempoBig(); return; }
     if (knobShow === 'chaos' && !fxView && !patView && !projView && !recView && editTrack < 0) { drawChaosBig(); return; }
@@ -808,6 +841,15 @@ function drawScreen() {
         var tsp = trackTrans[editTrack] | 0;
         if (scaleLabel || tsp) print(0, 42, (scaleLabel || '') +
             (tsp ? ((scaleLabel ? '  ' : '') + (tsp > 0 ? '+' : '') + tsp + 'st') : ''), 1);
+        /* PERSISTENT: which randomizers are live, named, so you never have to toggle one
+         * to find out. Short names so several fit on the line. */
+        if (randOn.length) {
+            var rl = randOn.map(function (p) {
+                return ({ vel: 'VEL', pan: 'PAN', pitch: 'PIT', macro: 'MAC',
+                          fcut: 'CUT', fres: 'RES', start: 'ST', end: 'EN' })[p] || p;
+            }).join(' ');
+            print(0, 18, 'RND ' + rl, 1);
+        }
         print(0, 44, (editType === 'SAMPLE') ? 'k1vol k2pan k3mac k4/5win k6/7/8filt'
                                               : 'k1vol k2pan k3macro k4/5/6 filter', 1);
         print(0, 56, copyHeld ? (rowArmed ? 'COPY: Trk1/2 pastes a row' : 'COPY: pad/Trk1/Trk2 copies')
@@ -901,6 +943,7 @@ function readStatus() {
         if (s.edit.stepEnd) stepEnd = s.edit.stepEnd;
         if (s.edit.period) editPeriod = s.edit.period;
         if (s.edit.fxCycle) editFxCycle = s.edit.fxCycle;
+        if (Array.isArray(s.edit.rand)) randOn = s.edit.rand;
     }
     var seSig = (editTrack >= 0 && !fxView) ? ('E' + stepSel.join(',') + '|' + editFx.join(',') + (lenArm ? '!' : '')) : '';
     var fxSig = fxView ? ('X' + fxHeld + '|' + fxTop.join('.') + '|' + fxBypass.map(function (b) { return b ? '1' : '0'; }).join('') + '|' + fxOn.map(function (a) { return a.join(','); }).join(';')) : '';
@@ -1082,6 +1125,10 @@ globalThis.onMidiMessageInternal = function (data) {
     /* jog-wheel touch: show PITCH big (pitch lives on the jog now) */
     if (d1 === MoveMainTouch && (status === 0x90 || status === 0x80)) {
         var jt = (status === 0x90 && d2 >= 64);
+        /* SHIFT + jog TOUCH toggles the pitch randomizer. The jog's touch and its turn are
+         * separate events, so this does not collide with Shift + jog TURN, which
+         * transposes — one gesture reads the wheel, the other only the finger. */
+        if (jt && shiftHeld && editTrack >= 0) { toggleRand('pitch'); return; }
         if (stepEditCell >= 0 || editTrack >= 0) {
             if (jt) { knobShow = 'pitch'; screenDirty = true; }
             else if (knobShow === 'pitch') { knobShow = null; screenDirty = true; }
@@ -1113,6 +1160,12 @@ globalThis.onMidiMessageInternal = function (data) {
                 : (ki === (smp ? 5 : 3)) ? 'fcut'
                 : (ki === (smp ? 6 : 4)) ? 'fres'
                 : (ki === (smp ? 7 : 5)) ? 'ftype' : null;
+            /* SHIFT + touching a control toggles the randomizer for the parameter that
+             * control edits. On TOUCH only — turning the knob still edits the value. */
+            if (touched && shiftHeld) {
+                if (which && RAND_OF[which]) { toggleRand(RAND_OF[which]); return; }
+                if (which) { bigRand(which.toUpperCase(), 'NO RANDOMIZER'); return; }
+            }
         }
         else if (!patView && !recView) {                                                 /* tracks view */
             /* Shift + touch knob 8 = jump back to the chaos macro's SAFE ZONE */

@@ -132,6 +132,11 @@ class Controller:
         self._break_active = False
         self._break_last = ""
         self._break_touched: dict = {}
+        # PER-PARAMETER STEP RANDOMIZERS. {track: {param}} — each one independent, each an
+        # OVERLAY: the programmed per-step values are never written, so switching one off
+        # is just re-pushing the track's own state.
+        self._rand: dict[int, set] = {}
+        self._rand_debug = False
         # performance recording
         self._rec_state = "idle"                 # idle | armed | recording
         self._rec_slot = -1                      # armed / recording slot
@@ -519,6 +524,78 @@ class Controller:
         self._churn_gain = {}
         self.bridge.churnclear()
 
+    # -- per-parameter step randomizers ------------------------------------- #
+    def _rand_active(self, t: int) -> set:
+        return self._rand.get(t, set())
+
+    def _rand_toggle(self, t: int, param: str) -> bool:
+        """Flip one randomizer on one track. Returns the new state."""
+        from . import steprand
+        cur = self._rand.setdefault(t, set())
+        if param in cur:
+            cur.discard(param)
+            # restore the PROGRAMMED values for this track — they were never modified, so
+            # this is exact, and any other randomizer still on will re-apply next cycle
+            self._push_step_cell(t)
+            if not cur:
+                self._rand.pop(t, None)
+            return False
+        cur.add(param)
+        self._rand_apply(t)                      # audible immediately, not next bar
+        return True
+
+    def _rand_apply(self, t: int) -> None:
+        """Push one fresh set of values for every randomizer active on this track."""
+        from . import steprand
+        active = self._rand_active(t)
+        if not active:
+            return
+        st = self.state
+        tr = st.tracks[t]
+        rng = random.Random()
+        # velocity / pan / pitch all live in the same steplock message, so they are
+        # collected first and pushed once per cell — three separate pushes would each
+        # overwrite the previous two with the cell's programmed values.
+        lock = {}
+        for param in ("vel", "pan", "pitch"):
+            if param in active:
+                lock[param] = steprand.generate(param, tr, st, rng)
+        if lock:
+            cells = set()
+            for d in lock.values():
+                cells |= set(d)
+            sent = []
+            for c in cells:
+                nn = lock.get("pitch", {}).get(c, tr.eff_note(c))
+                vv = lock.get("vel", {}).get(c, tr.eff_vel(c))
+                pp = lock.get("pan", {}).get(c, tr.eff_pan(c))
+                self.bridge.steplock(t, c, nn, vv, pp)
+                sent.append((c, nn, round(vv, 2)))
+            if self._rand_debug:
+                print("[poundhard] rand T%d -> %s" % (t + 1, sent), flush=True)
+        if "macro" in active:
+            for c, pos in steprand.generate("macro", tr, st, rng).items():
+                self.bridge.stepmacro(t, c, st._macro_pairs_at(t, pos))
+        # cutoff and resonance share the per-step filter triple, same reasoning as above
+        if "fcut" in active or "fres" in active:
+            base = steprand.generate("fcut" if "fcut" in active else "fres", tr, st, rng)
+            if "fcut" in active and "fres" in active:
+                other = steprand.generate("fres", tr, st, rng)
+                base = {c: (v[0], other.get(c, (0, v[1]))[1], v[2]) for c, v in base.items()}
+            for c, (cut, res, ty) in base.items():
+                self.bridge.stepfilt(t, c, cut, res, ty)
+        if "start" in active or "end" in active:
+            which = "start" if "start" in active else "end"
+            for c, (s0, e0) in steprand.generate(which, tr, st, rng).items():
+                self.bridge.stepsmp(t, c, s0, e0)
+
+    def _rand_tick(self) -> None:
+        """A new set of values every pattern cycle, for every track that has any."""
+        if not self._rand or not self.state.running:
+            return
+        for t in list(self._rand):
+            self._rand_apply(t)
+
     # -- BREAK: automatic, musically-placed breakdowns ---------------------- #
     def _break_tick(self) -> None:
         """Called on every pattern cycle. Ends a break that is running, or starts one.
@@ -631,6 +708,7 @@ class Controller:
     def _on_cycle(self) -> None:
         self._churn_spend()
         self._break_tick()
+        self._rand_tick()
         """Bar boundary (from the engine): fire any living steps whose period has elapsed
         (transient model — they revert next cycle), then apply a queued pattern switch."""
         with self._lock:
@@ -893,7 +971,7 @@ class Controller:
         "smparm",
         "recpad", "run",
         "patcopy", "patclipclear", "saveproj", "panic", "shuffle", "quake", "churn",
-        "break",
+        "break", "steprand",
         "stepcopy", "rowcopy",
     })
 
@@ -985,6 +1063,16 @@ class Controller:
                 for (t, c) in st.heat_clear():
                     self._reset_engine_cell(t, c)
                 st.heat_apply(self._heat_pct)
+        elif cmd == "randdebug":               # diagnostic: log every generated value set
+            self._rand_debug = int(arg) != 0
+        elif cmd == "steprand":                # Shift + touch a control: toggle its randomizer
+            from . import steprand
+            t = int(p.get("track", st.edit_track))
+            param = str(p.get("param", ""))
+            if 0 <= t < N_TRACKS and param in steprand.PARAMS:
+                on = self._rand_toggle(t, param)
+                print("[poundhard] randomizer %s T%d %s"
+                      % (steprand.PARAMS[param], t + 1, "ON" if on else "OFF"), flush=True)
         elif cmd == "break":                   # Break pad (right of Churn): automatic breakdowns
             on = int(arg) != 0
             # BREAK and QUAKE are mutually exclusive. Both temporarily own a track's length
@@ -1396,6 +1484,8 @@ class Controller:
                 "name": "" if et.type == "EMPTY" else et.type, "note": et.note,
                 "length": et.length, "rate": round(et.rate, 4),
                 "transpose": et.transpose,
+                # which per-step randomizers are live on this track (persistent indicator)
+                "rand": sorted(self._rand_active(st.edit_track)),
                 "defVel": round(et.vel, 3), "defPan": round(et.default_pan(), 3),
                 # effective per-step values (lock or track default) for the UI readout
                 "stepNote": [et.eff_note(c) for c in range(N_STEPS)],
