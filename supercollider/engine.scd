@@ -913,7 +913,13 @@
 			var dur = (m[2] ? 1.2).asFloat.clip(0.2, 4.0);
 			~churnCapBuf.notNil.if { ~churnCapBuf.free };
 			~churnCapBuf = Buffer.alloc(s, (dur * s.sampleRate).asInteger, 1, { |b|
-				var syn = Synth.head(~gSend, \phChurnCap,
+				// HEAD OF ~gMaster, not ~gSend. The per-track sends that sum every track bus
+				// into the master are at the TAIL of ~gSend, so at its head the master bus
+				// still holds the zero ~gClear writes each block — the capture recorded
+				// digital silence, CDP faithfully transformed silence into silence, and
+				// Churn played silence. ~gMaster runs after the whole of ~gSend, so here the
+				// master is fully summed (and still pre-limiter).
+				var syn = Synth.head(~gMaster, \phChurnCap,
 					[\in, ~masterBus.index, \buf, b.bufnum, \dur, dur]);
 				syn.register;
 				syn.onFree({

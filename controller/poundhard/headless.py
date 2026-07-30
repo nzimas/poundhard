@@ -408,8 +408,17 @@ class Controller:
                     self._churn_stop.wait(0.05)
                 if self._churn_stop.is_set() or not raw.exists():
                     continue
+                # A SILENT capture must never become an ornament. The file is well-formed
+                # and full-length, so nothing downstream can tell — CDP transforms silence
+                # into silence and Churn plays it, which is indistinguishable from the
+                # feature being broken. Check the audio, not the file.
+                if churn.peak(raw) < 0.004:
+                    self._churn_stop.wait(0.4)
+                    continue
                 desc = churn.transform(raw, out, work, rng)
                 if not desc:
+                    continue
+                if churn.peak(out) < 0.004:        # and the transform can silence it too
                     continue
                 self.bridge.churnload(out, slot)
                 time.sleep(0.25)                 # let the buffer read land
