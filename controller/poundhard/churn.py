@@ -243,6 +243,30 @@ def transform(src: Path, dst: Path, work: Path, rng: random.Random | None = None
 # --------------------------------------------------------------------------- #
 # placement — where an ornament can go without fighting the music
 # --------------------------------------------------------------------------- #
+def peak(path) -> float:
+    """Peak amplitude of a 16-bit mono WAV, 0-1. Cheap enough to run on every ornament.
+
+    CDP output level is not predictable: a spectral average comes back tens of dB quieter
+    than a waveset multiply of the same fragment. Playing them all at the same nominal amp
+    therefore gives an ornament stream where half are inaudible under the mix and the rest
+    jump out. The peak is measured once, when the ornament is made, so playback can be
+    level-matched instead of guessed.
+    """
+    import struct
+    import wave
+    try:
+        w = wave.open(str(path))
+        n = min(w.getnframes(), 44100 * 4)
+        d = w.readframes(n)
+        w.close()
+        if not d:
+            return 0.0
+        xs = struct.unpack("<%dh" % (len(d) // 2), d[:len(d) // 2 * 2])
+        return max(abs(v) for v in xs) / 32768.0
+    except Exception:
+        return 0.0
+
+
 def gaps(project, rng: random.Random | None = None) -> list[int]:
     """Step positions with the LEAST going on, ranked best first.
 

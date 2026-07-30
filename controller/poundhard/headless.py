@@ -120,6 +120,7 @@ class Controller:
         self._churn_thread: threading.Thread | None = None
         self._churn_stop = threading.Event()
         self._churn_ready: dict[int, int] = {}      # slot -> plays remaining
+        self._churn_gain: dict[int, float] = {}     # slot -> level-matching gain
         self._churn_lock = threading.Lock()
         self._churn_note = ""
         # performance recording
@@ -412,10 +413,17 @@ class Controller:
                     continue
                 self.bridge.churnload(out, slot)
                 time.sleep(0.25)                 # let the buffer read land
+                # LEVEL-MATCH. CDP output ranges over tens of dB between transforms, so a
+                # fixed playback amp makes half the ornaments inaudible under the mix and
+                # the other half jump out. Measure this one and derive the gain that lands
+                # it at a consistent level.
+                pk = churn.peak(out)
+                gain = 1.0 if pk <= 0.01 else min(8.0, 0.7 / pk)
                 with self._churn_lock:
                     # how long an ornament stays in rotation. Long enough to become
                     # musically meaningful, short enough not to turn into a loop.
                     self._churn_ready[slot] = rng.choice((1, 2, 2, 3, 3, 4))
+                    self._churn_gain[slot] = gain
                 self._churn_note = desc
                 print("[poundhard] churn slot %d: %s" % (slot + 1, desc), flush=True)
             except Exception as e:                # a worker must never take the stack down
@@ -434,7 +442,9 @@ class Controller:
             return
         with self._churn_lock:
             live = [k for k, n in self._churn_ready.items() if n > 0]
-        if not live or random.random() < 0.35:     # leave some bars alone
+        if not live:
+            return
+        if random.random() < 0.15:                 # leave the occasional bar alone
             return
         slot = random.choice(live)
         order = churn.gaps(self.state)
@@ -442,12 +452,20 @@ class Controller:
         st = self.state
         step_dur = (60.0 / max(20.0, st.tempo)) / 4.0
         delay = step * step_dur
-        amp = random.uniform(0.18, 0.5)            # an ornament sits UNDER the music
+        # level-matched to the ornament's own peak, then set UNDER the music
+        with self._churn_lock:
+            g = self._churn_gain.get(slot, 1.0)
+        # Loud enough to be heard against a full mix. At 0.30-0.55 of the matched level
+        # the ornaments measured ~10 dB under the music and read as "not working"; this is
+        # ornamentation, so it still sits below the pattern, but audibly so.
+        amp = g * random.uniform(0.55, 0.95)
         pan = random.uniform(-0.85, 0.85)
         rate = random.choice((1.0, 1.0, 0.5, 2.0, 1.5))
 
         def fire():
             self.bridge.churnplay(slot, amp, pan, rate)
+            print("[poundhard] churn PLAY slot %d step %d amp %.2f rate %.2g"
+                  % (slot + 1, step, amp, rate), flush=True)
             with self._churn_lock:
                 if self._churn_ready.get(slot, 0) > 0:
                     self._churn_ready[slot] -= 1
@@ -463,6 +481,7 @@ class Controller:
             return
         self._churn_stop.clear()
         self._churn_ready = {}
+        self._churn_gain = {}
         self._churn_thread = threading.Thread(target=self._churn_worker, daemon=True)
         self._churn_thread.start()
 
@@ -472,6 +491,7 @@ class Controller:
         self._churn_stop.set()
         self._churn_thread = None
         self._churn_ready = {}
+        self._churn_gain = {}
         self.bridge.churnclear()
 
     def _apply_quake(self) -> None:
