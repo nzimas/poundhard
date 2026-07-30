@@ -22,3 +22,6 @@ share/control.json
 
 # the unpacked Csound bundle — the tracked artefact is the tarball beside it
 move/bundle/csound/
+
+# the unpacked CDP set — the tracked artefact is the tarball beside it
+move/bundle/cdp/

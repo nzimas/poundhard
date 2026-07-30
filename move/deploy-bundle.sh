@@ -80,6 +80,26 @@ else
   echo "WARNING: no Csound bundle ($CSBUNDLE) — run move/build-csound.sh; engine 20 will not sound"
 fi
 
+# ---- CDP (the CHURN modifier's transform engine) ---------------------------------- #
+# ~400 aarch64 programs built from source (move/build-cdp.sh). CDP bundles its own
+# soundfile library, so there is nothing to vendor alongside it and no capabilities to
+# set — it only ever processes files, off the audio thread.
+CDPBUNDLE="$HERE/bundle/poundhard-cdp.tar.gz"
+if [ -f "$CDPBUNDLE" ]; then
+  echo "Installing CDP ($(du -h "$CDPBUNDLE" | cut -f1)) -> $DEST/cdp"
+  ssh "root@$HOST" "rm -rf $DEST/cdp.new && mkdir -p $DEST/cdp.new"
+  ssh "root@$HOST" "tar -C $DEST/cdp.new -xzf -" < "$CDPBUNDLE"
+  ssh "root@$HOST" "
+    set -e
+    rm -rf $DEST/cdp && mv $DEST/cdp.new/cdp $DEST/cdp && rm -rf $DEST/cdp.new
+    chown -R ableton:users $DEST/cdp
+    chmod +x $DEST/cdp/bin/* 2>/dev/null || true
+    echo \"  CDP programs: \$(ls $DEST/cdp/bin | wc -l)\"
+  "
+else
+  echo "WARNING: no CDP bundle ($CDPBUNDLE) — run move/build-cdp.sh; CHURN will do nothing"
+fi
+
 # PREFLIGHT — run each RT binary with an EMPTY environment. That is exactly the situation
 # the loader puts a capped binary in, so if a library is unreachable by RPATH alone it
 # fails HERE, at deploy time, instead of silently leaving the device on 'starting...'.

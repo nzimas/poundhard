@@ -1185,10 +1185,15 @@ and plays into the master bus. Toggling off frees its buffers and the ornaments 
 — there is nothing to restore. Verified on the device: the whole machine's state
 fingerprint is identical before, during and after a run.
 
-> CDP is vendored under `$PH/cdp` — 220 aarch64 programs. One trap worth knowing if you
-> extend this: **CDP refuses to overwrite an existing output file**, exiting non-zero and
-> writing nothing. Reuse a destination path and it works exactly once, then fails silently
-> forever — which on a continuous loop looks like the feature switching itself off.
+> CDP is vendored in the repo (`move/bundle/poundhard-cdp.tar.gz`, built by
+> `move/build-cdp.sh`) and installed to `$PH/cdp` — 220 aarch64 programs built from source,
+> since CDP has no distribution package. It bundles its own soundfile library, so its only
+> runtime dependencies are libc/libm/libstdc++ and there is nothing to vendor alongside it.
+>
+> One trap worth knowing if you extend this: **CDP refuses to overwrite an existing output
+> file**, exiting non-zero and writing nothing. Reuse a destination path and it works
+> exactly once, then fails silently forever — which on a continuous loop looks like the
+> feature switching itself off.
 
 ### Break
 
@@ -1478,6 +1483,9 @@ cd move
    > `chown -R ableton:users` over the whole install, and chown **clears file
    > capabilities** — so deploying the controller silently stripped `cap_sys_nice` off
    > `jackd`, with nothing in the output to say so. It now chowns only what it ships.
+   It also installs **CDP** (`move/bundle/poundhard-cdp.tar.gz`), the ~400-program set
+   behind [Churn](#churn), built from source by `move/build-cdp.sh`. No capabilities and
+   nothing vendored alongside it: CDP only ever processes files, off the audio thread.
 3. **`deploy-module.sh`** — the Schwung overtake module (`module.json` + `ui.js`
    + `exit-hook.sh`) under `/data/UserData/schwung/modules/overtake/poundhard`.
 
