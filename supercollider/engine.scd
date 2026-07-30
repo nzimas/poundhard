@@ -125,6 +125,11 @@
 // captured into. Entirely separate from the tracks — Churn never borrows a track's voice.
 ~churnBuf = Array.fill(8, { nil });
 ~churnCapBuf = nil;
+// COMPASS: one long mono buffer the softcut heads record into and play back from.
+// 40 s at 44.1k is 7 MB — plenty of tape for a performance, and nothing on a box with
+// hundreds of megabytes free.
+~compassBuf = nil;
+~compassSynth = nil;
 ~smpCapSy = nil;                       // the live \phCapture synth, if any
 ~smpCapBuf = nil;                      // buffer being recorded into
 ~smpMaxDur = 2.0;                      // cap a take (buffer length caps RecordBuf)
@@ -956,6 +961,39 @@
 				\hp, (m[5] ? 180).asFloat.clip(40, 800)]);
 		};
 	}, '/ph/churnplay'),
+	// /ph/compass <on>: bring the softcut tape loop up or take it down. It sits in
+	// ~recGroup, after the master limiter, so what it records is bounded audio.
+	OSCdef(\phCompass, { |m|
+		var on = m[1].asInteger > 0;
+		(~ready == true).if {
+			on.if({
+				~compassSynth.isNil.if {
+					~compassBuf.isNil.if {
+						~compassBuf = Buffer.alloc(s, (44100 * 40).asInteger, 1, { |b|
+							~compassSynth = Synth.tail(~recGroup, \phCompass,
+								[\out, 0, \in, 0, \buf, b.bufnum]);
+							~compassSynth.register;
+							~compassSynth.onFree({ ~compassSynth = nil });
+						});
+					} {
+						~compassSynth = Synth.tail(~recGroup, \phCompass,
+							[\out, 0, \in, 0, \buf, ~compassBuf.bufnum]);
+						~compassSynth.register;
+						~compassSynth.onFree({ ~compassSynth = nil });
+					};
+				};
+			}, {
+				~compassSynth.notNil.if { ~compassSynth.free; ~compassSynth = nil };
+				// the tape is wiped on the way out, so the next engage starts from silence
+				// rather than from whatever the last performance left on it
+				~compassBuf.notNil.if { ~compassBuf.zero };
+			});
+		};
+	}, '/ph/compass'),
+	// /ph/compassset "<arg>" <val>: one softcut parameter, straight through.
+	OSCdef(\phCompassSet, { |m|
+		~compassSynth.notNil.if { ~compassSynth.set(m[1].asSymbol, m[2].asFloat) };
+	}, '/ph/compassset'),
 	// /ph/churnclear: toggling Churn off frees everything it made. Nothing else to undo —
 	// it never wrote to a track.
 	OSCdef(\phChurnClear, { |m|

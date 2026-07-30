@@ -166,6 +166,8 @@ class EngineBridge:
     def churnplay(self, slot, amp, pan, rate, hp=180.0):
         self.send("/ph/churnplay", int(slot), float(amp), float(pan), float(rate), float(hp))
     def churnclear(self):              self.send("/ph/churnclear")
+    def compass(self, on):             self.send("/ph/compass", 1 if on else 0)
+    def compassset(self, arg, val):    self.send("/ph/compassset", str(arg), float(val))
     def steplock(self, t, cell, note, vel, pan):
         self.send("/ph/steplock", int(t), int(cell), float(note), float(vel), float(pan))
     def stepmacro(self, t, cell, pairs):

@@ -1,161 +1,171 @@
-"""COMPASS — a command sequencer that improvises on one or two tracks.
+"""COMPASS — the norns script's command sequencer, driving a live tape loop.
 
-After Olivier Creurer's norns script, which is not a looper with effects on it but a
-SEQUENCE OF COMMANDS stepped through at a rate the commands themselves keep changing. That
-self-modifying clock is the whole character: `<` `>` `[` `]` alter how fast the command
-stream runs, so it accelerates, stalls and lurches on its own rather than ticking evenly.
+After Olivier Creurer's script, and this time on the thing the original actually
+manipulates: a **softcut buffer**. The master is recorded continuously into 40 seconds of
+tape while two heads play it back, and a sequence of terse commands moves those heads —
+rate, direction, position, loop length, pan, record. That is where the tape-loop character
+lives, and no amount of step-sequencer manipulation reproduces it: a step sequencer can
+reorder notes, but it cannot play the last four seconds of the performance backwards at
+2/3 speed inside a shrinking loop.
 
-The original's commands drive softcut — rate forward/reverse, rate inc/dec/random, jump to
-start, random position, random loop length, random pan, toggle record. PoundHard has no
-softcut, but it has a direct equivalent for nearly all of them at the SEQUENCER level:
+THE SELF-MODIFYING CLOCK is the other half. `<` `>` `[` `]` change how fast the command
+stream itself runs, so it accelerates, stalls and lurches under its own influence instead
+of ticking evenly.
 
-    softcut rate            ->  the track's clock rate
-    reverse playback        ->  the step list, reversed
-    jump / random position  ->  the step list, rotated
-    random loop length      ->  the track's length (polymeter)
-    random pan              ->  the track's pan
-    (and, since PoundHard knows what key it is in, two the original could not have:
-     transpose within the scale, and an octave jump)
+The commands are the original's, one for one:
 
-SCOPE IS THE POINT. One or two tracks, never more. The original runs on a whole
-performance; here the rest of the rig has to stay recognisable, so Compass is the
-improviser sitting inside an arrangement rather than the arrangement itself.
+    F R      rate forward / reverse (a NEGATIVE softcut rate — real reverse playback)
+    + - !    rate increment / decrement / random, from the original's rate table
+    1 P      jump to loop start / a random position inside the loop
+    L        random loop length
+    ( )      random pan, left head and right head
+    ::       toggle recording — freezes the tape, so the heads keep playing what is on it
+    [ ] < >  the command clock
+    ?        jump the command sequencer to a random position
 
-NON-DESTRUCTIVE. Every command writes into a per-track overlay of (rate, length, pattern,
-pan, transpose) which the caller pushes at the engine. The pattern data is never touched,
-so switching off is re-pushing the controller's own state.
+NON-DESTRUCTIVE by construction: it records the master and plays into the master. No track,
+pattern or parameter is touched, so switching off is freeing the synth and wiping the tape.
 """
 from __future__ import annotations
 
 import random
 
-N_STEPS = 16
-SEQ_LEN = 12            # commands in the sequence — long enough not to read as a loop
+SEQ_LEN = 12
+# the original's rate table — musical ratios, both directions
+RATES = (-2.0, -1.0, -0.5, 0.5, 1.0, 2.0)
+BUF_SECONDS = 40.0
 
 
-class State:
-    """One track's live overlay. Starts as 'exactly what was programmed'."""
+class Head:
+    """One softcut head's live parameters."""
 
-    def __init__(self, tr):
-        self.rate_mult = 1.0
-        self.length = int(tr.length)
-        self.rotate = 0
-        self.reverse = False
-        self.pan = None                 # None = leave the track's own pan alone
-        self.transpose = 0
+    def __init__(self, pan):
+        self.rate = 1.0
+        self.start = 0.0
+        self.end = 4.0
+        self.pan = pan
+        self.rec = 1.0
+        self.pre = 0.75
 
-    def dirty(self, tr) -> bool:
-        return (abs(self.rate_mult - 1.0) > 1e-6 or self.length != int(tr.length)
-                or self.rotate or self.reverse or self.pan is not None or self.transpose)
+    def as_args(self, i):
+        n = str(i)
+        return {"rate" + n: self.rate, "start" + n: self.start, "end" + n: self.end,
+                "pan" + n: self.pan, "rec" + n: self.rec, "pre" + n: self.pre}
 
 
 # --------------------------------------------------------------------------- #
-# the commands. Each takes (compass, state, track, rng) and mutates the overlay
-# or the sequencer itself. Named with the original's glyphs so the log reads like
-# a Compass sequence.
+# commands. Each takes (cp, rng) and mutates the sequencer or both heads.
 # --------------------------------------------------------------------------- #
-# The clock band is 1-8 pattern cycles, not the original's 1-16. At 16 a command fires
-# about every 30 seconds, which is not an improviser, it is a timer — measured, the stream
-# parked at the slow end for more than half its life.
-def c_metro_bottom(cp, st, tr, rng):    cp.division = 8           # "[" slowest
-def c_metro_top(cp, st, tr, rng):       cp.division = 1           # "]" fastest
-def c_metro_dec(cp, st, tr, rng):       cp.division = max(1, cp.division // 2)      # "<"
-def c_metro_inc(cp, st, tr, rng):       cp.division = min(8, cp.division * 2)       # ">"
-def c_step_rnd(cp, st, tr, rng):        cp.pos = rng.randrange(SEQ_LEN)             # "?"
+def c_metro_bottom(cp, rng):  cp.division = 8
+def c_metro_top(cp, rng):     cp.division = 1
+def c_metro_dec(cp, rng):     cp.division = max(1, cp.division // 2)
+def c_metro_inc(cp, rng):     cp.division = min(8, cp.division * 2)
+def c_step_rnd(cp, rng):      cp.pos = rng.randrange(SEQ_LEN)
 
 
-def c_rate_fwd(cp, st, tr, rng):
-    """F — back to the programmed clock, forwards."""
-    st.rate_mult = 1.0
-    st.reverse = False
+def c_rate_fwd(cp, rng):
+    """F — 1x forward, both heads."""
+    cp.rate_pos = 4
+    for h in cp.heads:
+        h.rate = RATES[4]
 
 
-def c_rate_rev(cp, st, tr, rng):
-    """R — the original's -1x. A step sequencer has no negative clock, so reverse is the
-    step list read backwards, which is the same musical gesture at this level."""
-    st.reverse = not st.reverse
+def c_rate_rev(cp, rng):
+    """R — -1x. Reverse playback of recorded audio, which is the whole point."""
+    cp.rate_pos = 1
+    for h in cp.heads:
+        h.rate = RATES[1]
 
 
-def c_rate_inc(cp, st, tr, rng):
-    """+ — faster, in musical ratios rather than a smooth sweep."""
-    st.rate_mult = min(4.0, st.rate_mult * rng.choice((1.5, 2.0, 4 / 3)))
+def c_rate_inc(cp, rng):
+    cp.rate_pos = min(len(RATES) - 1, cp.rate_pos + 1)
+    for h in cp.heads:
+        h.rate = RATES[cp.rate_pos]
 
 
-def c_rate_dec(cp, st, tr, rng):
-    """- — slower."""
-    st.rate_mult = max(0.25, st.rate_mult * rng.choice((2 / 3, 0.5, 0.75)))
+def c_rate_dec(cp, rng):
+    cp.rate_pos = max(0, cp.rate_pos - 1)
+    for h in cp.heads:
+        h.rate = RATES[cp.rate_pos]
 
 
-def c_rate_rnd(cp, st, tr, rng):
-    """! — anywhere in the usable band, ratios included."""
-    st.rate_mult = rng.choice((0.25, 0.5, 2 / 3, 0.75, 1.0, 1.5, 2.0, 3.0))
+def c_rate_rnd(cp, rng):
+    cp.rate_pos = rng.randrange(len(RATES))
+    for h in cp.heads:
+        h.rate = RATES[cp.rate_pos]
 
 
-def c_pos_start(cp, st, tr, rng):
-    """1 — back to the top of the bar."""
-    st.rotate = 0
+def c_pos_start(cp, rng):
+    """1 — both heads to the top of the loop."""
+    for i, h in enumerate(cp.heads):
+        cp.cut[i] = h.start
 
 
-def c_pos_rnd(cp, st, tr, rng):
-    """P — land somewhere else in the bar. Displacement, not a different pattern."""
-    st.rotate = rng.randrange(N_STEPS)
+def c_pos_rnd(cp, rng):
+    """P — both heads somewhere else inside the loop."""
+    for i, h in enumerate(cp.heads):
+        cp.cut[i] = rng.uniform(h.start, max(h.start + 0.05, h.end))
 
 
-def c_loop_rnd(cp, st, tr, rng):
-    """L — a different loop length, which against the other tracks is polymeter."""
-    st.length = rng.choice((3, 5, 6, 7, 9, 11, 12, 13, 14, 15, 16))
+def c_loop_rnd(cp, rng):
+    """L — a new loop window inside the tape. Short windows are where it starts to stutter
+    rather than loop, so the low end is deliberately reachable."""
+    a = rng.uniform(0.0, BUF_SECONDS - 1.0)
+    # Weighted SHORT. A four-second window is a delay; an eighth-second window is the tape
+    # stuttering on one grain, and that is the sound the script is known for. Long windows
+    # are still reachable, they are just no longer the common case.
+    span = rng.choice((0.06, 0.08, 0.12, 0.15, 0.25, 0.4, 0.6, 1.0, 2.0, 4.0))
+    b = min(BUF_SECONDS, a + span)
+    for h in cp.heads:
+        h.start, h.end = round(a, 4), round(b, 4)
 
 
-def c_pan_rnd(cp, st, tr, rng):
-    """( ) — the original had one command per side; one command that picks a side is the
-    same result with half the sequence spent on it."""
-    st.pan = round(rng.choice((-1, 1)) * rng.uniform(0.25, 0.9), 3)
+def c_pan_l(cp, rng):
+    cp.heads[0].pan = round(rng.uniform(0, 8) / -10.0, 3)
 
 
-def c_transpose(cp, st, tr, rng):
-    """A command the original could not have: PoundHard knows what key it is in, so the
-    improviser can move the line and stay in it. Scale-quantised by the caller."""
-    st.transpose = rng.choice((-7, -5, -3, -2, 2, 3, 5, 7))
+def c_pan_r(cp, rng):
+    cp.heads[1].pan = round(rng.uniform(0, 8) / 10.0, 3)
 
 
-def c_octave(cp, st, tr, rng):
-    st.transpose = rng.choice((-12, 12))
-
-
-def c_reset(cp, st, tr, rng):
-    """A rest in the command stream: this track back to exactly as programmed. Without it
-    the overlay only ever accumulates and the track never comes home."""
-    st.rate_mult = 1.0
-    st.length = int(tr.length)
-    st.rotate = 0
-    st.reverse = False
-    st.pan = None
-    st.transpose = 0
+def c_toggle_rec(cp, rng):
+    """:: — the original's record toggle, and the single most characterful command in the
+    set. With recording off the tape stops being overwritten, so the heads keep chewing on
+    a frozen few seconds; turn it back on and the performance bleeds in again."""
+    cp.rec_on = not cp.rec_on
+    for h in cp.heads:
+        h.rec = 1.0 if cp.rec_on else 0.0
 
 
 COMMANDS = [
     (c_metro_bottom, "["), (c_metro_top, "]"), (c_metro_dec, "<"), (c_metro_inc, ">"),
     (c_step_rnd, "?"), (c_rate_fwd, "F"), (c_rate_rev, "R"), (c_rate_inc, "+"),
     (c_rate_dec, "-"), (c_rate_rnd, "!"), (c_pos_start, "1"), (c_pos_rnd, "P"),
-    (c_loop_rnd, "L"), (c_pan_rnd, "("), (c_transpose, "T"), (c_octave, "8"),
-    (c_reset, "."),
+    (c_loop_rnd, "L"), (c_pan_l, "("), (c_pan_r, ")"), (c_toggle_rec, "::"),
 ]
-# The clock commands are what give the stream its shape, so they are common; reset is
-# common too, because a track that never returns stops being a variation of anything.
-_WEIGHTS = {"[": 1, "]": 2, "<": 4, ">": 2, "?": 2, "F": 2, "R": 2, "+": 3, "-": 3,
-            "!": 2, "1": 2, "P": 3, "L": 3, "(": 2, "T": 3, "8": 1, ".": 4}
+# The gestures that MOVE THE TAPE are what you hear; the clock commands only shape the
+# stream. Measured on the device, an even weighting left the heads parked on a plain
+# four-second forward loop for most of a run — an echo, not a tape loop. So the loop,
+# position, rate and freeze commands carry most of the weight, and `?` (which reorders the
+# sequence without touching the audio) carries almost none.
+_WEIGHTS = {"[": 1, "]": 2, "<": 2, ">": 2, "?": 1, "F": 2, "R": 5, "+": 3, "-": 3,
+            "!": 4, "1": 3, "P": 5, "L": 7, "(": 2, ")": 2, "::": 4}
 
 
 class Compass:
-    """The sequencer: a command list, a position, and a self-modifying divider."""
+    """The command sequencer: a list of commands, a position, a self-modifying divider."""
 
     def __init__(self, rng: random.Random | None = None):
         self.rng = rng or random.Random()
-        self.division = 2          # pattern cycles between commands (commands change this)
+        # every cycle by default: the clock commands are there to slow it DOWN from this,
+        # and starting at 2 meant half the run went by before the tape did anything.
+        self.division = 1
         self.pos = 0
         self.counter = 0
-        self.tracks: list[int] = []
-        self.state: dict[int, State] = {}
+        self.rate_pos = 4
+        self.rec_on = True
+        self.heads = [Head(-0.3), Head(0.3)]
+        self.cut = [-1.0, -1.0]
         self.seq: list = []
         self.reseed()
 
@@ -165,59 +175,28 @@ class Compass:
         self.seq = self.rng.choices(fns, weights=wts, k=SEQ_LEN)
         self.pos = 0
 
-    def pick_tracks(self, project) -> list[int]:
-        """One or two tracks with sequence data — never an empty one, never more than two."""
-        live = [t for t, tr in enumerate(project.tracks)
-                if tr.type != "EMPTY" and any(tr.pattern)]
-        if not live:
-            return []
-        if len(live) == 1:
-            return live
-        return self.rng.sample(live, self.rng.choice((1, 2, 2)))
-
     def glyph(self, fn) -> str:
         return next(g for c, g in COMMANDS if c is fn)
 
-    def tick(self, project) -> str | None:
-        """One pattern cycle. Returns a log line when a command actually fired.
-
-        The divider is counted in pattern cycles, and the commands move it, so the stream
-        speeds up and slows down under its own influence — which is the thing that makes
-        the original feel like an improviser rather than an arpeggiator.
-        """
+    def tick(self):
+        """One pattern cycle. Returns (log line, {synth arg: value}) when a command fired."""
         self.counter += 1
         if self.counter < max(1, self.division):
-            return None
+            return None, None
         self.counter = 0
-
-        # occasionally hand the improviser different material and a fresh sequence
-        if not self.tracks or self.rng.random() < 0.08:
-            self.tracks = self.pick_tracks(project)
-            self.state = {t: State(project.tracks[t]) for t in self.tracks}
-            if self.rng.random() < 0.5:
-                self.reseed()
-        if not self.tracks:
-            return None
-
+        if self.rng.random() < 0.06:
+            self.reseed()
+        self.cut = [-1.0, -1.0]                 # cut is a trigger; clear it each command
         fn = self.seq[self.pos % len(self.seq)]
         self.pos = (self.pos + 1) % len(self.seq)
-        fired = []
-        for t in self.tracks:
-            st = self.state.get(t)
-            if st is None:
-                continue
-            fn(self, st, project.tracks[t], self.rng)
-            fired.append("T%d" % (t + 1))
-        return "compass: %s  %s  (every %d)" % (self.glyph(fn), ",".join(fired), self.division)
+        fn(self, self.rng)
 
-
-def steps_for(tr, st: State) -> list:
-    """The step list this overlay implies — rotated and/or reversed, never edited."""
-    ln = max(1, min(N_STEPS, int(tr.length)))
-    src = list(tr.pattern[:ln])
-    if st.reverse:
-        src = src[::-1]
-    if st.rotate:
-        k = st.rotate % ln
-        src = src[-k:] + src[:-k]
-    return src + list(tr.pattern[ln:])
+        args = {}
+        for i, h in enumerate(self.heads, start=1):
+            args.update(h.as_args(i))
+        for i, c in enumerate(self.cut, start=1):
+            if c >= 0:
+                args["cut" + str(i)] = c
+        return ("compass: %-2s  rate %+.2g  loop %.2f-%.2f  rec %s  (every %d)"
+                % (self.glyph(fn), self.heads[0].rate, self.heads[0].start,
+                   self.heads[0].end, "on" if self.rec_on else "FROZEN", self.division)), args

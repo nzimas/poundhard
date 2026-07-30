@@ -934,6 +934,39 @@ SynthDef(\phChurnVoice, { |out = 0, buf = 0, amp = 0.5, pan = 0, rate = 1, atk =
 	Out.ar(out, ~killbad.(~spread.(sig, pan)));
 }).add;
 
+// COMPASS — a live tape loop of the master, driven by monome softcut (PhSoftcut UGen).
+//
+// TWO HEADS on ONE buffer, like the original script's `for i=1,2`. The buffer is recording
+// the master continuously while a head plays it back at whatever rate, direction, position
+// and loop length the command sequencer has most recently asked for. Negative rate is real
+// reverse playback of recorded audio — the gesture the step sequencer cannot express, and
+// the reason this had to become a UGen rather than more sequencer manipulation.
+//
+// Reads the master POST-limiter (bus 0), for the same reason Churn does: a pre-limiter mix
+// runs at or over full scale and recording that just bakes in clipping.
+SynthDef(\phCompass, { |out = 0, in = 0, buf = 0, amp = 0.55, mix = 1.0,
+	rate1 = 1, start1 = 0, end1 = 4, cut1 = -1, rec1 = 1, pre1 = 0.75, pan1 = -0.3,
+	rate2 = 1, start2 = 0, end2 = 4, cut2 = -1, rec2 = 1, pre2 = 0.75, pan2 = 0.3,
+	fc = 12000, rq = 2, fade = 0.02|
+	var dry = In.ar(in, 2);
+	var src = dry.sum * 0.5;
+	var v1 = PhSoftcut.ar(src, buf, rate1, start1, end1, cut1, fade, rec1, pre1,
+		1, 1, 1, fc, rq, 1, 0, 0, 0);
+	var v2 = PhSoftcut.ar(src, buf, rate2, start2, end2, cut2, fade, rec2, pre2,
+		1, 1, 1, fc, rq, 1, 0, 0, 0);
+	var wet = ~spread.(v1, pan1) + ~spread.(v2, pan2);
+	var clean = HPF.ar(LeakDC.ar(wet), 90) * amp * mix;
+	// THIS IS AN INSERT, NOT A SEND, and that distinction is the whole reason it does not
+	// clip. The synth sits after the master limiter, so the dry on this bus is already
+	// pressed against its 0.95 ceiling; ADDING two tape heads to it cannot help but exceed
+	// full scale, which is exactly what the first attempt measured (peak 1.000, hundreds of
+	// samples pinned). Attenuating the heads only makes the overshoot smaller, never zero.
+	// So it takes the bus over instead: dry plus wet, through its own limiter at the same
+	// ceiling, written back with ReplaceOut. The tape now ducks the master where they
+	// collide rather than piling on top of it — which is also the more tape-like behaviour.
+	ReplaceOut.ar(out, Limiter.ar(~killbad.(dry + clean), 0.95, 0.005));
+}).add;
+
 SynthDef(\phTrackFilter, { |in = 16, out = 16, cutoff = 18000, res = 0.0, type = 0,
 		glide = 0.03|
 		var dry = In.ar(in, 2);

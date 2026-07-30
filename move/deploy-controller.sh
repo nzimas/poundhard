@@ -38,6 +38,15 @@ ssh "root@$HOST" "mkdir -p $EXT"
 scp "$BB/ByteBeat.sc" "$BB/ByteBeatController.sc" "root@$HOST:$EXT/"
 ssh "root@$HOST" "chown ableton:users $DEST/plugins/ByteBeat.so $EXT/*.sc"
 
+
+echo "-> PhSoftcut UGen (monome softcut as an SC unit generator — the COMPASS modifier)"
+SCUT="$ROOT/supercollider/plugins/Softcut"
+SEXT="$DEST/share/SuperCollider/Extensions/PhSoftcut"
+ssh "root@$HOST" "mkdir -p $SEXT"
+scp "$SCUT/PhSoftcut.so" "$SCUT/PhSoftcut_supernova.so" "root@$HOST:$DEST/plugins/"
+scp "$SCUT/PhSoftcut.sc" "root@$HOST:$SEXT/"
+ssh "root@$HOST" "chown ableton:users $DEST/plugins/PhSoftcut*.so $SEXT/*.sc"
+
 echo "-> launch scripts"
 scp "$HERE/run-engine.sh" "$HERE/run-controller.sh" "$HERE/run-stack.sh" "$HERE/stop-stack.sh" "$HERE/run-csound.sh" "root@$HOST:$DEST/"
 # the CSOUND engine's orchestra — code, not runtime, so it ships with the controller

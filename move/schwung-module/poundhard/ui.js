@@ -516,19 +516,20 @@ function renderLEDs() {
             } else if (c === SHUF_CELL) {                          /* SHUFFLE toggle */
                 color = shufOn ? ((phase % 16 < 8) ? SHUF_ON : SHUF_ALT) : SHUF_IDLE;
             } else if (c === QUAKE_CELL) {                         /* QUAKE toggle */
-                color = (brkOn || compassOn) ? LOCK_COLOR
+                color = brkOn ? LOCK_COLOR
                       : (quakeOn ? ((phase % 16 < 8) ? QUAKE_ON : QUAKE_ALT) : QUAKE_IDLE);
             } else if (c === CHURN_CELL) {                         /* CHURN toggle */
                 color = churnOn ? ((phase % 16 < 8) ? CHURN_ON : CHURN_ALT) : CHURN_IDLE;
             } else if (c === BREAK_CELL) {                         /* BREAK toggle */
                 /* while a break is actually RUNNING the pad goes solid, so you can see the
                  * bar it is happening on rather than only that the mode is armed */
-                color = (quakeOn || compassOn) ? LOCK_COLOR
+                color = quakeOn ? LOCK_COLOR
                       : (brkNow ? White
                       : (brkOn ? ((phase % 16 < 8) ? BREAK_ON : BREAK_ALT) : BREAK_IDLE));
             } else if (c === COMPASS_CELL) {                       /* COMPASS toggle */
-                color = (quakeOn || brkOn) ? LOCK_COLOR
-                      : (compassOn ? ((phase % 16 < 8) ? COMPASS_ON : COMPASS_ALT) : COMPASS_IDLE);
+                /* no lock: Compass records the master and plays into it, so it competes
+                 * with nothing for a track's rate, length or steps */
+                color = compassOn ? ((phase % 16 < 8) ? COMPASS_ON : COMPASS_ALT) : COMPASS_IDLE;
             }
             setLED(PAD_NOTES[c], color);
         }
@@ -1394,8 +1395,8 @@ globalThis.onMidiMessageInternal = function (data) {
         }
         if (cell === QUAKE_CELL) {                         /* Quake pad up: short press = toggle */
             if (quakeHeld) {
-                if ((brkOn || compassOn) && !quakeOn) {    /* locked out */
-                    showAction('QUAKE LOCKED - ' + (brkOn ? 'BREAK' : 'COMPASS') + ' ON');
+                if (brkOn && !quakeOn) {                   /* locked out by BREAK */
+                    showAction('QUAKE LOCKED - BREAK ON');
                 } else {
                     quakeOn = !quakeOn;                    /* optimistic; server confirms via status */
                     sendCmd('quake', quakeOn ? 1 : 0);     /* each toggle-on rolls a fresh config */
@@ -1418,8 +1419,8 @@ globalThis.onMidiMessageInternal = function (data) {
             /* A hold that CHANGED the interval is not also a toggle — otherwise dialling
              * the rate in always flips the mode on the way out. */
             if (brkHeld && !brkTweaked) {
-                if ((quakeOn || compassOn) && !brkOn) {    /* locked out */
-                    showAction('BREAK LOCKED - ' + (quakeOn ? 'QUAKE' : 'COMPASS') + ' ON');
+                if (quakeOn && !brkOn) {                   /* locked out by QUAKE */
+                    showAction('BREAK LOCKED - QUAKE ON');
                 } else {
                     brkOn = !brkOn;                        /* optimistic; server confirms */
                     sendCmd('break', brkOn ? 1 : 0);
@@ -1431,13 +1432,9 @@ globalThis.onMidiMessageInternal = function (data) {
         }
         if (cell === COMPASS_CELL) {                       /* Compass pad up: short = toggle */
             if (compassHeld) {
-                if ((quakeOn || brkOn) && !compassOn) {
-                    showAction('COMPASS LOCKED - ' + (quakeOn ? 'QUAKE' : 'BREAK') + ' ON');
-                } else {
-                    compassOn = !compassOn;
-                    sendCmd('compass', compassOn ? 1 : 0);
-                    showAction(compassOn ? 'COMPASS' : 'COMPASS OFF');
-                }
+                compassOn = !compassOn;
+                sendCmd('compass', compassOn ? 1 : 0);
+                showAction(compassOn ? 'COMPASS' : 'COMPASS OFF');
             }
             compassHeld = false; ledDirty = true; screenDirty = true;
             return;

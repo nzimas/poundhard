@@ -369,6 +369,11 @@ track — for reasons particular to each, explained there.
 > 3.13). `deploy-controller.sh` ships it to `$PH/plugins` and the `ByteBeat.sc` class to the SC
 > Extensions dir. Rebuild it from source with `move/build-bytebeat.sh` (arm64 Docker).
 
+> **COMPASS** needs a native plugin too: `supercollider/plugins/Softcut/PhSoftcut.so` wraps
+> **monome's softcut-lib** as a UGen (one instance = one softcut voice), built the same way —
+> static libstdc++, GLIBC_2.17. Both a plain and a `_supernova` variant are shipped, because
+> **supernova loads only `*_supernova.so`**. Rebuild with `move/build-softcut.sh`.
+
 > **WTABLE** reads the Move's factory **wavetable sprites** straight from `/opt/move/Dsp/Vector/
 > Sprites/` on the device — nothing is bundled or redeployed; the engine enumerates them at boot.
 
@@ -428,7 +433,7 @@ in its engine colour.
 | **Bottom-row 4th pad** | **CHURN** — the music listens to itself: fragments of the master are transformed through CDP and dropped back into the gaps (toggle). See [Churn](#churn) |
 | **Bottom-row 5th pad** | **BREAK** — automatic breakdowns every N cycles (toggle). See [Break](#break). **Mutually exclusive with QUAKE** — whichever is off goes **grey** while the other holds the rig |
 | **Hold BREAK + jog wheel** | how many pattern cycles between breaks (1…32, default **4**) |
-| **Bottom-row 6th pad** | **COMPASS** — a command sequencer improvising on one or two tracks (toggle). See [Compass](#compass). Shares the QUAKE/BREAK lock |
+| **Bottom-row 6th pad** | **COMPASS** — a softcut tape loop driven by the norns script's command sequencer (toggle). See [Compass](#compass) |
 | **Hold HEAT pad + Knob 1** | set the HEAT amount (% of hits marked) |
 | **Play** (lit green while running) | start / stop the sequencer |
 | **Knob 1** | master tempo (BPM) |
@@ -1243,44 +1248,60 @@ before. The machine's state fingerprint is identical before, during and after.
 
 ### Compass
 
-The sixth temporary modifier, after Olivier Creurer's
+The sixth temporary modifier, a port of Olivier Creurer's
 [norns script](https://github.com/oliviercreurer/compass) — which is not a looper with
 effects on it but a **sequence of commands**, stepped through at a rate the commands
-themselves keep changing. That self-modifying clock is the character: `<` `>` `[` `]` alter
-how fast the command stream runs, so it accelerates, stalls and lurches on its own instead
-of ticking evenly.
+themselves keep changing, driving a **live tape loop**.
 
-The original's commands drive softcut. PoundHard has no softcut, but it has a direct
-equivalent for nearly all of them one level up, at the sequencer:
+Both halves matter, and the first attempt here got one of them wrong. That version applied
+the commands to the *sequencer* — rotating step lists, changing track rates — on the
+reasoning that PoundHard had no softcut. It measured well and it was not the script: a step
+sequencer can reorder notes, but it cannot play the last four seconds of the performance
+backwards at half speed inside a shrinking window. The tape is not an implementation detail
+of Compass, it is the instrument.
 
-| Compass | here |
+So softcut came to PoundHard. **[monome's softcut-lib](https://github.com/monome/softcut-lib)
+is built as a scsynth UGen** (`PhSoftcut`) — it has no
+audio I/O and no JACK dependency, five source files that process a block against a buffer
+the caller owns, so unlike the [Csound engine](#csound-engine) it needed no second process,
+no port pinning and no added latency. The modifier is then exactly what the original is:
+**two heads on 40 seconds of tape**, recording the master continuously and playing it back
+while the command stream moves them.
+
+The commands are the original's, one for one:
+
+| | |
 |---|---|
-| `F` `R` forward / reverse | the track's clock forwards, or its step list read backwards |
-| `+` `-` `!` rate inc / dec / random | the track's clock rate, in musical ratios |
-| `1` `P` jump / random position | the step list rotated |
-| `L` random loop length | the track's length — against the others, polymeter |
-| `(` random pan | the track's pan |
-| `<` `>` `[` `]` `?` clock and position | the command sequencer's own tempo and place |
-| `T` `8` — *not in the original* | transpose within the project's [scale](#the-projects-scale), and octave jumps |
-| `.` — *not in the original* | this track back to exactly as programmed |
+| `F` `R` | rate forward / reverse — a **negative** softcut rate, real reverse playback |
+| `+` `-` `!` | rate up / down / random, from the original's ratio table |
+| `1` `P` | jump to the loop start / a random position inside it |
+| `L` | a new loop window, weighted short — where it stutters on a grain rather than echoes |
+| `(` `)` | random pan, left head and right head |
+| `::` | **freeze recording** — the tape stops being overwritten and the heads chew on it |
+| `<` `>` `[` `]` | the self-modifying command clock |
+| `?` | jump the command sequencer to a random position |
 
-**Scope is the point.** One or two tracks, never more, chosen from those that actually have
-sequence data, and re-chosen occasionally while it runs. The original improvises on a whole
-performance; here the rest of the rig has to stay recognisable, so Compass is the improviser
-sitting *inside* an arrangement rather than being the arrangement.
+`::` is the most characterful of the set. With recording off the heads keep playing a frozen
+few seconds while the band plays on underneath; turn it back on and the performance bleeds
+back into the tape.
 
-That `.` command matters more than it looks: without a rest that returns a track to what was
-programmed, the overlay only ever accumulates and the track never comes home — it stops
-being a variation of anything.
+**It is an insert, not a send**, and that is what keeps it from clipping. The synth sits
+after the master limiter, so the dry signal on that bus is already against its 0.95 ceiling;
+adding two tape heads on top of it cannot help but pass full scale, which is precisely what
+the first build measured — peak **1.000**, hundreds of samples pinned. Attenuating the heads
+only shrinks the overshoot. So it takes the bus over instead: dry plus wet, through its own
+limiter at the same ceiling, written back. The tape ducks the master where they collide
+rather than piling onto it, which is also the more tape-like behaviour.
 
-**Non-destructive**, on the same primitives as [Quake](#quake) and [Break](#break): rate,
-length, a temporarily-pushed step list, pan, and scale-quantised step locks. Because all
-three own those same parameters, **Compass joins their mutual-exclusion lock** — engage any
-one and the other two go grey.
+**Non-destructive by construction**, and more cleanly than the other modifiers: it records
+the master and plays into the master, so no track, pattern or parameter is touched at all.
+Switching it off frees the synth and wipes the tape. It therefore does **not** join the
+[Quake](#quake)/[Break](#break) mutual-exclusion lock — it owns no track's rate, length or
+steps, so it has nothing to collide with.
 
-Measured on the device: bar-to-bar similarity **+0.66 with Compass off, +0.16 with it on
-(dipping to −0.27), and +0.66 again after** — and the machine's state fingerprint is
-identical before, during and after.
+Measured on the device across three 32-second takes: peak **0.950 with zero full-scale
+samples in all three** (off, on, off again), bar-to-bar similarity **+0.68 off, +0.59 on,
++0.71 after**, and 0 xruns in 45-second windows either way.
 
 ### The chaos macro (knob 8)
 
