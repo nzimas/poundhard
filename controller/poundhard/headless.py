@@ -981,6 +981,10 @@ class Controller:
             if st.undo():
                 self._push_all()               # re-push the restored machine to the engine
                 print("[poundhard] undo", flush=True)
+        elif cmd == "redo":                    # Shift + Undo: step forward again
+            if st.redo():
+                self._push_all()
+                print("[poundhard] redo", flush=True)
         elif cmd == "randpat":                 # Shift + volume touch + Track3: randomise this pattern
             from . import variations
             names = variations.random_pattern(st)
@@ -1051,6 +1055,8 @@ class Controller:
             "patPending": st.pattern_pending,
             "projFilled": list(self._proj_slots),
             "projCur": self._proj_cur,           # which project is loaded (-1 = none)
+            "canUndo": len(st.undo_stack) > 0,
+            "canRedo": len(st.redo_stack) > 0,
             "autoSave": self._autosaved,       # a recovery file exists (Shift+Menu restores it)
             "heat": self._heat_on,             # HEAT macro engaged
             "heatPct": round(self._heat_pct, 3),

@@ -422,6 +422,7 @@ in its engine colour.
 | **Knob 8** | **chaos macro** — sweeps every param of every assigned engine (see below) |
 | **Shift + touch Knob 8** | snap back to the chaos macro's **safe zone** |
 | **Undo** | step back one discrete action (20 levels, works in any view) |
+| **Shift + Undo** | **redo** — step forward again into what undo left behind. Doing anything new discards the redo trail, so there is never a question of which future you are in |
 | **Back** | exit the takeover (tears the stack down) |
 
 Step buttons are lit in their **engine colour**; a track with events pulses, an

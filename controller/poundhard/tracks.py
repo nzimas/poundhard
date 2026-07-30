@@ -330,6 +330,9 @@ class Project:
         self.clipboard: dict | None = None
         # UNDO: a stack of whole-machine states, pushed before each discrete action.
         self.undo_stack: list[dict] = []
+        # Redo holds the states undo stepped OUT of. Doing anything new discards it — the
+        # usual rule, and the only sane one: once you branch, the old future is gone.
+        self.redo_stack: list[dict] = []
 
     # -- solo -------------------------------------------------------------- #
     def toggle_solo(self, track: int) -> int:
@@ -515,17 +518,35 @@ class Project:
         self.undo_stack.append(self._undo_state())
         if len(self.undo_stack) > UNDO_LEVELS:
             self.undo_stack.pop(0)
+        # a NEW action abandons whatever undo had stepped out of
+        self.redo_stack.clear()
 
-    def undo(self) -> bool:
-        """Restore the state from before the last discrete action."""
-        if not self.undo_stack:
-            return False
-        s = self.undo_stack.pop()
+    def _restore(self, s: dict) -> None:
         self.apply_full(s["base"])
         self.patterns = list(s["patterns"])
         self.pattern_cur = s["pattern_cur"]
         self.pattern_pending = s["pattern_pending"]
         self.solo = s["solo"]
+
+    def undo(self) -> bool:
+        """Restore the state from before the last discrete action."""
+        if not self.undo_stack:
+            return False
+        # remember where we were, so redo can come back to it
+        self.redo_stack.append(self._undo_state())
+        if len(self.redo_stack) > UNDO_LEVELS:
+            self.redo_stack.pop(0)
+        self._restore(self.undo_stack.pop())
+        return True
+
+    def redo(self) -> bool:
+        """Step forward again into a state undo left behind."""
+        if not self.redo_stack:
+            return False
+        self.undo_stack.append(self._undo_state())
+        if len(self.undo_stack) > UNDO_LEVELS:
+            self.undo_stack.pop(0)
+        self._restore(self.redo_stack.pop())
         return True
 
     def project_to_dict(self) -> dict:

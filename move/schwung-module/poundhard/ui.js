@@ -170,6 +170,7 @@ let patView = false, projView = false;
 let patFilled = new Array(N_STEPS).fill(false), patCur = -1, patPending = -1;
 let projFilled = new Array(N_STEPS).fill(false);
 let projCur = -1;                   /* which project is LOADED (-1 = none) */
+let canUndo = false, canRedo = false;   /* whether the stacks have anything in them */
 let autoSave = false;               /* an autosave recovery file exists (Shift+Menu restores) */
 /* RECORDER view (Shift + Track3): 8 pads = 8 recording slots. */
 let recView = false;
@@ -803,6 +804,8 @@ function readStatus() {
     if (Array.isArray(s.patFilled)) patFilled = s.patFilled;
     if (Array.isArray(s.projFilled)) projFilled = s.projFilled;
     if (s.projCur != null) projCur = s.projCur;
+    if (s.canUndo != null) canUndo = s.canUndo;
+    if (s.canRedo != null) canRedo = s.canRedo;
     if (s.autoSave != null) autoSave = !!s.autoSave;
     if (s.heat != null && !heatHeld) heatOn = !!s.heat;             /* don't fight a live toggle */
     if (s.shuffle != null && !shufHeld) shufOn = !!s.shuffle;
@@ -1447,8 +1450,20 @@ globalThis.onMidiMessageInternal = function (data) {
             screenDirty = true;
             return;
         }
-        /* Undo button = step back one discrete action (20 levels, whole machine). */
-        if (d1 === MoveUndo && d2 > 0) { sendCmd('undo', -1); showAction('UNDO'); return; }
+        /* Undo button = step back one discrete action (20 levels, whole machine).
+         * SHIFT + the same button = REDO, stepping forward again into what undo left
+         * behind. Doing anything new discards the redo trail, so the two are never
+         * ambiguous about which future you are in. */
+        if (d1 === MoveUndo && d2 > 0) {
+            if (shiftHeld) {
+                if (canRedo) { sendCmd('redo', -1); showAction('REDO'); }
+                else showAction('NOTHING TO REDO');
+            } else {
+                if (canUndo) { sendCmd('undo', -1); showAction('UNDO'); }
+                else showAction('NOTHING TO UNDO');
+            }
+            return;
+        }
         /* Jog wheel = PITCH (note) — easier than the tiny knob for a step lock or track. */
         if (d1 === MoveMainKnob) {
             var jd = decodeDelta(d2);
