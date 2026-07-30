@@ -987,10 +987,17 @@ class Controller:
                 st.heat_apply(self._heat_pct)
         elif cmd == "break":                   # Break pad (right of Churn): automatic breakdowns
             on = int(arg) != 0
-            if not on and self._break_active:
-                self._break_end()               # never leave a break hanging
-            self._break_on = on
-            self._break_cycles = 0
+            # BREAK and QUAKE are mutually exclusive. Both temporarily own a track's length
+            # and rate, and Break's restore re-pushes the controller's originals — so with
+            # both engaged Break silently wipes Quake's overlay every time it ends. Rather
+            # than pick a winner per parameter, only one may hold the rig at a time.
+            if on and self._quake_on:
+                print("[poundhard] break refused: quake holds the rig", flush=True)
+            else:
+                if not on and self._break_active:
+                    self._break_end()           # never leave a break hanging
+                self._break_on = on
+                self._break_cycles = 0
         elif cmd == "breakint":                # hold Break + jog: cycles between breaks
             self._break_every = max(1, min(32, int(p.get("n", 4))))
         elif cmd == "churn":                   # Churn pad (right of Quake): CDP ornamentation
@@ -1002,10 +1009,13 @@ class Controller:
             self._churn_on = on
         elif cmd == "quake":                   # Quake pad (right of Shuffle): polymeter + polyrhythm
             on = int(arg) != 0
-            self._clear_quake()                # idempotent: drop any current overlay first
-            if on:
-                self._apply_quake()            # roll + push a fresh configuration
-            self._quake_on = on and bool(self._quake_saved)
+            if on and self._break_on:          # see the note under "break": one at a time
+                print("[poundhard] quake refused: break holds the rig", flush=True)
+            else:
+                self._clear_quake()            # idempotent: drop any current overlay first
+                if on:
+                    self._apply_quake()        # roll + push a fresh configuration
+                self._quake_on = on and bool(self._quake_saved)
         elif cmd == "shuffle":                 # Shuffle pad (right of Heat): swap rhythms between tracks
             on = int(arg) != 0
             self._clear_shuffle()              # idempotent: undo any current shuffle first

@@ -418,7 +418,7 @@ in its engine colour.
 | **Bottom-row 2nd pad** | **SHUFFLE** — temporarily swap rhythmic structures between tracks (toggle; each ON rolls a fresh config) |
 | **Bottom-row 3rd pad** | **QUAKE** — temporarily reshape the rhythm with polymeter + polyrhythm (toggle; each ON rolls a fresh config). See [Quake](#quake) |
 | **Bottom-row 4th pad** | **CHURN** — the music listens to itself: fragments of the master are transformed through CDP and dropped back into the gaps (toggle). See [Churn](#churn) |
-| **Bottom-row 5th pad** | **BREAK** — automatic breakdowns every N cycles (toggle). See [Break](#break) |
+| **Bottom-row 5th pad** | **BREAK** — automatic breakdowns every N cycles (toggle). See [Break](#break). **Mutually exclusive with QUAKE** — whichever is off goes **grey** while the other holds the rig |
 | **Hold BREAK + jog wheel** | how many pattern cycles between breaks (1…32, default **4**) |
 | **Hold HEAT pad + Knob 1** | set the HEAT amount (% of hits marked) |
 | **Play** (lit green while running) | start / stop the sequencer |
@@ -1141,6 +1141,14 @@ so you can see it happen rather than only that the mode is armed.
 
 Both edges land on a cycle boundary, which is what makes a break sound *placed*: the pattern
 goes away at the top of a bar and comes back at the top of the next.
+
+**Break and Quake lock each other out.** Both temporarily own a track's length and rate, and
+Break's restore re-pushes the controller's originals — so with both engaged Break silently
+wiped Quake's overlay every time a break ended. Rather than pick a winner parameter by
+parameter, only one may hold the rig at a time: engage either and the other's pad turns
+**grey**, and pressing it says which one is holding it rather than doing nothing. Switching
+the holder off releases the lock immediately. Grey means the same thing on both pads, so it
+reads as one rule rather than a per-pad quirk.
 
 Nine break types, chosen from what the pattern can actually support and never the same one
 twice running:
