@@ -418,6 +418,8 @@ in its engine colour.
 | **Bottom-row 2nd pad** | **SHUFFLE** — temporarily swap rhythmic structures between tracks (toggle; each ON rolls a fresh config) |
 | **Bottom-row 3rd pad** | **QUAKE** — temporarily reshape the rhythm with polymeter + polyrhythm (toggle; each ON rolls a fresh config). See [Quake](#quake) |
 | **Bottom-row 4th pad** | **CHURN** — the music listens to itself: fragments of the master are transformed through CDP and dropped back into the gaps (toggle). See [Churn](#churn) |
+| **Bottom-row 5th pad** | **BREAK** — automatic breakdowns every N cycles (toggle). See [Break](#break) |
+| **Hold BREAK + jog wheel** | how many pattern cycles between breaks (1…32, default **4**) |
 | **Hold HEAT pad + Knob 1** | set the HEAT amount (% of hits marked) |
 | **Play** (lit green while running) | start / stop the sequencer |
 | **Knob 1** | master tempo (BPM) |
@@ -1127,6 +1129,43 @@ fingerprint is identical before, during and after a run.
 > extend this: **CDP refuses to overwrite an existing output file**, exiting non-zero and
 > writing nothing. Reuse a destination path and it works exactly once, then fails silently
 > forever — which on a continuous loop looks like the feature switching itself off.
+
+### Break
+
+The fifth temporary modifier. Every N pattern cycles Break takes over for **one cycle**,
+transforms what the rig is playing, and hands it straight back. **Hold the pad and turn the
+jog wheel** to set the interval — 1, 2, 3, 4, 6, 8, 12, 16, 24 or 32 cycles, default 4. A
+hold that changes the interval is not also a toggle, so dialling the rate in doesn't flip
+the mode on the way out. The pad goes **solid white on the bar a break is actually running**,
+so you can see it happen rather than only that the mode is armed.
+
+Both edges land on a cycle boundary, which is what makes a break sound *placed*: the pattern
+goes away at the top of a bar and comes back at the top of the next.
+
+Nine break types, chosen from what the pattern can actually support and never the same one
+twice running:
+
+| | |
+|---|---|
+| **dropout** | the melodic material goes; what's left is what the ear was keeping time with |
+| **kick only** | stripped to the pulse — the drum whose hits sit most on the beat |
+| **percussion only** | the inverse: the kit exposed, sometimes without even the kick |
+| **stutter** | the bar folded down to a 2, 3 or 4-step loop — same material, phrase gone |
+| **displacement** | tracks rotated against each other; nothing removed, the bar just lands wrong |
+| **pause** | a hole for the last beat or two, so the downbeat after it lands hardest |
+| **filtered** | the rig keeps playing but loses its top, so the return is a lift |
+| **half time** | the rhythm section dragged to half speed |
+| **build-up** | thin at the top of the bar, everything by the end — it leads back *in* |
+
+It is built from four primitives the engine already has, none of which edits a sequence:
+mute, a temporarily-pushed step list, clock rate, and the per-track filter. Pushing a
+different step list to the engine leaves the pattern data completely alone, so restoring is
+just re-pushing the controller's own state — it cannot drift.
+
+Measured on the device with breaks every 2 cycles: bar-to-bar similarity sits at **+0.73
+with Break off** (the pattern repeating as programmed) and falls to **+0.30 with it on**,
+dipping to **−0.76** on the strongest breaks — bars that share almost nothing with the one
+before. The machine's state fingerprint is identical before, during and after.
 
 ### The chaos macro (knob 8)
 

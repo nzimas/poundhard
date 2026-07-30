@@ -123,6 +123,15 @@ class Controller:
         self._churn_gain: dict[int, float] = {}     # slot -> level-matching gain
         self._churn_lock = threading.Lock()
         self._churn_note = ""
+        # BREAK: every N pattern cycles, one cycle is transformed and then handed straight
+        # back. _break_active holds what was overridden so the restore is exact; the pattern
+        # data is never touched, so restoring is just re-pushing the controller's own state.
+        self._break_on = False
+        self._break_every = 4                    # pattern cycles between breaks
+        self._break_cycles = 0
+        self._break_active = False
+        self._break_last = ""
+        self._break_touched: dict = {}
         # performance recording
         self._rec_state = "idle"                 # idle | armed | recording
         self._rec_slot = -1                      # armed / recording slot
@@ -510,6 +519,68 @@ class Controller:
         self._churn_gain = {}
         self.bridge.churnclear()
 
+    # -- BREAK: automatic, musically-placed breakdowns ---------------------- #
+    def _break_tick(self) -> None:
+        """Called on every pattern cycle. Ends a break that is running, or starts one.
+
+        A break lasts exactly ONE cycle and both edges land on a cycle boundary, which is
+        what makes it sound placed rather than dropped in: the pattern goes away at the top
+        of a bar and comes back at the top of the next.
+        """
+        if not self._break_on:
+            return
+        if self._break_active:
+            self._break_end()
+            return
+        if not self.state.running:
+            return
+        self._break_cycles += 1
+        if self._break_cycles < max(1, self._break_every):
+            return
+        self._break_cycles = 0
+        self._break_start()
+
+    def _break_start(self) -> None:
+        from . import breaks
+        pl = breaks.plan(self.state, avoid=self._break_last)
+        if not pl:
+            return
+        st = self.state
+        touched = {"mute": [], "pattern": [], "rate": [], "filter": []}
+        for t in set(pl["mute"]):
+            self.bridge.mute(t, True)
+            touched["mute"].append(t)
+        for t, steps in pl["pattern"].items():
+            self.bridge.pattern(t, steps)
+            touched["pattern"].append(t)
+        for t, r in pl["rate"].items():
+            self.bridge.rate(t, r)
+            touched["rate"].append(t)
+        for t, (cut, res, ty) in pl["filter"].items():
+            self.bridge.filter(t, cut, res, ty)
+            touched["filter"].append(t)
+        self._break_touched = touched
+        self._break_active = True
+        self._break_last = pl["name"]
+        print("[poundhard] " + breaks.describe(pl), flush=True)
+
+    def _break_end(self) -> None:
+        """Put back exactly what was overridden, from the controller's own state — which
+        the break never modified, so this cannot drift."""
+        st = self.state
+        tch = self._break_touched or {}
+        for t in tch.get("pattern", []):
+            self.bridge.pattern(t, st.tracks[t].pattern)
+        for t in tch.get("rate", []):
+            self.bridge.rate(t, st.tracks[t].rate)
+        for t in tch.get("filter", []):
+            tr = st.tracks[t]
+            self.bridge.filter(t, tr.filt_cutoff, tr.filt_res, tr.filt_type)
+        if tch.get("mute"):
+            self._push_mutes()                   # effective mutes, so solo stays correct
+        self._break_touched = {}
+        self._break_active = False
+
     def _apply_quake(self) -> None:
         """Push a fresh Quake configuration: different lengths (polymeter) and ratio clock
         rates (polyrhythm) per track. The controller's state is NOT touched — the originals
@@ -559,6 +630,7 @@ class Controller:
     # -- patterns & projects ----------------------------------------------- #
     def _on_cycle(self) -> None:
         self._churn_spend()
+        self._break_tick()
         """Bar boundary (from the engine): fire any living steps whose period has elapsed
         (transient model — they revert next cycle), then apply a queued pattern switch."""
         with self._lock:
@@ -821,6 +893,7 @@ class Controller:
         "smparm",
         "recpad", "run",
         "patcopy", "patclipclear", "saveproj", "panic", "shuffle", "quake", "churn",
+        "break",
         "stepcopy", "rowcopy",
     })
 
@@ -912,6 +985,14 @@ class Controller:
                 for (t, c) in st.heat_clear():
                     self._reset_engine_cell(t, c)
                 st.heat_apply(self._heat_pct)
+        elif cmd == "break":                   # Break pad (right of Churn): automatic breakdowns
+            on = int(arg) != 0
+            if not on and self._break_active:
+                self._break_end()               # never leave a break hanging
+            self._break_on = on
+            self._break_cycles = 0
+        elif cmd == "breakint":                # hold Break + jog: cycles between breaks
+            self._break_every = max(1, min(32, int(p.get("n", 4))))
         elif cmd == "churn":                   # Churn pad (right of Quake): CDP ornamentation
             on = int(arg) != 0
             if on and not self._churn_on:
@@ -1273,6 +1354,9 @@ class Controller:
             "shuffle": self._shuffle_on,       # SHUFFLE macro engaged
             "quake": self._quake_on,           # QUAKE macro engaged
             "churn": self._churn_on,           # CHURN macro engaged
+            "brk": self._break_on,             # BREAK macro engaged
+            "brkEvery": self._break_every,     # cycles between breaks
+            "brkNow": self._break_active,      # a break is running this cycle
             # performance recorder
             "recSlots": list(self._rec_slots),
             "recSlot": self._rec_slot,

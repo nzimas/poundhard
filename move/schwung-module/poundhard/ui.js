@@ -98,6 +98,8 @@ const QUAKE_CELL = 26;              /* pad right of SHUFFLE = the QUAKE toggle *
 const QUAKE_ON = 26, QUAKE_ALT = 2, QUAKE_IDLE = 66;  /* orange pulse (on) / dim brick (off) */
 const CHURN_CELL = 27;              /* pad right of QUAKE = the CHURN toggle */
 const CHURN_ON = 31, CHURN_ALT = 84, CHURN_IDLE = 80;  /* lime pulse (on) / dark olive (off) */
+const BREAK_CELL = 28;              /* pad right of CHURN = the BREAK toggle */
+const BREAK_ON = 22, BREAK_ALT = 108, BREAK_IDLE = 105;  /* magenta pulse (on) / dim violet (off) */
 
 /* Per-generator-type step-button colours [bright, dim] — same hue, two brightnesses.
  * The step buttons are grouped by generator (see kits.py) so each block is one hue:
@@ -203,6 +205,9 @@ let heatOn = false, heatPct = 0.5, heatHeld = false, heatAdjusted = false;
 let shufOn = false, shufHeld = false;
 let quakeOn = false, quakeHeld = false;
 let churnOn = false, churnHeld = false;
+let brkOn = false, brkHeld = false, brkEvery = 4, brkNow = false, brkTweaked = false;
+/* the intervals worth having: musical multiples, not every integer */
+const BRK_STEPS = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32];
 /* step-button pulse: a local beat clock (tempo-driven) drives the per-track pulse so
  * event-tracks blink at their sequence pace. lastStepCol dedups setLED (only send on change). */
 let seqBeats = 0, lastPulseMs = 0, wasRunning = false;
@@ -482,6 +487,11 @@ function renderLEDs() {
                 color = quakeOn ? ((phase % 16 < 8) ? QUAKE_ON : QUAKE_ALT) : QUAKE_IDLE;
             } else if (c === CHURN_CELL) {                         /* CHURN toggle */
                 color = churnOn ? ((phase % 16 < 8) ? CHURN_ON : CHURN_ALT) : CHURN_IDLE;
+            } else if (c === BREAK_CELL) {                         /* BREAK toggle */
+                /* while a break is actually RUNNING the pad goes solid, so you can see the
+                 * bar it is happening on rather than only that the mode is armed */
+                color = brkNow ? White
+                      : (brkOn ? ((phase % 16 < 8) ? BREAK_ON : BREAK_ALT) : BREAK_IDLE);
             }
             setLED(PAD_NOTES[c], color);
         }
@@ -762,7 +772,7 @@ function drawScreen() {
             return;
         }
         print(0, 6, 'POUNDHARD', 2);
-        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : '') + (shufOn ? '  SHUF' : '') + (quakeOn ? '  QUAKE' : '') + (churnOn ? '  CHURN' : ''), 1);
+        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : '') + (shufOn ? '  SHUF' : '') + (quakeOn ? '  QUAKE' : '') + (churnOn ? '  CHURN' : '') + (brkOn ? ('  BRK/' + brkEvery) : ''), 1);
         print(0, 44, 'pad=hear  shift+pad=gen  copy=dup', 1);
         print(0, 56, 'k8=chaos  heat=btm-left pad', 1);
     } else if (lenArm) {
@@ -821,6 +831,9 @@ function readStatus() {
     if (s.shuffle != null && !shufHeld) shufOn = !!s.shuffle;
     if (s.quake != null && !quakeHeld) quakeOn = !!s.quake;
     if (s.churn != null && !churnHeld) churnOn = !!s.churn;
+    if (s.brk != null && !brkHeld) brkOn = !!s.brk;
+    if (s.brkEvery != null && !brkHeld) brkEvery = s.brkEvery;
+    if (s.brkNow != null) brkNow = !!s.brkNow;
     if (s.heatPct != null && knobShow !== 'heat') heatPct = s.heatPct;
     if (s.drumMode != null && paletteHeld !== DRUM_CELL) drumMode = s.drumMode;
     scaleLabel = (s.scale && s.scale.name) ? (noteName(s.scale.root).replace(/[0-9-]/g, '') + ' ' + s.scale.name) : '';
@@ -1000,7 +1013,7 @@ globalThis.tick = function () {
     if (running && patView && patPending >= 0) ledDirty = true;   /* animate the queued-slot pulse */
     if (recView && recState !== 'idle') ledDirty = true;          /* animate the rec/armed pad */
     if (editTrack >= 0 && !fxView) { for (var _lv = 0; _lv < N_STEPS; _lv++) if (editLiving[_lv]) { ledDirty = true; break; } }  /* pulse living steps */
-    if ((heatOn || shufOn || quakeOn || churnOn) && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse the four modifier pads */
+    if ((heatOn || shufOn || quakeOn || churnOn || brkOn) && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse the five modifier pads */
     /* promote a sustained press on the SAMPLE pad into a HOLD (record-arm) */
     if (paletteHeld === SAMPLE_CELL && !smpHold && (Date.now() - paletteHeldStart) >= HOLD_MS) {
         smpHold = true; ledDirty = true; screenDirty = true;
@@ -1251,6 +1264,11 @@ globalThis.onMidiMessageInternal = function (data) {
             churnHeld = true; ledDirty = true; screenDirty = true;
             return;
         }
+        if (cell === BREAK_CELL) {                         /* Break pad down: arm the toggle,
+                                                            * and hold = set the interval */
+            brkHeld = true; brkTweaked = false; ledDirty = true; screenDirty = true;
+            return;
+        }
         /* DRUM held + a pad to its right = that pad's fixed drum TYPE. Tapping it only
          * AUDITIONS the type (a stable reference sound, identical every press, so the pad
          * reads as "hihat" rather than a new random drum each time). The pick is committed
@@ -1320,6 +1338,17 @@ globalThis.onMidiMessageInternal = function (data) {
                 showAction(churnOn ? 'CHURN' : 'CHURN OFF');
             }
             churnHeld = false; ledDirty = true; screenDirty = true;
+            return;
+        }
+        if (cell === BREAK_CELL) {                         /* Break pad up */
+            /* A hold that CHANGED the interval is not also a toggle — otherwise dialling
+             * the rate in always flips the mode on the way out. */
+            if (brkHeld && !brkTweaked) {
+                brkOn = !brkOn;                            /* optimistic; server confirms */
+                sendCmd('break', brkOn ? 1 : 0);
+                showAction(brkOn ? ('BREAK 1/' + brkEvery) : 'BREAK OFF');
+            }
+            brkHeld = false; ledDirty = true; screenDirty = true;
             return;
         }
         if (paletteHeld === cell) {
@@ -1506,6 +1535,20 @@ globalThis.onMidiMessageInternal = function (data) {
         if (d1 === MoveMainKnob) {
             var jd = decodeDelta(d2);
             if (jd !== 0) {
+                /* Hold the BREAK pad + jog = how many pattern cycles between breaks.
+                 * Checked before everything else: while that pad is held the jog belongs
+                 * to it, whatever view is open. */
+                if (brkHeld) {
+                    var idx = BRK_STEPS.indexOf(brkEvery);
+                    if (idx < 0) idx = 1;
+                    idx = clampi(idx + jd, 0, BRK_STEPS.length - 1);
+                    brkEvery = BRK_STEPS[idx];
+                    brkTweaked = true;
+                    sendCmd('breakint', -1, { p: { n: brkEvery } });
+                    showAction('BREAK EVERY ' + brkEvery);
+                    screenDirty = true;
+                    return;
+                }
                 /* SHIFT + jog = transpose the whole sequence, one semitone per detent.
                  * Everything else about the steps is untouched — this only offsets pitch. */
                 if (shiftHeld && editTrack >= 0) {
