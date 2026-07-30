@@ -1834,7 +1834,8 @@ To the author's best knowledge:
 | **ByteBeat** (github.com/midouest/bytebeat) | the BYTEBEAT engine (prebuilt `.so` shipped) | **GPL-3.0** (see `supercollider/plugins/ByteBeat/LICENSE`) |
 | **JACK2** (`jackd`, `libjackserver`, `libjack`) | the audio server the engine runs on — **shipped in the runtime bundle** so no other project has to provide it | server **GPL-2.0-or-later**, client library **LGPL-2.1-or-later** |
 | **python-osc** (vendored under `controller/vendor/`) | OSC transport in the controller | Unlicense / public domain |
-| **Csound** | investigated for a future "Csound edition" — **not shipped** in this repo | LGPL-2.1-or-later |
+| **Csound** | the **CSOUND engine (20)** and the SAMPLE engine's offline mangler — **shipped in the runtime bundle** (`move/bundle/poundhard-csound.tar.gz`, 20 opcode plugins incl. `librtjack`) | LGPL-2.1-or-later |
+| **Composers Desktop Project (CDP8)** | the transform engine behind the **CHURN** modifier — **shipped**, built from source (`move/bundle/poundhard-cdp.tar.gz`, ~220 aarch64 programs) | see `CDP8/LICENSE.txt` (LGPL-2.1 for the library, per-program notices) |
 | **Schwung** / move-anything (and its `wildrider` SC bundle) | the host takeover framework PoundHard runs *inside* — **not part of this repo** | © its author; separate project & terms |
 
 The prebuilt `ByteBeat.so` is an aarch64 binary of GPL-3.0 source; its corresponding
