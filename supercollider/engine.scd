@@ -121,6 +121,10 @@
 // per-track buffer, so assigning to a track hands the sound over and RELEASES the pad.
 ~smpPad   = nil;                       // buffer held by the SAMPLE palette pad
 ~smpBuf   = Array.fill(~nTracks, { nil });   // per-track assigned sample
+// CHURN: a small ring of buffers holding CDP-transformed fragments, plus the buffer being
+// captured into. Entirely separate from the tracks — Churn never borrows a track's voice.
+~churnBuf = Array.fill(8, { nil });
+~churnCapBuf = nil;
 ~smpCapSy = nil;                       // the live \phCapture synth, if any
 ~smpCapBuf = nil;                      // buffer being recorded into
 ~smpMaxDur = 2.0;                      // cap a take (buffer length caps RecordBuf)
@@ -899,6 +903,55 @@
 			});
 		};
 	}, '/ph/smparm'),
+	// /ph/churncap "<path>" <dur>: record `dur` seconds of the MASTER and write it to disk
+	// as a finalised WAV, then tell the controller. Buffer.write's completion callback is
+	// what makes it valid — a file still being streamed has no usable header, and CDP
+	// rejects one outright (which is exactly how this failed the first time it was tried).
+	OSCdef(\phChurnCap, { |m|
+		(~ready == true).if {
+			var path = m[1].asString;
+			var dur = (m[2] ? 1.2).asFloat.clip(0.2, 4.0);
+			~churnCapBuf.notNil.if { ~churnCapBuf.free };
+			~churnCapBuf = Buffer.alloc(s, (dur * s.sampleRate).asInteger, 1, { |b|
+				var syn = Synth.head(~gSend, \phChurnCap,
+					[\in, ~masterBus.index, \buf, b.bufnum, \dur, dur]);
+				syn.register;
+				syn.onFree({
+					b.write(path, "wav", "int16", -1, 0, false,
+						{ ~ctrl.sendMsg("/ph/churncaptured", path) });
+				});
+			});
+		};
+	}, '/ph/churncap'),
+	// /ph/churnload "<path>" <slot>: a CDP-transformed fragment becomes playable.
+	OSCdef(\phChurnLoad, { |m|
+		var path = m[1].asString, slot = m[2].asInteger.clip(0, 7);
+		File.exists(path).if({
+			Buffer.readChannel(s, path, channels: [0], action: { |b|
+				var old = ~churnBuf[slot];
+				~churnBuf[slot] = b;
+				old.notNil.if { old.free };
+				~ctrl.sendMsg("/ph/churnloaded", slot, b.numFrames / s.sampleRate);
+			});
+		}, { ~ctrl.sendMsg("/ph/churnloaded", slot, 0) });
+	}, '/ph/churnload'),
+	// /ph/churnplay <slot> <amp> <pan> <rate>: drop that fragment onto the master.
+	OSCdef(\phChurnPlay, { |m|
+		var slot = m[1].asInteger.clip(0, 7);
+		((~ready == true) and: { ~churnBuf[slot].notNil }).if {
+			Synth.tail(~gSharedVoices, \phChurnVoice, [
+				\out, ~masterBus.index, \buf, ~churnBuf[slot].bufnum,
+				\amp, (m[2] ? 0.5).asFloat.clip(0, 2),
+				\pan, (m[3] ? 0).asFloat.clip(-1, 1),
+				\rate, (m[4] ? 1).asFloat.clip(0.25, 4)]);
+		};
+	}, '/ph/churnplay'),
+	// /ph/churnclear: toggling Churn off frees everything it made. Nothing else to undo —
+	// it never wrote to a track.
+	OSCdef(\phChurnClear, { |m|
+		8.do { |k| ~churnBuf[k].notNil.if { ~churnBuf[k].free; ~churnBuf[k] = nil } };
+		~churnCapBuf.notNil.if { ~churnCapBuf.free; ~churnCapBuf = nil };
+	}, '/ph/churnclear'),
 	// /ph/smpwrite "<path>": flush the captured buffer to disk for the Csound mangler.
 	OSCdef(\phSmpWrite, { |m|
 		var path = m[1].asString;

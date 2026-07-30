@@ -891,6 +891,33 @@ SynthDef(\phCsound, { |out = 16, in = 2, amp = 0.85, pan = 0.0, gate = 1|
 	Out.ar(out, ~killbad.(wide * a));
 }).add;
 
+// CHURN — the capture and playback ends of the ornamentation engine (the 4th bottom-row
+// toggle). Churn records short fragments of the master, has CDP transform them off-thread,
+// and plays them back into the master at moments the controller judges to be free.
+//
+// Nothing here touches a track: the capture reads the master bus and the playback writes to
+// it, so the pattern, the tracks and the mixer are untouched by construction.
+SynthDef(\phChurnCap, { |in = 16, buf = 0, dur = 1.2|
+	// Straight time-bounded capture — no threshold arming. Churn wants a slice of whatever
+	// is happening right now, including the quiet parts; waiting for a transient would only
+	// ever hand CDP the loud material and the ornaments would all sound like hits.
+	var sig = In.ar(in, 2).sum * 0.5;
+	RecordBuf.ar(sig, buf, loop: 0, doneAction: 2);
+	Line.kr(0, 1, dur, doneAction: 2);
+}).add;
+
+SynthDef(\phChurnVoice, { |out = 0, buf = 0, amp = 0.5, pan = 0, rate = 1, atk = 0.005, rel = 0.06|
+	// A transformed fragment, played once. The short fade at both ends is not cosmetic: CDP
+	// output starts and ends wherever the transform left it, and dropping that straight onto
+	// the master is a click — the same lesson as the voice-steal fix.
+	var frames = BufFrames.kr(buf);
+	var dur = (frames / BufSampleRate.kr(buf)) / rate.abs.max(0.05);
+	var sig = PlayBuf.ar(1, buf, rate * BufRateScale.kr(buf), doneAction: 2);
+	var env = EnvGen.ar(Env.new([0, 1, 1, 0], [atk, (dur - atk - rel).max(0.01), rel], \sin),
+		doneAction: 2);
+	Out.ar(out, ~killbad.(~spread.(sig * env * amp, pan)));
+}).add;
+
 SynthDef(\phTrackFilter, { |in = 16, out = 16, cutoff = 18000, res = 0.0, type = 0,
 		glide = 0.03|
 		var dry = In.ar(in, 2);

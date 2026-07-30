@@ -96,6 +96,8 @@ const SHUF_CELL = 25;               /* pad right of HEAT = the SHUFFLE toggle */
 const SHUF_ON = 14, SHUF_ALT = 20, SHUF_IDLE = 87;  /* cyan pulse (on) / dim teal (off) */
 const QUAKE_CELL = 26;              /* pad right of SHUFFLE = the QUAKE toggle */
 const QUAKE_ON = 26, QUAKE_ALT = 2, QUAKE_IDLE = 66;  /* orange pulse (on) / dim brick (off) */
+const CHURN_CELL = 27;              /* pad right of QUAKE = the CHURN toggle */
+const CHURN_ON = 31, CHURN_ALT = 84, CHURN_IDLE = 80;  /* lime pulse (on) / dark olive (off) */
 
 /* Per-generator-type step-button colours [bright, dim] — same hue, two brightnesses.
  * The step buttons are grouped by generator (see kits.py) so each block is one hue:
@@ -200,6 +202,7 @@ let heatOn = false, heatPct = 0.5, heatHeld = false, heatAdjusted = false;
  * (a fresh random config); toggle-off restores the original. */
 let shufOn = false, shufHeld = false;
 let quakeOn = false, quakeHeld = false;
+let churnOn = false, churnHeld = false;
 /* step-button pulse: a local beat clock (tempo-driven) drives the per-track pulse so
  * event-tracks blink at their sequence pace. lastStepCol dedups setLED (only send on change). */
 let seqBeats = 0, lastPulseMs = 0, wasRunning = false;
@@ -477,6 +480,8 @@ function renderLEDs() {
                 color = shufOn ? ((phase % 16 < 8) ? SHUF_ON : SHUF_ALT) : SHUF_IDLE;
             } else if (c === QUAKE_CELL) {                         /* QUAKE toggle */
                 color = quakeOn ? ((phase % 16 < 8) ? QUAKE_ON : QUAKE_ALT) : QUAKE_IDLE;
+            } else if (c === CHURN_CELL) {                         /* CHURN toggle */
+                color = churnOn ? ((phase % 16 < 8) ? CHURN_ON : CHURN_ALT) : CHURN_IDLE;
             }
             setLED(PAD_NOTES[c], color);
         }
@@ -757,7 +762,7 @@ function drawScreen() {
             return;
         }
         print(0, 6, 'POUNDHARD', 2);
-        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : '') + (shufOn ? '  SHUF' : '') + (quakeOn ? '  QUAKE' : ''), 1);
+        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : '') + (shufOn ? '  SHUF' : '') + (quakeOn ? '  QUAKE' : '') + (churnOn ? '  CHURN' : ''), 1);
         print(0, 44, 'pad=hear  shift+pad=gen  copy=dup', 1);
         print(0, 56, 'k8=chaos  heat=btm-left pad', 1);
     } else if (lenArm) {
@@ -815,6 +820,7 @@ function readStatus() {
     if (s.heat != null && !heatHeld) heatOn = !!s.heat;             /* don't fight a live toggle */
     if (s.shuffle != null && !shufHeld) shufOn = !!s.shuffle;
     if (s.quake != null && !quakeHeld) quakeOn = !!s.quake;
+    if (s.churn != null && !churnHeld) churnOn = !!s.churn;
     if (s.heatPct != null && knobShow !== 'heat') heatPct = s.heatPct;
     if (s.drumMode != null && paletteHeld !== DRUM_CELL) drumMode = s.drumMode;
     scaleLabel = (s.scale && s.scale.name) ? (noteName(s.scale.root).replace(/[0-9-]/g, '') + ' ' + s.scale.name) : '';
@@ -994,7 +1000,7 @@ globalThis.tick = function () {
     if (running && patView && patPending >= 0) ledDirty = true;   /* animate the queued-slot pulse */
     if (recView && recState !== 'idle') ledDirty = true;          /* animate the rec/armed pad */
     if (editTrack >= 0 && !fxView) { for (var _lv = 0; _lv < N_STEPS; _lv++) if (editLiving[_lv]) { ledDirty = true; break; } }  /* pulse living steps */
-    if ((heatOn || shufOn || quakeOn) && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse HEAT / SHUFFLE / QUAKE pads */
+    if ((heatOn || shufOn || quakeOn || churnOn) && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse the four modifier pads */
     /* promote a sustained press on the SAMPLE pad into a HOLD (record-arm) */
     if (paletteHeld === SAMPLE_CELL && !smpHold && (Date.now() - paletteHeldStart) >= HOLD_MS) {
         smpHold = true; ledDirty = true; screenDirty = true;
@@ -1241,6 +1247,10 @@ globalThis.onMidiMessageInternal = function (data) {
             quakeHeld = true; ledDirty = true; screenDirty = true;
             return;
         }
+        if (cell === CHURN_CELL) {                         /* Churn pad down: arm the toggle */
+            churnHeld = true; ledDirty = true; screenDirty = true;
+            return;
+        }
         /* DRUM held + a pad to its right = that pad's fixed drum TYPE. Tapping it only
          * AUDITIONS the type (a stable reference sound, identical every press, so the pad
          * reads as "hihat" rather than a new random drum each time). The pick is committed
@@ -1301,6 +1311,15 @@ globalThis.onMidiMessageInternal = function (data) {
                 showAction(quakeOn ? 'QUAKE' : 'QUAKE OFF');
             }
             quakeHeld = false; ledDirty = true; screenDirty = true;
+            return;
+        }
+        if (cell === CHURN_CELL) {                         /* Churn pad up: short press = toggle */
+            if (churnHeld) {
+                churnOn = !churnOn;                        /* optimistic; server confirms via status */
+                sendCmd('churn', churnOn ? 1 : 0);
+                showAction(churnOn ? 'CHURN' : 'CHURN OFF');
+            }
+            churnHeld = false; ledDirty = true; screenDirty = true;
             return;
         }
         if (paletteHeld === cell) {

@@ -417,6 +417,7 @@ in its engine colour.
 | **Bottom-row first pad** | **HEAT** — mass-mark [living steps](#living-steps--the-heat-button) across the whole rig (toggle) |
 | **Bottom-row 2nd pad** | **SHUFFLE** — temporarily swap rhythmic structures between tracks (toggle; each ON rolls a fresh config) |
 | **Bottom-row 3rd pad** | **QUAKE** — temporarily reshape the rhythm with polymeter + polyrhythm (toggle; each ON rolls a fresh config). See [Quake](#quake) |
+| **Bottom-row 4th pad** | **CHURN** — the music listens to itself: fragments of the master are transformed through CDP and dropped back into the gaps (toggle). See [Churn](#churn) |
 | **Hold HEAT pad + Knob 1** | set the HEAT amount (% of hits marked) |
 | **Play** (lit green while running) | start / stop the sequencer |
 | **Knob 1** | master tempo (BPM) |
@@ -1088,6 +1089,44 @@ Measured on the device: bar-to-bar similarity **+0.81 with Quake off, +0.33 with
 +0.80 again after switching off** — the pattern stops repeating per bar while it is engaged
 and goes straight back afterwards. Still clearly positive, not near zero: the material stays
 recognisable, which is the point.
+
+### Churn
+
+The fourth temporary modifier. Churn records short fragments of the **master output**,
+transforms them with **CDP** (the Composers Desktop Project), and drops the results back
+into the performance where there is room — so the piece is continuously ornamented with
+mutated versions of itself.
+
+It is the only route into a whole class of sound the rest of the instrument cannot make.
+CDP's processes are *offline* — spectral blurs and averages, waveset mangles, brassage,
+time warps — and cannot run in an audio callback at all. Churn puts them in a live set.
+
+**The loop.** One fragment is captured (0.5-1.6 s), transformed, and loaded while the
+fragments already loaded are still being played, so the stream never gaps. Four slots are
+in rotation; each ornament is played **1-4 times** before being discarded and replaced —
+long enough to register, short enough not to become a loop. Measured on the device: a chain
+takes ~0.13 s, which is what makes a continuous pipeline affordable at all.
+
+**The transforms** are grouped into families — spectral (blur, scatter, average, time
+stretch), waveset (repeat, multiply, reverse, average), time/pitch (varispeed, brassage) and
+granular (bounce) — and a chain draws its two stages from *different* families, because a
+blur on a blur is still a blur while a waveset mangle on a spectral smear is a new sound.
+
+**Placement is the point.** An ornament goes where there is space: every step is scored by
+how many tracks hit it (plus the step after, because the tail is still sounding), beats and
+bar lines are penalised even when empty, and Churn takes from the quiet end of that ranking
+— and not every bar. It fills gaps rather than competing, and it sits **under** the music at
+a fraction of full level.
+
+**Non-destructive by construction.** Churn never writes to a track: it reads the master bus
+and plays into the master bus. Toggling off frees its buffers and the ornaments simply stop
+— there is nothing to restore. Verified on the device: the whole machine's state
+fingerprint is identical before, during and after a run.
+
+> CDP is vendored under `$PH/cdp` — 220 aarch64 programs. One trap worth knowing if you
+> extend this: **CDP refuses to overwrite an existing output file**, exiting non-zero and
+> writing nothing. Reuse a destination path and it works exactly once, then fails silently
+> forever — which on a continuous loop looks like the feature switching itself off.
 
 ### The chaos macro (knob 8)
 

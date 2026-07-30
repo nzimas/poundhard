@@ -113,6 +113,15 @@ class Controller:
         # pattern ever having been modified.
         self._quake_on = False
         self._quake_saved: dict[int, tuple[int, float]] = {}
+        # CHURN: a background pipeline. _churn_ready holds slots that have a transformed
+        # fragment loaded and a remaining play budget; the worker keeps refilling them while
+        # the bar callback spends them. Nothing here is ever written to a track.
+        self._churn_on = False
+        self._churn_thread: threading.Thread | None = None
+        self._churn_stop = threading.Event()
+        self._churn_ready: dict[int, int] = {}      # slot -> plays remaining
+        self._churn_lock = threading.Lock()
+        self._churn_note = ""
         # performance recording
         self._rec_state = "idle"                 # idle | armed | recording
         self._rec_slot = -1                      # armed / recording slot
@@ -351,6 +360,120 @@ class Controller:
         self.bridge.length(engine_track, src.length)
         self.bridge.rate(engine_track, src.rate)
 
+    # -- CHURN: capture -> CDP -> place ------------------------------------- #
+    CHURN_SLOTS = 4
+
+    def _churn_dir(self):
+        d = RECORDINGS_DIR / "churn"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _churn_worker(self) -> None:
+        """Keep the slots stocked with freshly transformed fragments.
+
+        One fragment is captured, transformed and loaded while the ones already loaded are
+        still being played, which is what makes the stream continuous rather than a stutter
+        of silence between ornaments. The loop is deliberately unhurried: a chain takes ~0.13
+        s but there is no value in generating faster than the bar callback can spend them.
+        """
+        from . import churn
+        rng = random.Random()
+        work = self._churn_dir()
+        slot = 0
+        while not self._churn_stop.is_set():
+            try:
+                with self._churn_lock:
+                    # only refill a slot that is spent — a fragment mid-budget is still wanted
+                    free = [k for k in range(self.CHURN_SLOTS)
+                            if self._churn_ready.get(k, 0) <= 0]
+                if not free or not self.state.running:
+                    self._churn_stop.wait(0.5)
+                    continue
+                slot = free[0]
+                raw = work / ("cap%d.wav" % slot)
+                out = work / ("orn%d.wav" % slot)
+                try:
+                    raw.unlink()
+                except OSError:
+                    pass
+                dur = rng.uniform(0.5, 1.6)
+                self.bridge.churncap(raw, dur)
+                # wait for the engine to finish writing — the file appears only once
+                # Buffer.write's callback fires, so its presence IS the finalisation signal
+                deadline = time.monotonic() + dur + 4.0
+                while time.monotonic() < deadline and not self._churn_stop.is_set():
+                    if raw.exists() and raw.stat().st_size > 4000:
+                        break
+                    self._churn_stop.wait(0.05)
+                if self._churn_stop.is_set() or not raw.exists():
+                    continue
+                desc = churn.transform(raw, out, work, rng)
+                if not desc:
+                    continue
+                self.bridge.churnload(out, slot)
+                time.sleep(0.25)                 # let the buffer read land
+                with self._churn_lock:
+                    # how long an ornament stays in rotation. Long enough to become
+                    # musically meaningful, short enough not to turn into a loop.
+                    self._churn_ready[slot] = rng.choice((1, 2, 2, 3, 3, 4))
+                self._churn_note = desc
+                print("[poundhard] churn slot %d: %s" % (slot + 1, desc), flush=True)
+            except Exception as e:                # a worker must never take the stack down
+                print("[poundhard] churn worker: %r" % (e,), flush=True)
+                self._churn_stop.wait(1.0)
+
+    def _churn_spend(self) -> None:
+        """Bar boundary: drop a ready ornament into a gap, if there is one worth using.
+
+        Placement comes from `churn.gaps`, which ranks steps by how much is already
+        happening on them. Churn is meant to fill space, not compete, so it takes from the
+        quiet end of that ranking — and not every bar, or it stops being ornamentation.
+        """
+        from . import churn
+        if not self._churn_on or not self.state.running:
+            return
+        with self._churn_lock:
+            live = [k for k, n in self._churn_ready.items() if n > 0]
+        if not live or random.random() < 0.35:     # leave some bars alone
+            return
+        slot = random.choice(live)
+        order = churn.gaps(self.state)
+        step = random.choice(order[:5])            # one of the five quietest places
+        st = self.state
+        step_dur = (60.0 / max(20.0, st.tempo)) / 4.0
+        delay = step * step_dur
+        amp = random.uniform(0.18, 0.5)            # an ornament sits UNDER the music
+        pan = random.uniform(-0.85, 0.85)
+        rate = random.choice((1.0, 1.0, 0.5, 2.0, 1.5))
+
+        def fire():
+            self.bridge.churnplay(slot, amp, pan, rate)
+            with self._churn_lock:
+                if self._churn_ready.get(slot, 0) > 0:
+                    self._churn_ready[slot] -= 1
+
+        t = threading.Timer(delay, fire)
+        t.daemon = True
+        t.start()
+
+    def _churn_start(self) -> None:
+        from . import churn
+        if not churn.available():
+            print("[poundhard] churn: CDP not installed — nothing to do", flush=True)
+            return
+        self._churn_stop.clear()
+        self._churn_ready = {}
+        self._churn_thread = threading.Thread(target=self._churn_worker, daemon=True)
+        self._churn_thread.start()
+
+    def _churn_end(self) -> None:
+        """Stop generating and free everything. Nothing to restore: Churn only ever added
+        playback events, so silence is the original state."""
+        self._churn_stop.set()
+        self._churn_thread = None
+        self._churn_ready = {}
+        self.bridge.churnclear()
+
     def _apply_quake(self) -> None:
         """Push a fresh Quake configuration: different lengths (polymeter) and ratio clock
         rates (polyrhythm) per track. The controller's state is NOT touched — the originals
@@ -399,6 +522,7 @@ class Controller:
 
     # -- patterns & projects ----------------------------------------------- #
     def _on_cycle(self) -> None:
+        self._churn_spend()
         """Bar boundary (from the engine): fire any living steps whose period has elapsed
         (transient model — they revert next cycle), then apply a queued pattern switch."""
         with self._lock:
@@ -660,7 +784,7 @@ class Controller:
         "editenter", "editexit", "audition", "palettegen", "drummode", "drumaudition",
         "smparm",
         "recpad", "run",
-        "patcopy", "patclipclear", "saveproj", "panic", "shuffle", "quake",
+        "patcopy", "patclipclear", "saveproj", "panic", "shuffle", "quake", "churn",
         "stepcopy", "rowcopy",
     })
 
@@ -752,6 +876,13 @@ class Controller:
                 for (t, c) in st.heat_clear():
                     self._reset_engine_cell(t, c)
                 st.heat_apply(self._heat_pct)
+        elif cmd == "churn":                   # Churn pad (right of Quake): CDP ornamentation
+            on = int(arg) != 0
+            if on and not self._churn_on:
+                self._churn_start()
+            elif not on and self._churn_on:
+                self._churn_end()
+            self._churn_on = on
         elif cmd == "quake":                   # Quake pad (right of Shuffle): polymeter + polyrhythm
             on = int(arg) != 0
             self._clear_quake()                # idempotent: drop any current overlay first
@@ -1105,6 +1236,7 @@ class Controller:
             "drumMode": st.drum_mode,          # DRUM palette pad locked to a type (-1 = any)
             "shuffle": self._shuffle_on,       # SHUFFLE macro engaged
             "quake": self._quake_on,           # QUAKE macro engaged
+            "churn": self._churn_on,           # CHURN macro engaged
             # performance recorder
             "recSlots": list(self._rec_slots),
             "recSlot": self._rec_slot,
