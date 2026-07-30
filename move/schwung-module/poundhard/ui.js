@@ -94,6 +94,8 @@ const HEAT_CELL = 24;               /* default-view bottom-row first pad = the H
 const HEAT_HOT = 5, HEAT_WARM = 1, HEAT_IDLE = 84;  /* fire pulse (on) / dim ember (off) */
 const SHUF_CELL = 25;               /* pad right of HEAT = the SHUFFLE toggle */
 const SHUF_ON = 14, SHUF_ALT = 20, SHUF_IDLE = 87;  /* cyan pulse (on) / dim teal (off) */
+const QUAKE_CELL = 26;              /* pad right of SHUFFLE = the QUAKE toggle */
+const QUAKE_ON = 26, QUAKE_ALT = 2, QUAKE_IDLE = 66;  /* orange pulse (on) / dim brick (off) */
 
 /* Per-generator-type step-button colours [bright, dim] — same hue, two brightnesses.
  * The step buttons are grouped by generator (see kits.py) so each block is one hue:
@@ -197,6 +199,7 @@ let heatOn = false, heatPct = 0.5, heatHeld = false, heatAdjusted = false;
 /* SHUFFLE macro (pad right of HEAT): each toggle-on swaps rhythmic structures between tracks
  * (a fresh random config); toggle-off restores the original. */
 let shufOn = false, shufHeld = false;
+let quakeOn = false, quakeHeld = false;
 /* step-button pulse: a local beat clock (tempo-driven) drives the per-track pulse so
  * event-tracks blink at their sequence pace. lastStepCol dedups setLED (only send on change). */
 let seqBeats = 0, lastPulseMs = 0, wasRunning = false;
@@ -472,6 +475,8 @@ function renderLEDs() {
                 color = heatOn ? ((phase % 16 < 8) ? HEAT_HOT : HEAT_WARM) : HEAT_IDLE;
             } else if (c === SHUF_CELL) {                          /* SHUFFLE toggle */
                 color = shufOn ? ((phase % 16 < 8) ? SHUF_ON : SHUF_ALT) : SHUF_IDLE;
+            } else if (c === QUAKE_CELL) {                         /* QUAKE toggle */
+                color = quakeOn ? ((phase % 16 < 8) ? QUAKE_ON : QUAKE_ALT) : QUAKE_IDLE;
             }
             setLED(PAD_NOTES[c], color);
         }
@@ -752,7 +757,7 @@ function drawScreen() {
             return;
         }
         print(0, 6, 'POUNDHARD', 2);
-        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : '') + (shufOn ? '  SHUF' : ''), 1);
+        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : '') + (shufOn ? '  SHUF' : '') + (quakeOn ? '  QUAKE' : ''), 1);
         print(0, 44, 'pad=hear  shift+pad=gen  copy=dup', 1);
         print(0, 56, 'k8=chaos  heat=btm-left pad', 1);
     } else if (lenArm) {
@@ -809,6 +814,7 @@ function readStatus() {
     if (s.autoSave != null) autoSave = !!s.autoSave;
     if (s.heat != null && !heatHeld) heatOn = !!s.heat;             /* don't fight a live toggle */
     if (s.shuffle != null && !shufHeld) shufOn = !!s.shuffle;
+    if (s.quake != null && !quakeHeld) quakeOn = !!s.quake;
     if (s.heatPct != null && knobShow !== 'heat') heatPct = s.heatPct;
     if (s.drumMode != null && paletteHeld !== DRUM_CELL) drumMode = s.drumMode;
     scaleLabel = (s.scale && s.scale.name) ? (noteName(s.scale.root).replace(/[0-9-]/g, '') + ' ' + s.scale.name) : '';
@@ -988,7 +994,7 @@ globalThis.tick = function () {
     if (running && patView && patPending >= 0) ledDirty = true;   /* animate the queued-slot pulse */
     if (recView && recState !== 'idle') ledDirty = true;          /* animate the rec/armed pad */
     if (editTrack >= 0 && !fxView) { for (var _lv = 0; _lv < N_STEPS; _lv++) if (editLiving[_lv]) { ledDirty = true; break; } }  /* pulse living steps */
-    if ((heatOn || shufOn) && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse HEAT / SHUFFLE pads */
+    if ((heatOn || shufOn || quakeOn) && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse HEAT / SHUFFLE / QUAKE pads */
     /* promote a sustained press on the SAMPLE pad into a HOLD (record-arm) */
     if (paletteHeld === SAMPLE_CELL && !smpHold && (Date.now() - paletteHeldStart) >= HOLD_MS) {
         smpHold = true; ledDirty = true; screenDirty = true;
@@ -1231,6 +1237,10 @@ globalThis.onMidiMessageInternal = function (data) {
             shufHeld = true; ledDirty = true; screenDirty = true;
             return;
         }
+        if (cell === QUAKE_CELL) {                         /* Quake pad down: arm the toggle */
+            quakeHeld = true; ledDirty = true; screenDirty = true;
+            return;
+        }
         /* DRUM held + a pad to its right = that pad's fixed drum TYPE. Tapping it only
          * AUDITIONS the type (a stable reference sound, identical every press, so the pad
          * reads as "hihat" rather than a new random drum each time). The pick is committed
@@ -1282,6 +1292,15 @@ globalThis.onMidiMessageInternal = function (data) {
                 showAction(shufOn ? 'SHUFFLE' : 'SHUF OFF');
             }
             shufHeld = false; ledDirty = true; screenDirty = true;
+            return;
+        }
+        if (cell === QUAKE_CELL) {                         /* Quake pad up: short press = toggle */
+            if (quakeHeld) {
+                quakeOn = !quakeOn;                        /* optimistic; server confirms via status */
+                sendCmd('quake', quakeOn ? 1 : 0);         /* each toggle-on rolls a fresh config */
+                showAction(quakeOn ? 'QUAKE' : 'QUAKE OFF');
+            }
+            quakeHeld = false; ledDirty = true; screenDirty = true;
             return;
         }
         if (paletteHeld === cell) {

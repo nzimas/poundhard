@@ -108,6 +108,11 @@ class Controller:
         # it's automatically temporary and never saved. _shuffle_perm: engine track -> source.
         self._shuffle_on = False
         self._shuffle_perm: dict[int, int] = {}
+        # QUAKE: an engine-only overlay of lengths + clock ratios. _quake_saved holds each
+        # touched track's OWN (length, rate) so toggling off restores exactly, without the
+        # pattern ever having been modified.
+        self._quake_on = False
+        self._quake_saved: dict[int, tuple[int, float]] = {}
         # performance recording
         self._rec_state = "idle"                 # idle | armed | recording
         self._rec_slot = -1                      # armed / recording slot
@@ -186,6 +191,8 @@ class Controller:
         self._shuffle_on = False
         self._shuffle_perm = {}
         self.state.shuffle_perm = {}
+        self._quake_on = False
+        self._quake_saved = {}
         self.bridge.steps(self.state.steps)
         self.bridge.tempo(self.state.tempo)
         for t in range(N_TRACKS):
@@ -343,6 +350,27 @@ class Controller:
         self.bridge.pattern(engine_track, src.pattern)
         self.bridge.length(engine_track, src.length)
         self.bridge.rate(engine_track, src.rate)
+
+    def _apply_quake(self) -> None:
+        """Push a fresh Quake configuration: different lengths (polymeter) and ratio clock
+        rates (polyrhythm) per track. The controller's state is NOT touched — the originals
+        are saved here and pushed back on toggle-off."""
+        from . import quake
+        cfg = quake.plan(self.state)
+        self._quake_saved = {}
+        for t, (length, rate) in cfg.items():
+            tr = self.state.tracks[t]
+            self._quake_saved[t] = (int(tr.length), float(tr.rate))
+            self.bridge.length(t, length)
+            self.bridge.rate(t, rate)
+        print("[poundhard] " + quake.describe(self.state, cfg), flush=True)
+
+    def _clear_quake(self) -> None:
+        """Put every touched track back on its own length and rate."""
+        for t, (length, rate) in self._quake_saved.items():
+            self.bridge.length(t, length)
+            self.bridge.rate(t, rate)
+        self._quake_saved = {}
 
     def _apply_shuffle(self) -> None:
         """Roll a fresh shuffle: a random DERANGEMENT of the sequenced tracks so every
@@ -632,7 +660,7 @@ class Controller:
         "editenter", "editexit", "audition", "palettegen", "drummode", "drumaudition",
         "smparm",
         "recpad", "run",
-        "patcopy", "patclipclear", "saveproj", "panic", "shuffle",
+        "patcopy", "patclipclear", "saveproj", "panic", "shuffle", "quake",
         "stepcopy", "rowcopy",
     })
 
@@ -724,6 +752,12 @@ class Controller:
                 for (t, c) in st.heat_clear():
                     self._reset_engine_cell(t, c)
                 st.heat_apply(self._heat_pct)
+        elif cmd == "quake":                   # Quake pad (right of Shuffle): polymeter + polyrhythm
+            on = int(arg) != 0
+            self._clear_quake()                # idempotent: drop any current overlay first
+            if on:
+                self._apply_quake()            # roll + push a fresh configuration
+            self._quake_on = on and bool(self._quake_saved)
         elif cmd == "shuffle":                 # Shuffle pad (right of Heat): swap rhythms between tracks
             on = int(arg) != 0
             self._clear_shuffle()              # idempotent: undo any current shuffle first
@@ -1070,6 +1104,7 @@ class Controller:
             "smpChain": list(self._smp_chain),
             "drumMode": st.drum_mode,          # DRUM palette pad locked to a type (-1 = any)
             "shuffle": self._shuffle_on,       # SHUFFLE macro engaged
+            "quake": self._quake_on,           # QUAKE macro engaged
             # performance recorder
             "recSlots": list(self._rec_slots),
             "recSlot": self._rec_slot,

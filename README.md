@@ -416,6 +416,7 @@ in its engine colour.
 | **Shift + hold volume knob + Track 3** | **fully randomise** the current pattern (4–10 tracks) |
 | **Bottom-row first pad** | **HEAT** — mass-mark [living steps](#living-steps--the-heat-button) across the whole rig (toggle) |
 | **Bottom-row 2nd pad** | **SHUFFLE** — temporarily swap rhythmic structures between tracks (toggle; each ON rolls a fresh config) |
+| **Bottom-row 3rd pad** | **QUAKE** — temporarily reshape the rhythm with polymeter + polyrhythm (toggle; each ON rolls a fresh config). See [Quake](#quake) |
 | **Hold HEAT pad + Knob 1** | set the HEAT amount (% of hits marked) |
 | **Play** (lit green while running) | start / stop the sequencer |
 | **Knob 1** | master tempo (BPM) |
@@ -1052,6 +1053,42 @@ The generated tracks are laid out **contiguously from track 1 and grouped by eng
 with roles in musical order inside each block). Since the step buttons are coloured by
 engine, a generated rig reads as **contiguous colour blocks** rather than a scatter.
 
+### Quake
+
+The third temporary modifier, beside HEAT and SHUFFLE, and like them an **engine-only
+overlay**: it never touches the pattern. Toggle it off and every track is back on its own
+length and clock, immediately, with nothing to undo.
+
+It reshapes the rhythm two ways at once:
+
+**Polymeter** — tracks are given different lengths. A 15-step track against a 16-step one
+shifts by a step every bar and comes back into phase after 16; a 12-step track realigns
+after 4. Quake deliberately mixes lengths that *share* a factor with 16 (12, 14, 20, 24 —
+you hear them resolve) against lengths *coprime* with it (11, 13, 15, 17, 19 — they walk
+all the way round), so some relationships close quickly while others keep moving underneath.
+
+**Polyrhythm** — tracks are given ratio clock rates: 3:2, 4:3, 5:4, 7:5, 7:4, 9:8 and their
+inversions, applied as multipliers on the track's *existing* rate so a track already at x2
+stays fast. The engine's clock is a float accumulator, so these are as native as a power of
+two — the knob ladder only exposes /8…x8, and this reaches between them.
+
+What keeps it musical rather than arbitrary:
+
+- **An anchor is never moved.** The busiest drum-like track keeps its own length and rate,
+  so there is still a pulse to hear everything else against.
+- **Density decides how hard a track is hit.** A busy track gets a small length change *or*
+  a mild ratio, never both — a dense part under a 7:4 clock is mush. A sparse track can take
+  the wild end, where it reads as counter-rhythm.
+- **At least one drum always moves.** Exempting the whole rhythm section left the change
+  happening underneath the part the ear actually tracks, and it barely registered.
+- **No two tracks get the same transformation**, or they move together instead of against
+  each other, which is the one thing this is for.
+
+Measured on the device: bar-to-bar similarity **+0.81 with Quake off, +0.33 with it on, and
++0.80 again after switching off** — the pattern stops repeating per bar while it is engaged
+and goes straight back afterwards. Still clearly positive, not near zero: the material stays
+recognisable, which is the point.
+
 ### The chaos macro (knob 8)
 
 In the tracks view, **knob 8 sweeps every parameter of every engine currently assigned
@@ -1415,6 +1452,7 @@ command is dispatched until the engine reports ready.
 | steps | `stepset` / `steptoggle`, `steplock`, `stepmacro`, `stepfx` (per-step FX mask), `stepcycle` (fire every Nth repetition), `stepwindow` (per-step sample slice), `stepfilter` (per-step filter lock), `marklive` / `liveperiod` (living steps — the period is in PLAYS of the step, 1-8) |
 | clipboard | `stepcopy` / `steppaste`, `rowcopy` / `rowpaste`, `trackcopy` (the Copy-button gestures) |
 | generation | `stepgen` (a new sequence for one track, scale-aware) |
+| performance | `heat`, `shuffle`, `quake` (the three temporary overlays) |
 | transpose | `transpose` (semitone offset for one track's sequence) |
 | FX | `fxassign`, `fxbypass`, `fxmacro`, `fxwet` |
 | macros | `heat` / `heatpct`, `shuffle`, `chaos` / `chaosreset` |
