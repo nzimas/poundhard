@@ -118,8 +118,8 @@ runtime, so **Schwung is the only thing it needs on the device**.
 - **Transpose a sequence** from the jog wheel without disturbing anything else in it.
 - **A multimode filter on every track** (cutoff / resonance / LP-HP) that keeps its bass
   and its level as resonance rises — see [Track filter](#track-filter).
-- **Five non-destructive performance modifiers** on the bottom row — **HEAT**, **SHUFFLE**,
-  **QUAKE**, **CHURN** and **BREAK**. None of them edits a pattern: every one is an overlay
+- **Six non-destructive performance modifiers** on the bottom row — **HEAT**, **SHUFFLE**,
+  **QUAKE**, **CHURN**, **BREAK** and **COMPASS**. None of them edits a pattern: every one is an overlay
   the engine plays instead, so a single sequence can evolve all night and switching them off
   gives you back exactly what you programmed.
 - **Per-parameter step randomizers** — Shift + touch a control to animate that one
@@ -428,6 +428,7 @@ in its engine colour.
 | **Bottom-row 4th pad** | **CHURN** — the music listens to itself: fragments of the master are transformed through CDP and dropped back into the gaps (toggle). See [Churn](#churn) |
 | **Bottom-row 5th pad** | **BREAK** — automatic breakdowns every N cycles (toggle). See [Break](#break). **Mutually exclusive with QUAKE** — whichever is off goes **grey** while the other holds the rig |
 | **Hold BREAK + jog wheel** | how many pattern cycles between breaks (1…32, default **4**) |
+| **Bottom-row 6th pad** | **COMPASS** — a command sequencer improvising on one or two tracks (toggle). See [Compass](#compass). Shares the QUAKE/BREAK lock |
 | **Hold HEAT pad + Knob 1** | set the HEAT amount (% of hits marked) |
 | **Play** (lit green while running) | start / stop the sequencer |
 | **Knob 1** | master tempo (BPM) |
@@ -1240,6 +1241,47 @@ with Break off** (the pattern repeating as programmed) and falls to **+0.30 with
 dipping to **−0.76** on the strongest breaks — bars that share almost nothing with the one
 before. The machine's state fingerprint is identical before, during and after.
 
+### Compass
+
+The sixth temporary modifier, after Olivier Creurer's
+[norns script](https://github.com/oliviercreurer/compass) — which is not a looper with
+effects on it but a **sequence of commands**, stepped through at a rate the commands
+themselves keep changing. That self-modifying clock is the character: `<` `>` `[` `]` alter
+how fast the command stream runs, so it accelerates, stalls and lurches on its own instead
+of ticking evenly.
+
+The original's commands drive softcut. PoundHard has no softcut, but it has a direct
+equivalent for nearly all of them one level up, at the sequencer:
+
+| Compass | here |
+|---|---|
+| `F` `R` forward / reverse | the track's clock forwards, or its step list read backwards |
+| `+` `-` `!` rate inc / dec / random | the track's clock rate, in musical ratios |
+| `1` `P` jump / random position | the step list rotated |
+| `L` random loop length | the track's length — against the others, polymeter |
+| `(` random pan | the track's pan |
+| `<` `>` `[` `]` `?` clock and position | the command sequencer's own tempo and place |
+| `T` `8` — *not in the original* | transpose within the project's [scale](#the-projects-scale), and octave jumps |
+| `.` — *not in the original* | this track back to exactly as programmed |
+
+**Scope is the point.** One or two tracks, never more, chosen from those that actually have
+sequence data, and re-chosen occasionally while it runs. The original improvises on a whole
+performance; here the rest of the rig has to stay recognisable, so Compass is the improviser
+sitting *inside* an arrangement rather than being the arrangement.
+
+That `.` command matters more than it looks: without a rest that returns a track to what was
+programmed, the overlay only ever accumulates and the track never comes home — it stops
+being a variation of anything.
+
+**Non-destructive**, on the same primitives as [Quake](#quake) and [Break](#break): rate,
+length, a temporarily-pushed step list, pan, and scale-quantised step locks. Because all
+three own those same parameters, **Compass joins their mutual-exclusion lock** — engage any
+one and the other two go grey.
+
+Measured on the device: bar-to-bar similarity **+0.66 with Compass off, +0.16 with it on
+(dipping to −0.27), and +0.66 again after** — and the machine's state fingerprint is
+identical before, during and after.
+
 ### The chaos macro (knob 8)
 
 In the tracks view, **knob 8 sweeps every parameter of every engine currently assigned
@@ -1606,7 +1648,7 @@ command is dispatched until the engine reports ready.
 | steps | `stepset` / `steptoggle`, `steplock`, `stepmacro`, `stepfx` (per-step FX mask), `stepcycle` (fire every Nth repetition), `stepwindow` (per-step sample slice), `stepfilter` (per-step filter lock), `marklive` / `liveperiod` (living steps — the period is in PLAYS of the step, 1-8) |
 | clipboard | `stepcopy` / `steppaste`, `rowcopy` / `rowpaste`, `trackcopy` (the Copy-button gestures) |
 | generation | `stepgen` (a new sequence for one track, scale-aware) |
-| performance | `heat`, `shuffle`, `quake`, `churn`, `break` + `breakint` (the five temporary overlays) |
+| performance | `heat`, `shuffle`, `quake`, `churn`, `break` + `breakint`, `compass` (the six temporary overlays) |
 | randomizers | `steprand` (toggle one per-step parameter's randomizer), `randdebug` |
 | transpose | `transpose` (semitone offset for one track's sequence) |
 | FX | `fxassign`, `fxbypass`, `fxmacro`, `fxwet` |

@@ -136,6 +136,12 @@ class Controller:
         # OVERLAY: the programmed per-step values are never written, so switching one off
         # is just re-pushing the track's own state.
         self._rand: dict[int, set] = {}
+        # COMPASS: a command sequencer improvising on one or two tracks. Same overlay
+        # primitives as QUAKE and BREAK (rate, length, step list, pan), so it joins their
+        # mutual-exclusion group rather than fighting them for the same parameters.
+        self._compass_on = False
+        self._compass = None
+        self._compass_touched: set = set()
         self._rand_debug = False
         # performance recording
         self._rec_state = "idle"                 # idle | armed | recording
@@ -524,6 +530,62 @@ class Controller:
         self._churn_gain = {}
         self.bridge.churnclear()
 
+    # -- COMPASS: a command sequencer improvising on one or two tracks -------- #
+    def _compass_tick(self) -> None:
+        if not self._compass_on or not self._compass or not self.state.running:
+            return
+        line = self._compass.tick(self.state)
+        if line is None:
+            return
+        self._compass_push()
+        print("[poundhard] " + line, flush=True)
+
+    def _compass_push(self) -> None:
+        """Push the improviser's current overlay. Tracks it has let go of are restored."""
+        from . import compass
+        st = self.state
+        cp = self._compass
+        now = set(cp.tracks)
+        for t in self._compass_touched - now:    # dropped when the tracks were re-picked
+            self._compass_restore(t)
+        for t in now:
+            tr = st.tracks[t]
+            ov = cp.state.get(t)
+            if ov is None:
+                continue
+            self.bridge.rate(t, max(0.0625, min(8.0, tr.rate * ov.rate_mult)))
+            self.bridge.length(t, max(1, min(N_STEPS, ov.length)))
+            self.bridge.pattern(t, compass.steps_for(tr, ov))
+            if ov.pan is not None:
+                self.bridge.param(t, tr.type.lower() + ".pan", ov.pan)
+            # transpose is scale-aware: the improviser moves the line but stays in key
+            if ov.transpose:
+                from . import scales
+                root = st.scale_root if st.scale_root is not None else scales.DEFAULT_ROOT
+                name = st.scale_name or scales.DEFAULT_SCALE
+                for c in range(N_STEPS):
+                    if tr.pattern[c]:
+                        n = scales.quantise(tr.eff_note(c) + ov.transpose, root, name)
+                        self.bridge.steplock(t, c, n, tr.eff_vel(c), tr.eff_pan(c))
+        self._compass_touched = now
+
+    def _compass_restore(self, t: int) -> None:
+        """One track back to exactly what is programmed — from the controller's own state,
+        which Compass never modified."""
+        st = self.state
+        tr = st.tracks[t]
+        self.bridge.rate(t, tr.rate)
+        self.bridge.length(t, tr.length)
+        self.bridge.pattern(t, tr.pattern)
+        self.bridge.param(t, tr.type.lower() + ".pan", tr.default_pan())
+        self._push_step_cell(t)              # undoes any transposed step locks
+
+    def _compass_end(self) -> None:
+        for t in list(self._compass_touched):
+            self._compass_restore(t)
+        self._compass_touched = set()
+        self._compass = None
+
     # -- per-parameter step randomizers ------------------------------------- #
     def _rand_active(self, t: int) -> set:
         return self._rand.get(t, set())
@@ -709,6 +771,7 @@ class Controller:
         self._churn_spend()
         self._break_tick()
         self._rand_tick()
+        self._compass_tick()
         """Bar boundary (from the engine): fire any living steps whose period has elapsed
         (transient model — they revert next cycle), then apply a queued pattern switch."""
         with self._lock:
@@ -971,7 +1034,7 @@ class Controller:
         "smparm",
         "recpad", "run",
         "patcopy", "patclipclear", "saveproj", "panic", "shuffle", "quake", "churn",
-        "break", "steprand",
+        "break", "steprand", "compass",
         "stepcopy", "rowcopy",
     })
 
@@ -1065,6 +1128,20 @@ class Controller:
                 st.heat_apply(self._heat_pct)
         elif cmd == "randdebug":               # diagnostic: log every generated value set
             self._rand_debug = int(arg) != 0
+        elif cmd == "compass":                 # Compass pad: the command-sequencer improviser
+            on = int(arg) != 0
+            if on and (self._quake_on or self._break_on):
+                print("[poundhard] compass refused: another modifier holds the rig", flush=True)
+            else:
+                if on:
+                    from . import compass
+                    self._compass = compass.Compass()
+                    self._compass.tracks = self._compass.pick_tracks(st)
+                    self._compass.state = {t: compass.State(st.tracks[t])
+                                           for t in self._compass.tracks}
+                else:
+                    self._compass_end()
+                self._compass_on = on
         elif cmd == "steprand":                # Shift + touch a control: toggle its randomizer
             from . import steprand
             t = int(p.get("track", st.edit_track))
@@ -1079,8 +1156,8 @@ class Controller:
             # and rate, and Break's restore re-pushes the controller's originals — so with
             # both engaged Break silently wipes Quake's overlay every time it ends. Rather
             # than pick a winner per parameter, only one may hold the rig at a time.
-            if on and self._quake_on:
-                print("[poundhard] break refused: quake holds the rig", flush=True)
+            if on and (self._quake_on or self._compass_on):
+                print("[poundhard] break refused: another modifier holds the rig", flush=True)
             else:
                 if not on and self._break_active:
                     self._break_end()           # never leave a break hanging
@@ -1097,8 +1174,8 @@ class Controller:
             self._churn_on = on
         elif cmd == "quake":                   # Quake pad (right of Shuffle): polymeter + polyrhythm
             on = int(arg) != 0
-            if on and self._break_on:          # see the note under "break": one at a time
-                print("[poundhard] quake refused: break holds the rig", flush=True)
+            if on and (self._break_on or self._compass_on):   # one holder at a time
+                print("[poundhard] quake refused: another modifier holds the rig", flush=True)
             else:
                 self._clear_quake()            # idempotent: drop any current overlay first
                 if on:
@@ -1455,6 +1532,7 @@ class Controller:
             "brk": self._break_on,             # BREAK macro engaged
             "brkEvery": self._break_every,     # cycles between breaks
             "brkNow": self._break_active,      # a break is running this cycle
+            "compass": self._compass_on,       # COMPASS macro engaged
             # performance recorder
             "recSlots": list(self._rec_slots),
             "recSlot": self._rec_slot,

@@ -104,6 +104,8 @@ const BREAK_ON = 22, BREAK_ALT = 108, BREAK_IDLE = 105;  /* magenta pulse (on) /
  * right now" is a single rule rather than a per-pad convention. QUAKE and BREAK lock each
  * other — both temporarily own a track's length and rate. */
 const LOCK_COLOR = 124;
+const COMPASS_CELL = 29;            /* pad right of BREAK = the COMPASS toggle */
+const COMPASS_ON = 29, COMPASS_ALT = 111, COMPASS_IDLE = 110;  /* turquoise pulse / dim teal */
 
 /* Per-generator-type step-button colours [bright, dim] — same hue, two brightnesses.
  * The step buttons are grouped by generator (see kits.py) so each block is one hue:
@@ -210,6 +212,7 @@ let shufOn = false, shufHeld = false;
 let quakeOn = false, quakeHeld = false;
 let churnOn = false, churnHeld = false;
 let brkOn = false, brkHeld = false, brkEvery = 4, brkNow = false, brkTweaked = false;
+let compassOn = false, compassHeld = false;
 /* the intervals worth having: musical multiples, not every integer */
 const BRK_STEPS = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32];
 /* step-button pulse: a local beat clock (tempo-driven) drives the per-track pulse so
@@ -513,16 +516,19 @@ function renderLEDs() {
             } else if (c === SHUF_CELL) {                          /* SHUFFLE toggle */
                 color = shufOn ? ((phase % 16 < 8) ? SHUF_ON : SHUF_ALT) : SHUF_IDLE;
             } else if (c === QUAKE_CELL) {                         /* QUAKE toggle */
-                color = brkOn ? LOCK_COLOR
+                color = (brkOn || compassOn) ? LOCK_COLOR
                       : (quakeOn ? ((phase % 16 < 8) ? QUAKE_ON : QUAKE_ALT) : QUAKE_IDLE);
             } else if (c === CHURN_CELL) {                         /* CHURN toggle */
                 color = churnOn ? ((phase % 16 < 8) ? CHURN_ON : CHURN_ALT) : CHURN_IDLE;
             } else if (c === BREAK_CELL) {                         /* BREAK toggle */
                 /* while a break is actually RUNNING the pad goes solid, so you can see the
                  * bar it is happening on rather than only that the mode is armed */
-                color = quakeOn ? LOCK_COLOR
+                color = (quakeOn || compassOn) ? LOCK_COLOR
                       : (brkNow ? White
                       : (brkOn ? ((phase % 16 < 8) ? BREAK_ON : BREAK_ALT) : BREAK_IDLE));
+            } else if (c === COMPASS_CELL) {                       /* COMPASS toggle */
+                color = (quakeOn || brkOn) ? LOCK_COLOR
+                      : (compassOn ? ((phase % 16 < 8) ? COMPASS_ON : COMPASS_ALT) : COMPASS_IDLE);
             }
             setLED(PAD_NOTES[c], color);
         }
@@ -811,7 +817,7 @@ function drawScreen() {
             return;
         }
         print(0, 6, 'POUNDHARD', 2);
-        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : '') + (shufOn ? '  SHUF' : '') + (quakeOn ? '  QUAKE' : '') + (churnOn ? '  CHURN' : '') + (brkOn ? ('  BRK/' + brkEvery) : ''), 1);
+        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : '') + (shufOn ? '  SHUF' : '') + (quakeOn ? '  QUAKE' : '') + (churnOn ? '  CHURN' : '') + (brkOn ? ('  BRK/' + brkEvery) : '') + (compassOn ? '  CMPS' : ''), 1);
         print(0, 44, 'pad=hear  shift+pad=gen  copy=dup', 1);
         print(0, 56, 'k8=chaos  heat=btm-left pad', 1);
     } else if (lenArm) {
@@ -882,6 +888,7 @@ function readStatus() {
     if (s.brk != null && !brkHeld) brkOn = !!s.brk;
     if (s.brkEvery != null && !brkHeld) brkEvery = s.brkEvery;
     if (s.brkNow != null) brkNow = !!s.brkNow;
+    if (s.compass != null && !compassHeld) compassOn = !!s.compass;
     if (s.heatPct != null && knobShow !== 'heat') heatPct = s.heatPct;
     if (s.drumMode != null && paletteHeld !== DRUM_CELL) drumMode = s.drumMode;
     scaleLabel = (s.scale && s.scale.name) ? (noteName(s.scale.root).replace(/[0-9-]/g, '') + ' ' + s.scale.name) : '';
@@ -1062,7 +1069,7 @@ globalThis.tick = function () {
     if (running && patView && patPending >= 0) ledDirty = true;   /* animate the queued-slot pulse */
     if (recView && recState !== 'idle') ledDirty = true;          /* animate the rec/armed pad */
     if (editTrack >= 0 && !fxView) { for (var _lv = 0; _lv < N_STEPS; _lv++) if (editLiving[_lv]) { ledDirty = true; break; } }  /* pulse living steps */
-    if ((heatOn || shufOn || quakeOn || churnOn || brkOn) && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse the five modifier pads */
+    if ((heatOn || shufOn || quakeOn || churnOn || brkOn || compassOn) && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse the six modifier pads */
     /* promote a sustained press on the SAMPLE pad into a HOLD (record-arm) */
     if (paletteHeld === SAMPLE_CELL && !smpHold && (Date.now() - paletteHeldStart) >= HOLD_MS) {
         smpHold = true; ledDirty = true; screenDirty = true;
@@ -1328,6 +1335,10 @@ globalThis.onMidiMessageInternal = function (data) {
             brkHeld = true; brkTweaked = false; ledDirty = true; screenDirty = true;
             return;
         }
+        if (cell === COMPASS_CELL) {                       /* Compass pad down: arm the toggle */
+            compassHeld = true; ledDirty = true; screenDirty = true;
+            return;
+        }
         /* DRUM held + a pad to its right = that pad's fixed drum TYPE. Tapping it only
          * AUDITIONS the type (a stable reference sound, identical every press, so the pad
          * reads as "hihat" rather than a new random drum each time). The pick is committed
@@ -1383,8 +1394,8 @@ globalThis.onMidiMessageInternal = function (data) {
         }
         if (cell === QUAKE_CELL) {                         /* Quake pad up: short press = toggle */
             if (quakeHeld) {
-                if (brkOn && !quakeOn) {                   /* locked out by BREAK */
-                    showAction('QUAKE LOCKED - BREAK ON');
+                if ((brkOn || compassOn) && !quakeOn) {    /* locked out */
+                    showAction('QUAKE LOCKED - ' + (brkOn ? 'BREAK' : 'COMPASS') + ' ON');
                 } else {
                     quakeOn = !quakeOn;                    /* optimistic; server confirms via status */
                     sendCmd('quake', quakeOn ? 1 : 0);     /* each toggle-on rolls a fresh config */
@@ -1407,8 +1418,8 @@ globalThis.onMidiMessageInternal = function (data) {
             /* A hold that CHANGED the interval is not also a toggle — otherwise dialling
              * the rate in always flips the mode on the way out. */
             if (brkHeld && !brkTweaked) {
-                if (quakeOn && !brkOn) {                   /* locked out by QUAKE */
-                    showAction('BREAK LOCKED - QUAKE ON');
+                if ((quakeOn || compassOn) && !brkOn) {    /* locked out */
+                    showAction('BREAK LOCKED - ' + (quakeOn ? 'QUAKE' : 'COMPASS') + ' ON');
                 } else {
                     brkOn = !brkOn;                        /* optimistic; server confirms */
                     sendCmd('break', brkOn ? 1 : 0);
@@ -1416,6 +1427,19 @@ globalThis.onMidiMessageInternal = function (data) {
                 }
             }
             brkHeld = false; ledDirty = true; screenDirty = true;
+            return;
+        }
+        if (cell === COMPASS_CELL) {                       /* Compass pad up: short = toggle */
+            if (compassHeld) {
+                if ((quakeOn || brkOn) && !compassOn) {
+                    showAction('COMPASS LOCKED - ' + (quakeOn ? 'QUAKE' : 'BREAK') + ' ON');
+                } else {
+                    compassOn = !compassOn;
+                    sendCmd('compass', compassOn ? 1 : 0);
+                    showAction(compassOn ? 'COMPASS' : 'COMPASS OFF');
+                }
+            }
+            compassHeld = false; ledDirty = true; screenDirty = true;
             return;
         }
         if (paletteHeld === cell) {
