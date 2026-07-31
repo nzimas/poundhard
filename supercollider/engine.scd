@@ -128,6 +128,8 @@
 // COMPASS: one long mono buffer the softcut heads record into and play back from.
 // 40 s at 44.1k is 7 MB — plenty of tape for a performance, and nothing on a box with
 // hundreds of megabytes free.
+~strobeSynth = nil;                    // STROBE: one insert per targeted track, or nil
+~syncBus = nil; ~syncSynth = nil;
 ~compassBuf = nil;                     // TWO buffers, one per softcut voice
 ~compassSynth = nil;
 // Starting the synth is its own function because two paths reach it (buffers already
@@ -180,6 +182,7 @@
 ~scaffold = {
 	Synth(\phStkInit);   // set the STK rawwave path before any physical-model voice spawns
 	~masterBus = Bus.audio(s, 2);
+	~syncBus   = Bus.audio(s, 1);   // STROBE's bar phase, 0..1, one cycle per 16-step bar
 	~trackBus  = Array.fill(~nTracks, { Bus.audio(s, 2) });   // one private stereo bus per track
 	~livingBus = Bus.audio(s, 2);   // LIVING-STEP send: a fired living hit routes here (delay+reverb)
 	~silentBuf = Buffer.alloc(s, 1024, 1);   // default (silent) buffer for empty samplers
@@ -206,8 +209,16 @@
 	~gFilt   = ParGroup.after(~gVoices);
 	~gFx     = ParGroup.after(~gFilt);
 	~gSend   = Group.after(~gFx);
+	// STROBE inserts sit between the per-track FX and the send, so they are the last thing
+	// that happens to a track before it reaches the master — and so engaging one never
+	// disturbs the per-track FX group's bookkeeping.
+	~gStrobe = Group.before(~gSend);
 	~gMaster = Group.after(~gSend);
 	// clears (private buses aren't auto-zeroed; voices Out.ar ADD onto them)
+	// The bar phase is generated at the HEAD of the graph, before any clear or voice, so
+	// every Strobe insert downstream reads the same value in the same block.
+	~syncSynth = Synth.head(~gClear, \phSync,
+		[\out, ~syncBus.index, \barHz, ~barHz.value]);
 	Synth(\phClear, [\bus, ~masterBus.index], ~gClear);
 	Synth(\phClear, [\bus, ~livingBus.index], ~gClear);
 	~nTracks.do { |t| Synth(\phClear, [\bus, ~trackBus[t].index], ~gClear) };
@@ -388,7 +399,18 @@
 };
 
 // ---- step clock ----
-~applyTempo = { ~clock.tempo = (~bpm / 60) * ~stepsPerBeat; };   // 1 beat == 1 step
+// A bar is the fixed 16-step grid the sequencer reports /ph/cycle on, so 16/~stepsPerBeat
+// beats. Everything STROBE does is a division of this, which is why its gates and loops
+// follow a tempo change instead of having to be rebuilt for one.
+~barDur = { (60 / ~bpm.max(20)) * (16 / ~stepsPerBeat) };
+~barHz  = { 1 / ~barDur.value };
+~applyTempo = {
+	~clock.tempo = (~bpm / 60) * ~stepsPerBeat;   // 1 beat == 1 step
+	~syncSynth.notNil.if { ~syncSynth.set(\barHz, ~barHz.value) };
+	~strobeSynth.notNil.if {
+		~strobeSynth.do { |sy| sy.notNil.if { sy.set(\barDur, ~barDur.value) } };
+	};
+};
 ~clock = TempoClock.new((120 / 60) * 4);
 
 // spawn one voice for track t. Voices free themselves on decay (Line doneAction);
@@ -591,6 +613,9 @@
 		// and then every N repetitions, rather than staying silent until the Nth bar.
 		~nTracks.do { |t| ~cycle[t] = -1 };
 		~nTracks.do { |t| ~pos[t] = -1; ~acc[t] = 0.0 };
+		// Reset the bar phase with the transport: STROBE's windows are positions WITHIN the
+		// bar, so they only mean anything if phase 0 is the downbeat.
+		~syncSynth.notNil.if { ~syncSynth.set(\t_reset, 1) };
 		~seqTask = Routine({ loop { ~advance.value; 1.wait } });
 		~applyTempo.value;
 		~seqTask.play(~clock);
@@ -985,6 +1010,44 @@
 				\hp, (m[5] ? 180).asFloat.clip(40, 800)]);
 		};
 	}, '/ph/churnplay'),
+	// /ph/strobe <track> <on>: put a STROBE insert on one track's bus, or take it off.
+	// Per track, because the modifier's whole point is that it can take a subset.
+	OSCdef(\phStrobe, { |m|
+		var t = m[1].asInteger, on = m[2].asInteger > 0;
+		((~ready == true) and: { t >= 0 } and: { t < ~nTracks }).if {
+			~strobeSynth.isNil.if { ~strobeSynth = Array.fill(~nTracks, nil) };
+			on.if({
+				~strobeSynth[t].isNil.if {
+					~strobeSynth[t] = Synth.tail(~gStrobe, \phStrobe, [
+						\in, ~trackBus[t].index, \out, ~trackBus[t].index,
+						\sync, ~syncBus.index, \barDur, ~barDur.value]);
+					~strobeSynth[t].register;
+					~strobeSynth[t].onFree({ ~strobeSynth[t] = nil });
+				};
+			}, {
+				~strobeSynth[t].notNil.if { ~strobeSynth[t].free; ~strobeSynth[t] = nil };
+			});
+		};
+	}, '/ph/strobe'),
+	// /ph/strobeset <track> "<arg>" <val>: one parameter on one track's insert.
+	// track < 0 = every live insert, which is how a global change (a new clock division,
+	// a new dry/wet) lands on all targeted tracks in the same block.
+	OSCdef(\phStrobeSet, { |m|
+		var t = m[1].asInteger, k = m[2].asSymbol, v = m[3].asFloat;
+		~strobeSynth.notNil.if {
+			(t < 0).if({
+				~strobeSynth.do { |sy| sy.notNil.if { sy.set(k, v) } };
+			}, {
+				((t < ~nTracks) and: { ~strobeSynth[t].notNil }).if { ~strobeSynth[t].set(k, v) };
+			});
+		};
+	}, '/ph/strobeset'),
+	// /ph/strobeclear: take every insert off in one go.
+	OSCdef(\phStrobeClear, { |m|
+		~strobeSynth.notNil.if {
+			~nTracks.do { |t| ~strobeSynth[t].notNil.if { ~strobeSynth[t].free; ~strobeSynth[t] = nil } };
+		};
+	}, '/ph/strobeclear'),
 	// /ph/compass <on>: bring the softcut tape loop up or take it down. It sits in
 	// ~recGroup, after the master limiter, so what it records is bounded audio.
 	//

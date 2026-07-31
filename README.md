@@ -119,7 +119,7 @@ runtime, so **Schwung is the only thing it needs on the device**.
 - **A multimode filter on every track** (cutoff / resonance / LP-HP) that keeps its bass
   and its level as resonance rises — see [Track filter](#track-filter).
 - **Six non-destructive performance modifiers** on the bottom row — **HEAT**, **SHUFFLE**,
-  **QUAKE**, **CHURN**, **BREAK** and **COMPASS**. None of them edits a pattern: every one is an overlay
+  **QUAKE**, **CHURN**, **BREAK** and **STROBE**. None of them edits a pattern: every one is an overlay
   the engine plays instead, so a single sequence can evolve all night and switching them off
   gives you back exactly what you programmed.
 - **Per-parameter step randomizers** — Shift + touch a control to animate that one
@@ -441,7 +441,7 @@ in its engine colour.
 | **Bottom-row 4th pad** | **CHURN** — the music listens to itself: fragments of the master are transformed through CDP and dropped back into the gaps (toggle). See [Churn](#churn) |
 | **Bottom-row 5th pad** | **BREAK** — automatic breakdowns every N cycles (toggle). See [Break](#break). **Mutually exclusive with QUAKE** — whichever is off goes **grey** while the other holds the rig |
 | **Hold BREAK + jog wheel** | how many pattern cycles between breaks (1…32, default **4**) |
-| **Bottom-row 6th pad** | **COMPASS** — a softcut tape loop driven by the norns script's command sequencer (toggle). See [Compass](#compass) |
+| **Bottom-row 6th pad** | **STROBE** — tempo-locked gating + microlooping on a shifting subset of tracks (toggle). See [Strobe](#strobe) |
 | **Hold HEAT pad + Knob 1** | set the HEAT amount (% of hits marked) |
 | **Play** (lit green while running) | start / stop the sequencer |
 | **Knob 1** | master tempo (BPM) |
@@ -1254,118 +1254,55 @@ with Break off** (the pattern repeating as programmed) and falls to **+0.30 with
 dipping to **−0.76** on the strongest breaks — bars that share almost nothing with the one
 before. The machine's state fingerprint is identical before, during and after.
 
-### Compass
+### Strobe
 
-The sixth temporary modifier. Not "inspired by" Olivier Creurer's
-[norns script](https://github.com/oliviercreurer/compass) — **it is that script, running**.
-`controller/compass/compass.lua` is the published source byte for byte, executed by a real
-Lua interpreter under a norns-API shim, driving real softcut voices inside scsynth.
+The sixth temporary modifier: **rhythmic gating** and **microlooping** on the track buses,
+together or apart.
 
-**Two earlier versions of this were reimplementations, and both were wrong.** The first
-applied the script's commands to the sequencer, on the reasoning that PoundHard had no
-softcut. The second put softcut in and applied them to a tape loop. Both measured well and
-neither sounded like Compass, because paraphrasing a script reproduces the ideas you noticed
-and silently drops the ones you did not. Reading the actual source afterwards, the second
-version had, in ~200 lines:
-
-| the script | the paraphrase | what it sounded like |
-|---|---|---|
-| two voices, **one buffer each** (`sc.buffer(i,i)`) | both heads sharing one buffer | two record heads scribbling over each other |
-| loop points are **integer seconds** in a 64 s tape — never shorter than 1 s | windows down to 0.06 s | a 60 ms delay summed with dry: a **flanger** |
-| `clock.sync(1/division)`, division 1–16 → **1 to 16 commands per beat** | one command per bar or slower | static |
-| `rate_slew_time` 0.1 — rate changes **glide** | instant jumps | clicks, no tape |
-| recording starts **off**, `pre_filter_dry` 1 | recording from the start through a 12 kHz lowpass | dull |
-
-So the script runs instead. Nothing about it is adapted; the shim adapts to it.
-
-**What is real:** `softcut.*` forwards to the [PhSoftcut UGens](#native-plugins) — which are
-[monome's softcut-lib](https://github.com/monome/softcut-lib) itself; `clock.*` is a
-coroutine scheduler on a 1/16-beat tick from PoundHard's own clock, so `clock.sync` lands on
-the sequencer's grid; `params` carries values, defaults and actions, and the actions are what
-push to softcut; and `softcut.event_phase` is driven by the UGen's real position output, so
-the script's `update_positions` runs — which matters, because that is where loop points, rec
-level and pre level actually reach softcut.
-
-**What is stubbed:** grid, arc, screen and crow, which are hardware the Move does not have;
-`metro`, which drives LED brightness and a blink; and `pattern_time`, the grid pattern
-recorder. None of them is in the audio path.
-
-**The algorithmic performer** does not poke the script's internals. It presses the script's
-own keys and turns its own encoders — `key(2)` short for a fresh command sequence, `key(3)`
-short to arm recording and long to wipe the tape, `key(1)`+`enc(1)` for sequence length,
-`key(1)`+`enc(2/3)` for the loop window, `params:set` for pan, fade, overdub and rate slew.
-Everything it does, a person sitting in front of a norns could do. That is the only way to be
-sure the behaviour is the script's and not a reimplementation wearing its name.
-
-**It is an insert, not a send.** The synth sits after the master limiter, so the dry on that
-bus is already against its 0.95 ceiling; adding tape heads on top of it cannot help but pass
-full scale — measured at peak **1.000** with hundreds of samples pinned. Attenuating the
-heads only shrinks the overshoot. So it takes the bus over: dry plus wet, through its own
-limiter at the same ceiling, written back.
-
-**Non-destructive by construction**, and more cleanly than the other modifiers: it records
-the master and plays into the master, so no track, pattern or parameter is touched at all.
-Switching off stops the Lua process, frees the synth and wipes both tapes. It therefore does
-**not** join the [Quake](#quake)/[Break](#break) mutual-exclusion lock — it owns no track's
-rate, length or steps, so it has nothing to collide with.
-
-**The 400 ms gate.** The command clock runs at up to sixteen commands per beat — 31 ms at
-120 BPM — and on a norns that is fine, because a norns is playing softcut *as* the
-instrument. Here it means every audible parameter gets rewritten faster than the ear
-resolves as an event, which is a buzz rather than a tape loop. Counted over a minute of
-simulated play, before the gate:
-
-| what reached the engine | changes/second |
+| | |
 |---|---|
-| `rate` | **9.7** |
-| `position` | **5.5** |
-| `pan` | 3.3 |
-| `loop_start` / `loop_end` | 2.2 |
+| **GATE** | rhythmic amplitude gating — `gDiv` gates per bar, `gDuty` of each one open, `gDepth` how far it shuts |
+| **MICROLOOP** | a slice of bar/`lDiv` seconds recirculated in the engine, so a fragment repeats |
 
-`rate` was the one that mattered most and the one that is least obvious. With a 0.1 s slew
-and ten changes a second the tape speed never settles: the playback pitch just swings across
-the whole ±2-octave rate table at ~10 Hz, which is a sawtooth. `position` and the loop points
-retrigger the head, which is the other half of the same problem.
+**Everything is a division of the bar.** The engine publishes a single bar-phase signal
+(`\phSync`, an audio-rate phasor at the head of the graph) and every Strobe insert derives
+its own sub-phase from it. Nothing is ever given a rate in hertz or seconds. That is what
+keeps a 3-per-bar gate on one track and a 1/16 microloop on another locked to the bar *and to
+each other*, at audio rate, and makes both follow a tempo change without being rebuilt.
+Divisions are deliberately not restricted to powers of two — 3, 5, 6 and 7 per bar are
+exactly as locked as 8 or 16, they just land somewhere more interesting.
 
-So everything that abruptly changes what you hear — `rate`, `position`, `loop_start`,
-`loop_end` — passes a **400 ms minimum-chunk gate**. A change arriving too soon is
-**coalesced, not dropped**: the latest value is held and applied when the gate opens, which
-preserves what the script meant, where dropping would leave softcut on a rate the script no
-longer thinks it has. Everything else softcut already slews for itself (pan over 0.25 s, rec
-and pre level over 2 s). Measured through the real bridge: nothing now reaches the synth
-faster than **1.1/s**, and `rate` is down from 9.7 to **0.6/s**.
+**It is a per-track insert, not a master effect**, sitting between the per-track FX and the
+send. That is what lets it take a subset: gating everything at once is a tremolo on the mix,
+gating three of sixteen tracks is an arrangement.
 
-**The frame is the buffer you hear.** `loopRnd` draws its loop entirely inside Start
-point..End point, so a **5-second-wide frame caps every loop the script can produce at five
-seconds** — and since the script's loop points are integer seconds, loops come out 1 to 5 s
-and never more. The frame then **recycles**: it slides to a different part of the 64-second
-tape, so the heads move onto material recorded at a different time. This also fixes the
-opposite failure — the script's default frame is the *whole* tape, which means the heads need
-64 seconds to come back round to anything they recorded, and a 40-second take measured
-*quieter* with Compass on than off because the heads spent it playing buffer that had never
-been written.
+Three things keep it from being applied uniformly:
 
-**The two Crow commands are disabled** — there is no Crow on a Move, so `T` and `V` would be
-no-ops wasting a step. They are turned off through the script's **own** per-command enable
-flag, the one its edit page toggles, so `compass.lua` stays verbatim.
+- **Targeting** — a subset of tracks, re-chosen every few bars. Occasionally everything, more
+  often a handful. Tracks carrying the pattern (the drums, or anything more than half full)
+  are weighted *down* rather than excluded: gating the kick occasionally is an effect, gating
+  it every bar is just the beat.
+- **Distribution** — each effect owns a **window within the bar** (`gFrom`/`gSpan`,
+  `lFrom`/`lSpan`), quantised to sixteenths, so it can take the last quarter of the bar or the
+  middle eighth rather than running end to end. Windows move independently per track, which is
+  what stops sixteen gated tracks sounding like one gated mix. Each track also gets its own
+  gate `gSkew`, so several gated tracks interlock instead of pumping in unison.
+- **Density** — how many tracks, how wide the windows and how deep the effect all move
+  together on a slow cycle of 8–24 bars, so it breathes rather than chattering at a constant
+  rate.
 
-**Two things the script does not decide, and PoundHard must.** First, **level**: the script
-sets softcut's output to full, because on a norns the tape *is* the instrument. Here it is an
-effect on a running mix, so `wetMix` caps it at **30% of the signal feeding it**, with the dry
-left at unity — crossfading instead would drop the whole mix 3 dB the moment the pad is
-pressed. Second, **lap length**: the script's default frame is the whole 64-second tape,
-which means the heads need 64 seconds to come back around to anything they recorded. A
-40-second take measured *quieter* with Compass on than off for exactly that reason — the
-heads were playing buffer that had never been written. A norns player pulls End point down;
-the performer here keeps the frame between 8 and 24 seconds, which is long enough to be a
-tape and short enough to fill.
+**Non-destructive**: the inserts live on the track buses and touch no pattern, parameter or
+track state. Switching off frees them and the tracks are exactly as they were — so, like the
+modifier it replaces, it does **not** join the [Quake](#quake)/[Break](#break) lock.
 
-Measured on the device, off / on / off again: bar-to-bar similarity **+0.64 / +0.43 /
-+0.66**, RMS **−9.0 / −9.6 / −9.0 dB** (engaging it costs under a decibel), peak **0.950 with
-zero full-scale samples throughout**, and abrupt energy discontinuities **5.6 / 4.0 / 6.1 per
-second** — with Compass on there are *fewer* than in the dry pattern, which is the number
-that says nothing is retriggering at buzz rate. Toggling off restores the mix and leaves no
-process behind.
+Measured on the device, off / on / off again: bar-to-bar similarity **+0.82 / +0.58 /
++0.66**, RMS **−9.0 / −9.9 / −9.0 dB**, peak **0.950 with zero full-scale samples**, and no
+controller errors across the run.
+
+> **Softcut is still in the tree but unused.** `PhSoftcut`, `move/build-softcut.sh`, the Lua
+> runtime and `controller/compass/` remain built and deployed; nothing calls them. The COMPASS
+> modifier that used them was abandoned — it never reproduced its input (see the commit
+> history), and Strobe replaces it on the same pad.
 
 ### The chaos macro (knob 8)
 
@@ -1733,7 +1670,7 @@ command is dispatched until the engine reports ready.
 | steps | `stepset` / `steptoggle`, `steplock`, `stepmacro`, `stepfx` (per-step FX mask), `stepcycle` (fire every Nth repetition), `stepwindow` (per-step sample slice), `stepfilter` (per-step filter lock), `marklive` / `liveperiod` (living steps — the period is in PLAYS of the step, 1-8) |
 | clipboard | `stepcopy` / `steppaste`, `rowcopy` / `rowpaste`, `trackcopy` (the Copy-button gestures) |
 | generation | `stepgen` (a new sequence for one track, scale-aware) |
-| performance | `heat`, `shuffle`, `quake`, `churn`, `break` + `breakint`, `compass` (the six temporary overlays) |
+| performance | `heat`, `shuffle`, `quake`, `churn`, `break` + `breakint`, `strobe` (the six temporary overlays) |
 | randomizers | `steprand` (toggle one per-step parameter's randomizer), `randdebug` |
 | transpose | `transpose` (semitone offset for one track's sequence) |
 | FX | `fxassign`, `fxbypass`, `fxmacro`, `fxwet` |

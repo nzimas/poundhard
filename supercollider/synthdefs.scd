@@ -1032,6 +1032,62 @@ SynthDef(\phTrackFilter, { |in = 16, out = 16, cutoff = 18000, res = 0.0, type =
 	}).add;
 
 	// per-track send: track bus -> master bus (summed)
+	// ---- STROBE ----------------------------------------------------------------------
+	// A bar PHASE, published on an audio bus for everything that has to stay in time.
+	//
+	// Tempo sync is not a rate, it is a PHASE. Give a gate an "eighth-note rate" and it runs
+	// at the right speed while sitting wherever it happens to have started, and drifts the
+	// moment the tempo changes. Every Strobe insert instead derives its own sub-phase from
+	// this one signal, so a 3-per-bar gate and a 1/16 microloop are locked to the bar and to
+	// each other by construction, at audio rate, however odd the division.
+	SynthDef(\phSync, { |out = 0, barHz = 0.5, t_reset = 0|
+		Out.ar(out, Phasor.ar(t_reset, barHz * SampleDur.ir, 0.0, 1.0));
+	}).add;
+
+	// STROBE — a per-track insert: rhythmic GATING and MICROLOOPING, together or apart.
+	//
+	// It is an insert on the track's own bus rather than a master effect, because the
+	// modifier has to be able to take some tracks and leave others: gating everything at
+	// once is a tremolo on the mix, gating three of sixteen is an arrangement.
+	//
+	// gFrom/gSpan and lFrom/lSpan are WINDOWS WITHIN THE BAR, which is what makes the
+	// distribution dynamic rather than uniform — an effect can own the last quarter of the
+	// bar, or the middle eighth, and the controller moves those windows around.
+	SynthDef(\phStrobe, { |in = 16, out = 16, sync = 0,
+		// GATE: gDiv gates per bar, gDuty of each open, gDepth how far it shuts
+		gDiv = 8, gDuty = 0.5, gDepth = 1.0, gSkew = 0.0, gMix = 0.0,
+		gFrom = 0.0, gSpan = 1.0, gShape = 0.004,
+		// MICROLOOP: a slice of bar/lDiv seconds, recirculated while the window is open
+		lDiv = 8, lMix = 0.0, lFrom = 0.0, lSpan = 0.0, lFeed = 1.0,
+		barDur = 2.0, xfade = 0.008|
+
+		// EVERY declaration up front: sclang requires all `var`s before the first statement,
+		// and a `var` after one is a parse error that takes the whole engine down to zero
+		// nodes with nothing but "unexpected VAR" to say so.
+		var dry = In.ar(in, 2);
+		var bar = In.ar(sync, 1);
+		// MICROLOOP slice length, from the bar — tempo-synced by construction, never a rate
+		// in seconds. LocalIn adds exactly one block of delay, subtracted back out; without
+		// that the loop runs ~1.5 ms long every repeat and walks off the beat.
+		var lTime = ((barDur / lDiv.max(0.25)) - ControlDur.ir).clip(0.002, 2.0);
+		var lWin = (bar >= lFrom) * (bar < (lFrom + lSpan));
+		var fz = Lag.ar(lWin, xfade);
+		var fb = LocalIn.ar(2);
+		// while the window is open the line is fed from its own output, so the last slice
+		// recirculates — a fragment repeating, rather than a delay
+		var line = DelayC.ar((dry * (1 - fz)) + (fb * fz), 2.0, lTime);
+		// GATE. gDiv need not divide the bar evenly: 3, 5, 6 and 7 per bar are exactly as
+		// locked to the bar as 8 or 16, they just land somewhere more interesting.
+		var gph = ((bar * gDiv) + gSkew).frac;
+		var genv = LagUD.ar(K2A.ar(0.0) + (gph < gDuty), gShape, gShape * 3);
+		var gWin = (bar >= gFrom) * (bar < (gFrom + gSpan));
+		var looped = XFade2.ar(dry, line, ((lMix * lWin * 2) - 1).clip(-1, 1));
+		var sig = looped * (1 - (gDepth * gMix * gWin * (1 - genv)));
+
+		LocalOut.ar(LeakDC.ar(line) * lFeed.clip(0.8, 1.0));
+		ReplaceOut.ar(out, ~killbad.(sig));
+	}).add;
+
 	SynthDef(\phSend, { |in = 16, out = 16| Out.ar(out, In.ar(in, 2)) }).add;
 
 	// LIVING-STEP FX send: a fired living step routes its hit here. Stereo feedback delay

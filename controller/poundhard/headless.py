@@ -147,6 +147,8 @@ class Controller:
         # mutual-exclusion group rather than fighting them for the same parameters.
         self._compass_on = False
         self._compass = None
+        self._strobe_on = False
+        self._strobe = None
         self._rand_debug = False
         # performance recording
         self._rec_state = "idle"                 # idle | armed | recording
@@ -563,6 +565,53 @@ class Controller:
         self.bridge.compass(False)
         self._compass = None
 
+    # -- STROBE: rhythmic gating + microlooping on the track buses ----------- #
+    def _strobe_live(self) -> tuple[list[int], set[int]]:
+        """Which tracks are worth touching, and which are carrying the pattern.
+
+        A track with no steps is not a target — putting a gate on silence is wasted. The
+        `busy` set is weighted DOWN in the chooser rather than excluded: gating the kick
+        occasionally is an effect, gating it every bar is just the beat.
+        """
+        st = self.state
+        live, busy = [], set()
+        for t in range(N_TRACKS):
+            tr = st.tracks[t]
+            if st.eff_muted(t):                # muted, or another track is soloed
+                continue
+            ln = max(1, min(N_STEPS, int(tr.length)))
+            hits = sum(1 for c in range(ln) if tr.pattern[c])
+            if hits == 0:
+                continue
+            live.append(t)
+            # DRUM_TRACKS is a COUNT, not a set: the first N tracks are the drum tracks
+            if t < DRUM_TRACKS or hits >= ln * 0.5:
+                busy.add(t)
+        return live, busy
+
+    def _strobe_tick(self) -> None:
+        """One pattern cycle: retarget, redistribute, push only what changed."""
+        if not self._strobe_on or not self._strobe or not self.state.running:
+            return
+        with self._lock:
+            live, busy = self._strobe_live()
+        changes, turn_on, turn_off = self._strobe.bar(live, busy)
+        for t in sorted(turn_off):
+            self.bridge.strobe(t, False)
+        for t in sorted(turn_on):
+            self.bridge.strobe(t, True)
+        for t, args in changes.items():
+            for k, v in args.items():
+                self.bridge.strobeset(t, k, v)
+        if changes or turn_on or turn_off:
+            print("[poundhard] " + self._strobe.last_log, flush=True)
+
+    def _strobe_end(self) -> None:
+        """Take every insert off. Nothing to restore: Strobe lives on the track buses and
+        never touched a pattern, a parameter or a track's state."""
+        self.bridge.strobeclear()
+        self._strobe = None
+
     # -- per-parameter step randomizers ------------------------------------- #
     def _rand_active(self, t: int) -> set:
         return self._rand.get(t, set())
@@ -749,6 +798,7 @@ class Controller:
         self._break_tick()
         self._rand_tick()
         self._compass_tick()
+        self._strobe_tick()
         """Bar boundary (from the engine): fire any living steps whose period has elapsed
         (transient model — they revert next cycle), then apply a queued pattern switch."""
         with self._lock:
@@ -1011,7 +1061,7 @@ class Controller:
         "smparm",
         "recpad", "run",
         "patcopy", "patclipclear", "saveproj", "panic", "shuffle", "quake", "churn",
-        "break", "steprand", "compass",
+        "break", "steprand", "strobe",
         "stepcopy", "rowcopy",
     })
 
@@ -1105,24 +1155,17 @@ class Controller:
                 st.heat_apply(self._heat_pct)
         elif cmd == "randdebug":               # diagnostic: log every generated value set
             self._rand_debug = int(arg) != 0
-        elif cmd == "compass":                 # Compass pad: the softcut tape loop
-            # No lock any more. Compass records the master and plays into the master, so
-            # unlike QUAKE and BREAK it owns no track's rate, length or step list and has
-            # nothing to fight them over.
+        elif cmd == "strobe":                  # 6th pad: rhythmic gating + microlooping
+            # No lock. Strobe inserts sit on the track buses between the per-track FX and
+            # the send, so it owns no track's rate, length or step list and has nothing to
+            # fight QUAKE or BREAK over.
             on = int(arg) != 0
             if on:
-                from . import compass
-                self.bridge.compass(True)          # allocate the tape, start the synth
-                self._compass = compass.Compass(
-                    self.bridge, log=lambda m: print("[poundhard] " + m, flush=True))
-                self.bridge.on_compass_phase = self._compass_phase
-                if not self._compass.start(st.tempo):
-                    self._compass = None
-                    self.bridge.compass(False)
-                    on = False
+                from . import strobe as strobe_mod
+                self._strobe = strobe_mod.Strobe(N_TRACKS)
             else:
-                self._compass_end()
-            self._compass_on = on
+                self._strobe_end()
+            self._strobe_on = on
         elif cmd == "steprand":                # Shift + touch a control: toggle its randomizer
             from . import steprand
             t = int(p.get("track", st.edit_track))
@@ -1513,7 +1556,7 @@ class Controller:
             "brk": self._break_on,             # BREAK macro engaged
             "brkEvery": self._break_every,     # cycles between breaks
             "brkNow": self._break_active,      # a break is running this cycle
-            "compass": self._compass_on,       # COMPASS macro engaged
+            "strobe": self._strobe_on,         # STROBE macro engaged
             # performance recorder
             "recSlots": list(self._rec_slots),
             "recSlot": self._rec_slot,

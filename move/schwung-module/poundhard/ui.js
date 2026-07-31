@@ -104,8 +104,8 @@ const BREAK_ON = 22, BREAK_ALT = 108, BREAK_IDLE = 105;  /* magenta pulse (on) /
  * right now" is a single rule rather than a per-pad convention. QUAKE and BREAK lock each
  * other — both temporarily own a track's length and rate. */
 const LOCK_COLOR = 124;
-const COMPASS_CELL = 29;            /* pad right of BREAK = the COMPASS toggle */
-const COMPASS_ON = 29, COMPASS_ALT = 111, COMPASS_IDLE = 110;  /* turquoise pulse / dim teal */
+const STROBE_CELL = 29;             /* pad right of BREAK = the STROBE toggle */
+const STROBE_ON = 29, STROBE_ALT = 111, STROBE_IDLE = 110;  /* turquoise pulse / dim teal */
 
 /* Per-generator-type step-button colours [bright, dim] — same hue, two brightnesses.
  * The step buttons are grouped by generator (see kits.py) so each block is one hue:
@@ -212,7 +212,7 @@ let shufOn = false, shufHeld = false;
 let quakeOn = false, quakeHeld = false;
 let churnOn = false, churnHeld = false;
 let brkOn = false, brkHeld = false, brkEvery = 4, brkNow = false, brkTweaked = false;
-let compassOn = false, compassHeld = false;
+let strobeOn = false, strobeHeld = false;
 /* the intervals worth having: musical multiples, not every integer */
 const BRK_STEPS = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32];
 /* step-button pulse: a local beat clock (tempo-driven) drives the per-track pulse so
@@ -526,10 +526,10 @@ function renderLEDs() {
                 color = quakeOn ? LOCK_COLOR
                       : (brkNow ? White
                       : (brkOn ? ((phase % 16 < 8) ? BREAK_ON : BREAK_ALT) : BREAK_IDLE));
-            } else if (c === COMPASS_CELL) {                       /* COMPASS toggle */
-                /* no lock: Compass records the master and plays into it, so it competes
+            } else if (c === STROBE_CELL) {                        /* STROBE toggle */
+                /* no lock: Strobe inserts sit on the track buses, so nothing competes
                  * with nothing for a track's rate, length or steps */
-                color = compassOn ? ((phase % 16 < 8) ? COMPASS_ON : COMPASS_ALT) : COMPASS_IDLE;
+                color = strobeOn ? ((phase % 16 < 8) ? STROBE_ON : STROBE_ALT) : STROBE_IDLE;
             }
             setLED(PAD_NOTES[c], color);
         }
@@ -818,7 +818,7 @@ function drawScreen() {
             return;
         }
         print(0, 6, 'POUNDHARD', 2);
-        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : '') + (shufOn ? '  SHUF' : '') + (quakeOn ? '  QUAKE' : '') + (churnOn ? '  CHURN' : '') + (brkOn ? ('  BRK/' + brkEvery) : '') + (compassOn ? '  CMPS' : ''), 1);
+        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : '') + (shufOn ? '  SHUF' : '') + (quakeOn ? '  QUAKE' : '') + (churnOn ? '  CHURN' : '') + (brkOn ? ('  BRK/' + brkEvery) : '') + (strobeOn ? '  STRB' : ''), 1);
         print(0, 44, 'pad=hear  shift+pad=gen  copy=dup', 1);
         print(0, 56, 'k8=chaos  heat=btm-left pad', 1);
     } else if (lenArm) {
@@ -889,7 +889,7 @@ function readStatus() {
     if (s.brk != null && !brkHeld) brkOn = !!s.brk;
     if (s.brkEvery != null && !brkHeld) brkEvery = s.brkEvery;
     if (s.brkNow != null) brkNow = !!s.brkNow;
-    if (s.compass != null && !compassHeld) compassOn = !!s.compass;
+    if (s.strobe != null && !strobeHeld) strobeOn = !!s.strobe;
     if (s.heatPct != null && knobShow !== 'heat') heatPct = s.heatPct;
     if (s.drumMode != null && paletteHeld !== DRUM_CELL) drumMode = s.drumMode;
     scaleLabel = (s.scale && s.scale.name) ? (noteName(s.scale.root).replace(/[0-9-]/g, '') + ' ' + s.scale.name) : '';
@@ -1070,7 +1070,7 @@ globalThis.tick = function () {
     if (running && patView && patPending >= 0) ledDirty = true;   /* animate the queued-slot pulse */
     if (recView && recState !== 'idle') ledDirty = true;          /* animate the rec/armed pad */
     if (editTrack >= 0 && !fxView) { for (var _lv = 0; _lv < N_STEPS; _lv++) if (editLiving[_lv]) { ledDirty = true; break; } }  /* pulse living steps */
-    if ((heatOn || shufOn || quakeOn || churnOn || brkOn || compassOn) && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse the six modifier pads */
+    if ((heatOn || shufOn || quakeOn || churnOn || brkOn || strobeOn) && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse the six modifier pads */
     /* promote a sustained press on the SAMPLE pad into a HOLD (record-arm) */
     if (paletteHeld === SAMPLE_CELL && !smpHold && (Date.now() - paletteHeldStart) >= HOLD_MS) {
         smpHold = true; ledDirty = true; screenDirty = true;
@@ -1336,8 +1336,8 @@ globalThis.onMidiMessageInternal = function (data) {
             brkHeld = true; brkTweaked = false; ledDirty = true; screenDirty = true;
             return;
         }
-        if (cell === COMPASS_CELL) {                       /* Compass pad down: arm the toggle */
-            compassHeld = true; ledDirty = true; screenDirty = true;
+        if (cell === STROBE_CELL) {                        /* Strobe pad down: arm the toggle */
+            strobeHeld = true; ledDirty = true; screenDirty = true;
             return;
         }
         /* DRUM held + a pad to its right = that pad's fixed drum TYPE. Tapping it only
@@ -1430,13 +1430,13 @@ globalThis.onMidiMessageInternal = function (data) {
             brkHeld = false; ledDirty = true; screenDirty = true;
             return;
         }
-        if (cell === COMPASS_CELL) {                       /* Compass pad up: short = toggle */
-            if (compassHeld) {
-                compassOn = !compassOn;
-                sendCmd('compass', compassOn ? 1 : 0);
-                showAction(compassOn ? 'COMPASS' : 'COMPASS OFF');
+        if (cell === STROBE_CELL) {                        /* Strobe pad up: short = toggle */
+            if (strobeHeld) {
+                strobeOn = !strobeOn;
+                sendCmd('strobe', strobeOn ? 1 : 0);
+                showAction(strobeOn ? 'STROBE' : 'STROBE OFF');
             }
-            compassHeld = false; ledDirty = true; screenDirty = true;
+            strobeHeld = false; ledDirty = true; screenDirty = true;
             return;
         }
         if (paletteHeld === cell) {

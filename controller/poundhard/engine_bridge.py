@@ -180,6 +180,10 @@ class EngineBridge:
     def compass(self, on):             self.send("/ph/compass", 1 if on else 0)
     def compassset(self, arg, val):    self.send("/ph/compassset", str(arg), float(val))
     def compassclear(self, which=0):   self.send("/ph/compassclear", int(which))
+    # STROBE — per track, because the modifier's point is that it can take a subset.
+    def strobe(self, t, on):           self.send("/ph/strobe", int(t), 1 if on else 0)
+    def strobeset(self, t, arg, val):  self.send("/ph/strobeset", int(t), str(arg), float(val))
+    def strobeclear(self):             self.send("/ph/strobeclear", 0)
     def steplock(self, t, cell, note, vel, pan):
         self.send("/ph/steplock", int(t), int(cell), float(note), float(vel), float(pan))
     def stepmacro(self, t, cell, pairs):
