@@ -1303,11 +1303,35 @@ effect, the density floor is 0.4, windows are mostly half a bar or more, and a *
 now and then: every live track, full bar, full depth. Coverage measured offline over 200 bars
 went from ~0.05 to **0.79** effect-bar-fractions per track-bar.
 
+**Nothing reaches the audio path as a step.** `gWin`/`lWin` are comparisons on the bar
+phase, so they are hard 0/1 signals and a window opening mid-bar stepped the gain instantly;
+`gMix`/`gDepth`/`lMix` arrive over OSC between bars and were applied raw, so a track going
+from clean to gated jumped by the full depth in one sample; and `lTime` jumped whenever the
+algorithm chose a new division, which is a delay line being asked to teleport. All three were
+clicks. Each is slewed now — the window fades slowest, because 12 ms of equal-power fade is
+inaudible as a fade and very audible as an edge.
+
+**The bar phase is re-synced every downbeat**, from the same code path that fires the
+downbeat's notes. `\phSync` is a sample-accurate phasor and the sequencer runs off a
+TempoClock: they agree on average, but nothing corrected the error between them, so the
+windows crept away from the pattern over a run — and a tempo change re-rated the phasor
+without re-aligning its phase at all. When it is already in sync the phasor is wrapping to 0
+at that instant anyway, so the correction is a no-op rather than a jump.
+
 Measured on the device, off / on / off again: bar-to-bar similarity **+0.70 / +0.34 /
 +0.68**, RMS **−9.0 / −11.0 / −9.1 dB**, and envelope **modulation depth −4.4 / −9.2 /
 −4.6 dB** — the gate is cutting holes more than twice as deep as the music's own dynamics.
 Peak **0.950 with zero full-scale samples** throughout, no controller errors, and it restores
 exactly.
+
+**Transients:** large sample-to-sample steps run at **5.2/s with Strobe on against 11.0/s for
+the dry pattern**, and the largest steps are *smaller* with it engaged (0.129 vs 0.159) — it
+adds no discontinuities of its own.
+
+**Sync:** with a gate forced to 4 per bar at 123 BPM (expected period 0.4878 s), the
+strongest periodicity in the recorded audio is at **0.4876 s — 0.2 ms off, and it is the
+global maximum**, with no drift across a 30-second take (first half +0.455, second half
++0.484).
 
 > **Softcut is still in the tree but unused.** `PhSoftcut`, `move/build-softcut.sh`, the Lua
 > runtime and `controller/compass/` remain built and deployed; nothing calls them. The COMPASS

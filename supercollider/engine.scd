@@ -599,6 +599,18 @@
 	~globalTick = ~globalTick + 1;
 	// Fixed 16-step bar grid: fire /ph/cycle on the LAST step of each bar so the
 	// controller can apply a queued pattern switch in time for the next downbeat.
+	// RE-SYNC THE BAR PHASE ON EVERY DOWNBEAT. \phSync is a sample-accurate phasor and the
+	// sequencer runs off a TempoClock: they agree on average, but nothing corrected the
+	// error between them, so STROBE's windows crept away from the pattern over a run and a
+	// tempo change re-rated the phasor without re-aligning its phase at all. Correcting
+	// once a bar, from the same code path that fires the downbeat's notes, means the phase
+	// cannot accumulate error — and when it is already in sync the phasor is wrapping to 0
+	// at that instant anyway, so the correction is a no-op rather than a jump.
+	// t_reset is a TRIGGER control: the server zeroes it after the block, so setting it to
+	// 1 every bar re-fires it.
+	((~globalTick % 16) == 0).if {
+		~syncSynth.notNil.if { ~syncSynth.set(\t_reset, 1) };
+	};
 	~ready.if {
 		((~globalTick % 16) == 15).if { ~ctrl.sendMsg("/ph/cycle") };
 		~ctrl.sendMsg("/ph/step", (~uiEdit >= 0).if({ ~pos[~uiEdit] }, { -1 }));

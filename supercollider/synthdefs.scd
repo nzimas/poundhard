@@ -1066,23 +1066,40 @@ SynthDef(\phTrackFilter, { |in = 16, out = 16, cutoff = 18000, res = 0.0, type =
 		// nodes with nothing but "unexpected VAR" to say so.
 		var dry = In.ar(in, 2);
 		var bar = In.ar(sync, 1);
+		// NOTHING REACHES THE AUDIO PATH AS A STEP. Every one of these was a click:
+		//   * gWin / lWin are comparisons on the bar phase, so they are hard 0/1 signals —
+		//     a window opening mid-bar stepped the gain instantly.
+		//   * gMix / gDepth / lMix arrive over OSC between bars and were applied raw, so a
+		//     track switching from clean to gated jumped by the full depth in one sample.
+		//   * lTime jumped whenever the algorithm chose a new division, which is a delay
+		//     line being asked to teleport.
+		// A slew on each costs nothing and is the difference between an effect engaging and
+		// an effect banging. The window slews are deliberately the slowest: they are what
+		// opens and closes, and 12 ms of equal-power fade is inaudible as a fade but very
+		// audible as an edge.
+		var lWinRaw = (bar >= lFrom) * (bar < (lFrom + lSpan));
+		var gWinRaw = (bar >= gFrom) * (bar < (gFrom + gSpan));
+		var lWin = Lag.ar(lWinRaw, xfade);
+		var gWin = Lag.ar(gWinRaw, xfade);
+		var gMixL = Lag.kr(gMix, 0.03);
+		var gDepthL = Lag.kr(gDepth, 0.03);
+		var lMixL = Lag.kr(lMix, 0.03);
+		var gSkewL = Lag.kr(gSkew, 0.05);
 		// MICROLOOP slice length, from the bar — tempo-synced by construction, never a rate
 		// in seconds. LocalIn adds exactly one block of delay, subtracted back out; without
-		// that the loop runs ~1.5 ms long every repeat and walks off the beat.
-		var lTime = ((barDur / lDiv.max(0.25)) - ControlDur.ir).clip(0.002, 2.0);
-		var lWin = (bar >= lFrom) * (bar < (lFrom + lSpan));
-		var fz = Lag.ar(lWin, xfade);
+		// that the loop runs ~1.5 ms long every repeat and walks off the beat. Slewed, so a
+		// change of division glides the loop instead of cracking it.
+		var lTime = Lag.kr(((barDur / lDiv.max(0.25)) - ControlDur.ir).clip(0.002, 2.0), 0.04);
 		var fb = LocalIn.ar(2);
 		// while the window is open the line is fed from its own output, so the last slice
 		// recirculates — a fragment repeating, rather than a delay
-		var line = DelayC.ar((dry * (1 - fz)) + (fb * fz), 2.0, lTime);
+		var line = DelayC.ar((dry * (1 - lWin)) + (fb * lWin), 2.0, lTime);
 		// GATE. gDiv need not divide the bar evenly: 3, 5, 6 and 7 per bar are exactly as
 		// locked to the bar as 8 or 16, they just land somewhere more interesting.
-		var gph = ((bar * gDiv) + gSkew).frac;
+		var gph = ((bar * gDiv) + gSkewL).frac;
 		var genv = LagUD.ar(K2A.ar(0.0) + (gph < gDuty), gShape, gShape * 3);
-		var gWin = (bar >= gFrom) * (bar < (gFrom + gSpan));
-		var looped = XFade2.ar(dry, line, ((lMix * lWin * 2) - 1).clip(-1, 1));
-		var sig = looped * (1 - (gDepth * gMix * gWin * (1 - genv)));
+		var looped = XFade2.ar(dry, line, ((lMixL * lWin * 2) - 1).clip(-1, 1));
+		var sig = looped * (1 - (gDepthL * gMixL * gWin * (1 - genv)));
 
 		LocalOut.ar(LeakDC.ar(line) * lFeed.clip(0.8, 1.0));
 		ReplaceOut.ar(out, ~killbad.(sig));
