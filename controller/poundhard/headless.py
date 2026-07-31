@@ -96,6 +96,10 @@ class Controller:
         self.bridge.on_cycle = self._on_cycle  # apply a queued pattern switch on the bar boundary
         self.bridge.on_step = self._compass_step   # COMPASS's command clock, at step resolution
         self.bridge.on_mic_level = self._on_mic_level
+        self.bridge.on_micrec = self._mic_on_rec
+        self.bridge.on_micdone = self._mic_on_done
+        self.bridge.on_micwritten = self._mic_on_written
+        self.bridge.on_micready = self._mic_on_ready
         self.bridge.on_amp = self._on_amp      # master level while recording -> ends the tail
         self._quiet_since: float | None = None
         self._proj_slots = [False] * N_PATTERNS  # which project files exist on disk (cached)
@@ -155,6 +159,9 @@ class Controller:
         self._mic_level = 0.0
         self._mic_peak = 0.0
         self._mic_on = False
+        self._mic_state = "idle"        # idle -> armed -> recording -> processing -> ready
+        self._mic_thresh = 0.02
+        self._mic_gain = 1.0
         # PHRASE-QUANTISED ARMING. A pad press states an INTENT; the monitor picks the bar.
         self._phrase = phrase.PhraseMonitor()
         self._armed: dict[str, tuple] = {}   # cmd -> (arg, p, bars waited)
@@ -618,6 +625,61 @@ class Controller:
                 self._dispatch(cmd, arg, q)
 
     # -- MIC (engine 21): the Move's built-in microphone --------------------- #
+    def _mic_path(self):
+        d = RECORDINGS_DIR / "mic"
+        d.mkdir(parents=True, exist_ok=True)
+        return d / "take.wav"
+
+    def _mic_arm(self) -> None:
+        """Hold the MIC pad: arm a threshold capture on the microphone.
+
+        No source engine to tap, unlike SAMPLE — the room is the source — so the gesture is
+        the pad on its own and the take starts on the first sound loud enough to cross.
+        """
+        self._mic_state = "armed"
+        self._dirty = True
+        self.bridge.miclevel(True)          # meter runs while armed, so aiming is possible
+        self._mic_on = True
+        self.bridge.micarm(self._mic_thresh, self._mic_gain)
+
+    def _mic_on_rec(self) -> None:
+        if self._mic_state == "armed":
+            self._mic_state = "recording"
+            self._dirty = True
+
+    def _mic_on_done(self) -> None:
+        """Capture synth freed: the buffer filled, or it timed out with nothing."""
+        if self._mic_state == "recording":
+            self._mic_state = "processing"
+            self._dirty = True
+            self.bridge.micwrite(self._mic_path())
+        elif self._mic_state == "armed":
+            self._mic_state = "idle"        # nothing ever crossed the threshold
+            self._mic_on = False
+            self.bridge.miclevel(False)
+            self._dirty = True
+
+    def _mic_on_written(self, path: str) -> None:
+        # NO MANGLE STAGE. This is the whole difference from SAMPLE: what the microphone
+        # heard IS the sound, so the take goes straight back to the engine to be loaded.
+        if not path:
+            self._mic_state = "idle"
+            self._dirty = True
+            return
+        self.bridge.micload(path)
+
+    def _mic_on_ready(self, dur: float) -> None:
+        self._mic_state = "ready" if dur > 0.01 else "idle"
+        self._mic_on = False
+        self.bridge.miclevel(False)         # meter down once there is a take to hear
+        self._dirty = True
+
+    def _mic_release(self) -> None:
+        """Assigned to a track: the track owns the buffer now, so the pad is free again."""
+        self._mic_state = "idle"
+        self._mic_on = False
+        self._dirty = True
+
     def _on_mic_level(self, rms: float, peak: float) -> None:
         self._mic_level = float(rms)
         self._mic_peak = max(self._mic_peak * 0.97, float(peak))
@@ -1119,7 +1181,7 @@ class Controller:
         "smparm",
         "recpad", "run",
         "patcopy", "patclipclear", "saveproj", "panic", "shuffle", "quake", "churn",
-        "break", "steprand", "strobe", "miclevel",
+        "break", "steprand", "strobe", "miclevel", "micarm", "micthresh", "micgain",
         "stepcopy", "rowcopy",
     })
 
@@ -1166,6 +1228,10 @@ class Controller:
             self._smp_arm(int(arg))
         elif cmd == "assign":                         # hold pad + tap track = assign sound
             idx = int(p.get("engine", -1)); t = int(p.get("track", -1))
+            if idx == catalog.TYPE_INDEX.get("MIC") and 0 <= t < N_TRACKS:
+                # the take becomes the track's own buffer, then the pad is free again
+                self.bridge.smpassign(t, self._mic_path())
+                self._mic_release()
             if idx == catalog.TYPE_INDEX.get("SAMPLE") and 0 <= t < N_TRACKS:
                 # hand the captured buffer to the track, then RELEASE the pad
                 self.bridge.smpassign(t, self._smp_paths()[1])
@@ -1226,6 +1292,15 @@ class Controller:
                 st.heat_apply(self._heat_pct)
         elif cmd == "randdebug":               # diagnostic: log every generated value set
             self._rand_debug = int(arg) != 0
+        elif cmd == "micarm":                  # hold the MIC pad: capture from the mic
+            self._mic_arm()
+        elif cmd == "micthresh":               # hold MIC + knob: capture threshold
+            # Floor of 0.0002, not 0.001. The Move's capsule is QUIET — a still room measures
+            # about 5e-5 RMS (-86 dB) — so a 0.001 minimum sits 26 dB above the noise floor
+            # and a soft sound in front of the device can never trip a take.
+            self._mic_thresh = max(0.0002, min(0.5, float(p.get("x", 0.02))))
+        elif cmd == "micgain":                 # hold MIC + knob 2: input gain
+            self._mic_gain = max(0.1, min(32.0, float(p.get("x", 1.0))))
         elif cmd == "miclevel":                # MIC: run the input level probe
             self._mic_on = int(arg) != 0
             if not self._mic_on:
@@ -1636,6 +1711,9 @@ class Controller:
             "micLevel": round(self._mic_level, 5),   # built-in mic, live RMS
             "micPeak": round(self._mic_peak, 5),
             "micOn": self._mic_on,
+            "micState": self._mic_state,       # idle/armed/recording/processing/ready
+            "micThresh": round(self._mic_thresh, 5),
+            "micGain": round(self._mic_gain, 3),
             "armed": sorted(self._armed.keys()),   # pressed, waiting for the phrase
             "phraseBars": self._phrase.phrase_bars,
             "phraseBar": self._phrase.next_bar,

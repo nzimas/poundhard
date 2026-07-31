@@ -17,7 +17,7 @@
 
 ~nTracks = 16;
 ~maxSteps = 32;
-~typeDefs = [\phDrum, \phFm7, \phBuchloid, \phMolly, \phRings, \phBen, \phNoizeop, \phIcarus, \phPlaits, \phShaker, \phMembrane, \phMallet, \phBowed, \phPluck, \phTube, \phChaos, \phWtable, \phBytebeat, \phSampleVoice, \phCsound];  // /ph/track type index (-1 = empty/unassigned)
+~typeDefs = [\phDrum, \phFm7, \phBuchloid, \phMolly, \phRings, \phBen, \phNoizeop, \phIcarus, \phPlaits, \phShaker, \phMembrane, \phMallet, \phBowed, \phPluck, \phTube, \phChaos, \phWtable, \phBytebeat, \phSampleVoice, \phCsound, \phSampleVoice];   // 20 = MIC: same playback voice, mic-captured buffer  // /ph/track type index (-1 = empty/unassigned)
 // DRUM is split into per-mode defs (chosen from the track's `mode` param at spawn).
 ~drumDefs = [\phDrumKick, \phDrumSnare, \phDrumHat, \phDrumMetal, \phDrumClap, \phDrumTom, \phDrumNoise];
 
@@ -143,6 +143,7 @@
 ~smpCapSy = nil;                       // the live \phCapture synth, if any
 ~micLevelSy = nil;                     // MIC level probe, if any
 ~micCapSy = nil;                       // the live \phMicCapture synth, if any
+~micCapBuf = nil;                      // MIC capture buffer
 ~smpCapBuf = nil;                      // buffer being recorded into
 ~smpMaxDur = 2.0;                      // cap a take (buffer length caps RecordBuf)
 ~bbExprIdx = Array.fill(~nTracks, { 0 });   // per-track expression index into ~bbExprs
@@ -962,6 +963,60 @@
 	OSCdef(\phMicLevelRep, { |m|
 		~ctrl.sendMsg('/ph/miclevel', m[3].asFloat, m[4].asFloat);
 	}, '/ph/micrep'),
+	// /ph/micarm <thresh>: arm a threshold capture on the MICROPHONE. Unlike SAMPLE there is
+	// no source engine to tap — the room IS the source — so the gesture is holding the MIC
+	// pad on its own, and the take starts on the first sound loud enough to cross.
+	OSCdef(\phMicArm, { |m|
+		(~ready == true).if {
+			// the capsule is quiet: a still room is about 5e-5 RMS, so the floor has to be
+			// well under the 0.001 a bus-capture can assume
+			var th = (m[1] ? 0.02).asFloat.clip(0.0002, 0.5);
+			var gain = (m[2] ? 1.0).asFloat.clip(0.1, 32.0);
+			~micCapSy.notNil.if { ~micCapSy.free; ~micCapSy = nil };
+			~micCapBuf.notNil.if { ~micCapBuf.free };
+			// Buffer.alloc's completion action, NOT s.sync: an OSC handler is not a Routine,
+			// so s.sync here fails with _RoutineYield and silently aborts the handler.
+			~micCapBuf = Buffer.alloc(s, (~smpMaxDur * s.sampleRate).asInteger, 1, { |b|
+				~micCapSy = Synth.head(~gClear, \phMicCapture,
+					[\buf, b.bufnum, \thresh, th, \timeout, 12, \gain, gain]);
+				~micCapSy.onFree({ ~micCapSy = nil; ~ctrl.sendMsg("/ph/micdone") });
+			});
+		};
+	}, '/ph/micarm'),
+	OSCdef(\phMicTrig, { |m|            // \phMicCapture's SendTrig -> tell the controller
+		(m[2].asInteger == 1711).if { ~ctrl.sendMsg("/ph/micrec") };
+	}, '/tr'),
+	// /ph/micwrite "<path>": flush the take to disk, then say so — FORKED, with an s.sync.
+	//
+	// Buffer.write's `completionMessage` is NOT a "when the write finishes" callback: it is
+	// evaluated on the LANGUAGE side while the /b_write message is being assembled, so a
+	// notification sent from inside it goes out before the server has written a byte. CHURN
+	// gets away with that only because CDP then takes seconds, by which time the file is
+	// closed; MIC loads the take immediately and loses the race — the reader saw an
+	// unfinished header, reported a zero-length buffer, and the take silently vanished.
+	OSCdef(\phMicWrite, { |m|
+		var path = m[1].asString;
+		~micCapBuf.notNil.if({
+			fork {
+				~micCapBuf.write(path, "wav", "int16", -1, 0, false);
+				s.sync;                     // the server has finished the write
+				0.15.wait;                  // and the file is closed on disk
+				~ctrl.sendMsg("/ph/micwritten", path);
+			};
+		}, { ~ctrl.sendMsg("/ph/micwritten", "") });
+	}, '/ph/micwrite'),
+	// /ph/micload "<path>": load the take as the pad's auditionable sound.
+	OSCdef(\phMicLoad, { |m|
+		var path = m[1].asString;
+		File.exists(path).if({
+			Buffer.readChannel(s, path, channels: [0], action: { |b|
+				var old = ~smpPad;
+				~smpPad = b;
+				old.notNil.if { old.free };
+				~ctrl.sendMsg("/ph/micready", b.duration);
+			});
+		}, { ~ctrl.sendMsg("/ph/micready", 0.0) });
+	}, '/ph/micload'),
 	// /ph/smparm <srcEngine> <thresh>: arm a threshold capture on the MASTER bus. The
 	// gesture auditions the tapped engine (/ph/preview -> masterBus), so master is where
 	// that sound actually appears — a track bus would only carry a SEQUENCED track. The capture synth latches on the

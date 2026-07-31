@@ -60,6 +60,10 @@ class EngineBridge:
         disp.map("/ph/compassphase", self._h_compassphase)
         # MIC: the built-in microphone's live level, for arming and for the meter
         disp.map("/ph/miclevel", self._h_miclevel)
+        disp.map("/ph/micrec", self._h_micrec)          # threshold crossed, recording
+        disp.map("/ph/micdone", self._h_micdone)        # capture synth finished
+        disp.map("/ph/micwritten", self._h_micwritten)  # take flushed to disk
+        disp.map("/ph/micready", self._h_micready)      # take loaded, pad playable
         try:
             # Blocking (single-threaded) server: telemetry handlers are trivial and
             # fast, so we avoid spawning a thread per incoming /ph/step datagram.
@@ -188,6 +192,9 @@ class EngineBridge:
     def strobeclear(self):             self.send("/ph/strobeclear", 0)
     # MIC (engine 21) — built-in microphone capture
     def miclevel(self, on):            self.send("/ph/miclevel", 1 if on else 0)
+    def micarm(self, thresh, gain=1.0): self.send("/ph/micarm", float(thresh), float(gain))
+    def micwrite(self, path):          self.send("/ph/micwrite", str(path))
+    def micload(self, path):           self.send("/ph/micload", str(path))
     def steplock(self, t, cell, note, vel, pan):
         self.send("/ph/steplock", int(t), int(cell), float(note), float(vel), float(pan))
     def stepmacro(self, t, cell, pairs):
@@ -225,6 +232,19 @@ class EngineBridge:
     def _h_smpwritten(self, addr, *a):
         cb = getattr(self, "on_smpwritten", None)
         cb and cb(a[0] if a else "")
+
+    def _h_micrec(self, _addr, *_a):     self._fire("on_micrec")
+    def _h_micdone(self, _addr, *_a):    self._fire("on_micdone")
+    def _h_micwritten(self, _addr, *a):  self._fire("on_micwritten", str(a[0]) if a else "")
+    def _h_micready(self, _addr, *a):    self._fire("on_micready", float(a[0]) if a else 0.0)
+
+    def _fire(self, name, *args):
+        cb = getattr(self, name, None)
+        if cb:
+            try:
+                cb(*args)
+            except Exception:
+                pass
 
     def _h_miclevel(self, _addr, *args):
         cb = getattr(self, "on_mic_level", None)

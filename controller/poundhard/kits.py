@@ -248,7 +248,8 @@ def gen_kit(seed: int | None = None) -> dict:
 # --------------------------------------------------------------------------- #
 PALETTE_ENGINES = ["DRUM", "FM7", "BUCHLOID", "MOLLY", "RINGS", "BEN", "NOIZEOP",
                    "ICARUS", "PLAITS", "SHAKER", "MEMBRANE", "MALLET", "BOWED",
-                   "PLUCK", "TUBE", "CHAOS", "WTABLE", "BYTEBEAT", "SAMPLE", "CSOUND"]
+                   "PLUCK", "TUBE", "CHAOS", "WTABLE", "BYTEBEAT", "SAMPLE", "CSOUND",
+                   "MIC"]
 
 # a canonical note per drum mode, so an auditioned/assigned drum sits in register
 # (mode order matches catalog DRUM enum: kick snare hihat metal clap tom noise)
@@ -948,6 +949,16 @@ _CS_WEIGHTS = {"CS BELL": 3, "CS ANVIL": 3, "CS STRIKE": 3, "CS WOOD": 3, "CS CH
 # SAMPLE plays back whatever was just captured + mangled, so its "sound" is playback
 # shaping only — kept gentle so the mangled character comes through rather than being
 # re-processed into mush.
+# MIC plays back whatever the microphone just captured, so its "sound" is playback shaping
+# only — and gentler than SAMPLE's, because a recording of a room is already the character
+# and re-processing it into mush defeats the point of pointing a microphone at something.
+PALETTE_ROLES["MIC"] = Role("MIC", "MIC", note_choices=(0, 5, 7, 12), octave=0,
+                            bands={"mic.start": (0.0, 0.05), "mic.rate": (0.85, 1.2),
+                                   "mic.cutoff": (3000, 17000), "mic.drive": (0.7, 1.6),
+                                   "mic.decay": (0.4, 2.5), "mic.sustain": (0.7, 1.0),
+                                   "mic.release": (0.08, 0.9)},
+                            vel=(0.85, 1.05))
+
 PALETTE_ROLES["SAMPLE"] = Role("SAMPLE", "SAMPLE", note_choices=(0, 5, 7, 12), octave=0,
                                bands={"sample.start": (0.0, 0.0), "sample.rate": (0.8, 1.25),
                                       "sample.cutoff": (2500, 17000), "sample.drive": (0.4, 1.6),

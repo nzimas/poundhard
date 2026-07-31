@@ -134,6 +134,7 @@ const TYPE_COL = {
     WTABLE:   [45, 91],   /* Violet / DarkViolet — Ableton-sprite wavetable synth */
     BYTEBEAT: [30, 110],  /* BrightGreen / DarkGreen — ByteBeat UGen (8-bit glitch) */
     SAMPLE:   [24, 111],  /* Rose / DustyRose — the capture engine (records + mangles) */
+    MIC:      [3, 71],    /* White / Grey — the built-in microphone (records, no mangle) */
 };
 /* Engine palette: the 18 assignable engines. Row 1 = cells 0..7 (DRUM..ICARUS),
  * row 2 = cells 8..15 (PLAITS..CHAOS), row 3 = cells 16.. (WTABLE, BYTEBEAT). Same
@@ -141,7 +142,7 @@ const TYPE_COL = {
  * Short-press = audition, Shift+pad = regenerate, hold pad + tap a track = assign. */
 const ENGINE_TYPES = ['DRUM', 'FM7', 'BUCHLOID', 'MOLLY', 'RINGS', 'BEN', 'NOIZEOP',
     'ICARUS', 'PLAITS', 'SHAKER', 'MEMBRANE', 'MALLET', 'BOWED', 'PLUCK', 'TUBE', 'CHAOS',
-    'WTABLE', 'BYTEBEAT', 'SAMPLE', 'CSOUND'];
+    'WTABLE', 'BYTEBEAT', 'SAMPLE', 'CSOUND', 'MIC'];
 const N_ENGINES = ENGINE_TYPES.length;
 
 /* ---- runtime state (mirrors status.json) ---- */
@@ -226,6 +227,7 @@ let shiftHeld = false, masterTouched = false;
    controller commits on a musical seam. `armedSet` is what is pressed but not yet engaged,
    so the pad can say "heard you, waiting" instead of looking broken for up to a phrase. */
 let armedSet = {}, phraseBars = 4, phraseBar = 0;
+let micState = 'idle', micLevel = 0, micHold = false;
 /* Pattern-view modifiers: X (Delete) + pad = delete & close the gap; Copy + pad = copy,
  * then further pads paste while Copy stays down. Releasing Copy forgets the clipboard. */
 let deleteHeld = false, copyHeld = false, copyArmed = false;
@@ -271,6 +273,10 @@ let editFx = new Array(N_STEPS).fill(-1);
 let editCycle = new Array(N_STEPS).fill(1);   /* fire every Nth pattern repetition */   /* per-step FX mask mirrored from status */
 let lenArm = false;          /* Shift + master-knob touch: next pad sets the pattern LENGTH */
 const SAMPLE_CELL = 18;
+/* MIC sits on slot 21, immediately after the live CSOUND engine. Unlike SAMPLE it needs no
+   source pad to tap — the room is the source — so holding it alone arms the capture. */
+const MIC_CELL = 20;
+const MIC_ARM = 5, MIC_REC = 6, MIC_READY = 21;   /* red armed / bright red recording / green ready */
 let drumMode = -1;                   /* committed DRUM type (-1 = any); mirrors the controller */
 let drumPick = -1;                   /* type picked while the DRUM pad is held, committed on release */
 /* exit safeguard: Back ARMS a confirmation ("EXIT YES?"); a jog-wheel push commits it,
@@ -510,6 +516,16 @@ function renderLEDs() {
                 else if (smpState === 'processing') color = (phase % 16 < 8) ? 28 : 111;
                 else if (smpState === 'ready') color = (phase % 24 < 12) ? 8 : 30;
                 else color = (smpHold && paletteHeld === c) ? White : TYPE_COL.SAMPLE[0];
+            } else if (c === MIC_CELL) {
+                /* Same narration as SAMPLE, plus a LEVEL METER while armed: the pad brightens
+                 * with what the microphone is hearing, so you can aim it and judge the
+                 * threshold without looking at the screen. Nothing else on the instrument
+                 * tells you whether the room is loud enough to trip a capture. */
+                if (micState === 'armed') color = (micLevel > 0.01) ? 6 : ((phase % 10 < 5) ? MIC_ARM : 111);
+                else if (micState === 'recording') color = 1;
+                else if (micState === 'processing') color = (phase % 16 < 8) ? 28 : 111;
+                else if (micState === 'ready') color = (phase % 24 < 12) ? MIC_READY : 30;
+                else color = (micHold && paletteHeld === c) ? White : TYPE_COL.MIC[0];
             } else if (c < N_ENGINES) {
                 let pair = TYPE_COL[ENGINE_TYPES[c]];
                 /* holding SAMPLE: every other engine pad is a CAPTURE SOURCE — tap one and
@@ -903,6 +919,8 @@ function readStatus() {
     if (s.brkNow != null) brkNow = !!s.brkNow;
     if (s.strobe != null && !strobeHeld) strobeOn = !!s.strobe;
     if (s.armed != null) { armedSet = {}; for (let i = 0; i < s.armed.length; i++) armedSet[s.armed[i]] = 1; }
+    if (s.micState != null) micState = s.micState;
+    if (s.micLevel != null) micLevel = s.micLevel;
     if (s.phraseBars != null) phraseBars = s.phraseBars;
     if (s.phraseBar != null) phraseBar = s.phraseBar;
     if (s.heatPct != null && knobShow !== 'heat') heatPct = s.heatPct;
@@ -1376,6 +1394,17 @@ globalThis.onMidiMessageInternal = function (data) {
             ledDirty = true; screenDirty = true;
             return;
         }
+        if (cell === MIC_CELL && !shiftHeld) {
+            /* The room is the source, so there is no second pad to tap: holding this one
+               arms the capture directly. A finished take is left alone — pressing again
+               would throw away something you just recorded. */
+            micHold = true; paletteHeld = cell; paletteHeldStart = Date.now();
+            paletteConsumed = false;
+            if (micState === 'idle') { sendCmd('micarm', 1); showAction('MIC ARMED'); }
+            else if (micState === 'ready') showAction('MIC TAKE READY');
+            ledDirty = true; screenDirty = true;
+            return;
+        }
         if (cell < N_ENGINES) {
             if (shiftHeld) { sendCmd('palettegen', cell); showAction('GEN ' + ENGINE_TYPES[cell]); }
             else {
@@ -1468,8 +1497,15 @@ globalThis.onMidiMessageInternal = function (data) {
                 drumMode = drumPick;
                 sendCmd('drummode', drumMode);
                 showAction(DRUM_MODES[drumMode]);
+            } else if (cell === MIC_CELL) {
+                /* Releasing MIC must not audition: while it is capturing there is nothing to
+                   hear yet, and once a take exists the pad is auditioned by tapping it when
+                   NOT mid-capture. Auditioning here would also cut the capture short. */
+                if (micState === 'ready' && !paletteConsumed) {
+                    sendCmd('audition', cell); showAction('HEAR MIC TAKE');
+                }
             } else if (!paletteConsumed) { sendCmd('audition', cell); showAction('HEAR ' + ENGINE_TYPES[cell]); }
-            drumPick = -1; smpHold = false;
+            drumPick = -1; smpHold = false; micHold = false;
             paletteHeld = -1; paletteConsumed = false; ledDirty = true; screenDirty = true;
         }
         return;

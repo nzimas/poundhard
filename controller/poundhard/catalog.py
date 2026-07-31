@@ -101,7 +101,7 @@ TYPE_INDEX = {"EMPTY": -1, "DRUM": 0, "FM7": 1, "BUCHLOID": 2, "MOLLY": 3,
               "RINGS": 4, "BEN": 5, "NOIZEOP": 6, "ICARUS": 7, "PLAITS": 8,
               "SHAKER": 9, "MEMBRANE": 10, "MALLET": 11, "BOWED": 12,
               "PLUCK": 13, "TUBE": 14, "CHAOS": 15, "WTABLE": 16, "BYTEBEAT": 17,
-              "SAMPLE": 18, "CSOUND": 19}
+              "SAMPLE": 18, "CSOUND": 19, "MIC": 20}
 
 
 def _wt_sprite_count() -> int:
@@ -900,6 +900,45 @@ CSOUND = VoiceSpec(
 )
 
 # --------------------------------------------------------------------------- #
+# MIC (engine 21) — the Move's BUILT-IN MICROPHONE as a sound source.
+#
+# SAMPLE without the Csound stage. Holding its palette pad arms a threshold capture on the
+# microphone; the first sound loud enough to cross the threshold starts the take, and what
+# was recorded IS the sound — no offline mangling, because the point of a microphone is what
+# it heard. Playback shaping is identical to SAMPLE's (same synthdef, same parameters), so a
+# captured take is playable, pitchable and assignable like any other engine.
+#
+# The mic arrives on the server's first two inputs via Schwung's shadow JACK backend — the
+# Move exposes no ALSA device of its own. Measured before this engine was written: a live
+# noise floor at -94..-82 dB RMS, against exactly 0.0 with the probe down.
+# --------------------------------------------------------------------------- #
+MIC = VoiceSpec(
+    type="MIC",
+    role="Built-in microphone: threshold-captures what it hears, playable as a voice.",
+    synthdef="phSampleVoice",
+    params=[
+        P("mic.start", "Start", default=0.0, musical=(0.0, 0.3)),
+        P("mic.end", "End", default=1.0, musical=(0.7, 1.0)),
+        P("mic.rate", "Rate", rmin=0.125, rmax=4.0, default=1.0, curve=Curve.EXP,
+          formatter="float2", musical=(0.5, 2.0)),
+        P("mic.loop", "Loop", rmin=0.0, rmax=1.0, default=0.0, curve=Curve.ENUM,
+          enum=("ONCE", "LOOP"), modulatable=False),
+        P("mic.cutoff", "Cutoff", unit="Hz", rmin=80.0, rmax=18000.0, default=16000.0,
+          curve=Curve.EXP, musical=(1200.0, 17000.0)),
+        P("mic.res", "Resonance", default=0.1, musical=(0.0, 0.5)),
+        P("mic.drive", "Drive", rmin=0.0, rmax=4.0, default=1.0, musical=(0.5, 2.2)),
+        P("mic.attack", "Attack", unit="s", rmin=0.0, rmax=2.0, default=0.005,
+          curve=Curve.EXP, formatter="float3", musical=(0.001, 0.08)),
+        P("mic.decay", "Decay", unit="s", rmin=0.01, rmax=8.0, default=1.0,
+          curve=Curve.EXP, formatter="float2", musical=(0.15, 3.0)),
+        P("mic.sustain", "Sustain", default=0.9, musical=(0.6, 1.0)),
+        P("mic.release", "Release", unit="s", rmin=0.005, rmax=6.0, default=0.3,
+          curve=Curve.EXP, formatter="float2", musical=(0.05, 1.2)),
+        *_COMMON_TAIL("mic", ampd=0.9, ampmus=(0.6, 1.2)),
+    ],
+)
+
+# --------------------------------------------------------------------------- #
 # SAMPLE — the capture engine. Holding its palette pad and tapping another engine's pad
 # threshold-records that engine's output, runs the take through a freshly assembled Csound
 # opcode graph (csoundfx), and the result becomes this pad's sound: auditionable like any
@@ -935,6 +974,7 @@ SAMPLE = VoiceSpec(
 VOICES: dict[str, VoiceSpec] = {v.type: v for v in
                                 (DRUM, FM7, BUCHLOID, MOLLY, RINGS, BEN, NOIZEOP, ICARUS,
                                  PLAITS, SHAKER, MEMBRANE, MALLET, BOWED, PLUCK, TUBE, CHAOS,
+                                 MIC,
                                  WTABLE, BYTEBEAT, SAMPLE, CSOUND)}
 
 
