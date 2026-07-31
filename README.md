@@ -1130,43 +1130,54 @@ The generated tracks are laid out **contiguously from track 1 and grouped by eng
 with roles in musical order inside each block). Since the step buttons are coloured by
 engine, a generated rig reads as **contiguous colour blocks** rather than a scatter.
 
-### Phrase-quantised arming
+### Phrase-quantised arming (QUAKE only)
 
-The rhythmic modifiers — [SHUFFLE](#shuffle), [QUAKE](#quake), [BREAK](#break) and
-[STROBE](#strobe) — used to engage on the keypress. A pattern does not care when you press a
-pad, so the change landed wherever your thumb did: two steps into a bar, halfway through a
-fill, in a phrase with four bars still to run. That reads as a mistake even when the effect
-itself is good, because the ear hears the seam rather than the effect.
+[QUAKE](#quake) swaps the rhythmic structure itself, and engaging that mid-phrase is what
+makes a good effect sound like a mistake — the ear hears the seam rather than the effect. So
+a QUAKE press states an intent and `phrase.py` picks the bar, on the way in and on the way
+out.
 
-**A press now states an intent; `phrase.py` picks the bar.** The same on the way out.
+It was tried on [SHUFFLE](#shuffle), [BREAK](#break) and [STROBE](#strobe) too and removed:
+those three either carry their own timing already (Break counts cycles) or read as an effect
+being switched rather than a structure being replaced, so making them wait only delays the
+press without making the seam sound better. They engage immediately, as does
+[CHURN](#churn) and the [step randomizers](#per-parameter-step-randomizers).
 
 **The phrase is computed from the pattern, not assumed to be a bar.** Every track has its own
 length and its own clock rate, so 12 steps at rate 1 against 16 at 3:2 does not come back
-round for a while — and the moment they all realign is the one place in the piece where a
+round for three bars — and the moment they all realign is the one place in the piece where a
 change costs nothing. That is the LCM of the per-track cycles, taken in **exact rationals** so
 a 3:2 rate is not rounded into a cycle that never lines up, then snapped to a musical length
 (an exact LCM of 11 bars is arithmetically right and musically useless).
 
-**Seam quality** ranks the candidates — the phrase boundary is worth most, the half and
-quarter less, a plain barline least — and **onset density** adjusts it. A change *into* a
-sparse bar or *out of* a busy one is masked by the music either way, and with polymeter the
-bars of a phrase are genuinely not interchangeable, so this finds the thin one.
+**Seam quality** ranks the candidates — phrase boundary, half, quarter, plain barline — and
+**onset density** adjusts it: a change *into* a sparse bar or *out of* a busy one is masked by
+the music either way. Density is found by replaying each track's own clock across the phrase,
+since under polymeter the bars of a phrase are genuinely not interchangeable.
 
 **The threshold decays**, so nothing armed can hang: it starts out holding for a phrase
-boundary and by one full phrase will accept any barline. **The longest anything waits is one
+boundary and by one full phrase accepts any barline. **The longest anything waits is one
 phrase.**
 
-- **Pad** — arm. The pad blinks fast while waiting; the screen shows `ARM STROBE 3/4`.
-- **Pad again while armed** — cancel. The gesture means "no, not that", so it does not queue.
-- **Shift + pad** — engage **now**. Waiting is right nine times out of ten and wrong on
-  stage, so there is always a way to say now.
+**The QUAKE pad tells you which of the three states it is in, and it tracks the AUDIO rather
+than your thumb** — there is a gap of seconds between the press and the sound, so it has to:
 
-[CHURN](#churn) and the [step randomizers](#per-parameter-step-randomizers) are deliberately
-excluded: they ornament rather than restructure, so there is no seam to land on.
+| | pad |
+|---|---|
+| pressed, waiting for the phrase | **steady amber** |
+| taking effect | **blinking** |
+| pressed again, still taking effect | **still blinking** |
+| finished | **off** |
 
-Measured on the device: with a 4-bar phrase, arming at bar 3 (seam 0.70) engaged at bar 1
-(seam 1.00) — 3.4–3.9 s later, i.e. it held for the two bars to the phrase boundary. Shift +
-pad engaged in 0.31 s with nothing left armed.
+Pressing again *while armed* cancels rather than queueing — the gesture means "no, not that".
+**Shift + pad** engages immediately: waiting is right nine times out of ten and wrong on
+stage. The pad deliberately does **not** flip optimistically on the press the way the other
+modifier pads do; that would blink instantly and then correct itself back to armed a frame
+later, which is exactly the wrong story.
+
+Measured on the device: SHUFFLE, BREAK and STROBE engage in **0.40–0.41 s** with nothing
+armed. QUAKE: press → `armed`, engaged 1.02 s later; press again → still engaged and armed;
+released 4.68 s later. Zero controller errors.
 
 ### Quake
 

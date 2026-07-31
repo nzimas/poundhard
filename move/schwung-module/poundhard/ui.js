@@ -96,6 +96,7 @@ const SHUF_CELL = 25;               /* pad right of HEAT = the SHUFFLE toggle */
 const SHUF_ON = 14, SHUF_ALT = 20, SHUF_IDLE = 87;  /* cyan pulse (on) / dim teal (off) */
 const QUAKE_CELL = 26;              /* pad right of SHUFFLE = the QUAKE toggle */
 const QUAKE_ON = 26, QUAKE_ALT = 2, QUAKE_IDLE = 66;  /* orange pulse (on) / dim brick (off) */
+const QUAKE_ARM = 9;                /* steady amber = armed, waiting for the phrase */
 const CHURN_CELL = 27;              /* pad right of QUAKE = the CHURN toggle */
 const CHURN_ON = 31, CHURN_ALT = 84, CHURN_IDLE = 80;  /* lime pulse (on) / dark olive (off) */
 const BREAK_CELL = 28;              /* pad right of CHURN = the BREAK toggle */
@@ -520,8 +521,15 @@ function renderLEDs() {
             } else if (c === SHUF_CELL) {                          /* SHUFFLE toggle */
                 color = shufOn ? ((phase % 16 < 8) ? SHUF_ON : SHUF_ALT) : SHUF_IDLE;
             } else if (c === QUAKE_CELL) {                         /* QUAKE toggle */
+                /* THREE STATES, and the distinction between the first two is the point:
+                   QUAKE is phrase-armed, so there is a gap between the press and the sound.
+                   ARMED is a STEADY new colour — pressed, heard, waiting for the phrase.
+                   TAKING EFFECT is the BLINK. Pressing again while it runs leaves the blink
+                   alone, because it is still taking effect; the blink stops when the sound
+                   does, and then the pad goes out. The LED tracks the AUDIO, not the thumb. */
                 color = brkOn ? LOCK_COLOR
-                      : (quakeOn ? ((phase % 16 < 8) ? QUAKE_ON : QUAKE_ALT) : QUAKE_IDLE);
+                      : (quakeOn ? ((phase % 16 < 8) ? QUAKE_ON : QUAKE_ALT)
+                      : (armedSet.quake ? QUAKE_ARM : QUAKE_IDLE));
             } else if (c === CHURN_CELL) {                         /* CHURN toggle */
                 color = churnOn ? ((phase % 16 < 8) ? CHURN_ON : CHURN_ALT) : CHURN_IDLE;
             } else if (c === BREAK_CELL) {                         /* BREAK toggle */
@@ -822,7 +830,7 @@ function drawScreen() {
             return;
         }
         print(0, 6, 'POUNDHARD', 2);
-        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : '') + (shufOn ? '  SHUF' : '') + (quakeOn ? '  QUAKE' : '') + (churnOn ? '  CHURN' : '') + (brkOn ? ('  BRK/' + brkEvery) : '') + (strobeOn ? '  STRB' : '') + (Object.keys(armedSet).length ? ('  ARM ' + Object.keys(armedSet).join(',').toUpperCase() + ' ' + (phraseBar + 1) + '/' + phraseBars) : ''), 1);
+        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : '') + (shufOn ? '  SHUF' : '') + (quakeOn ? '  QUAKE' : '') + (churnOn ? '  CHURN' : '') + (brkOn ? ('  BRK/' + brkEvery) : '') + (strobeOn ? '  STRB' : '') + (armedSet.quake ? ('  ARM QUAKE ' + (phraseBar + 1) + '/' + phraseBars) : ''), 1);
         print(0, 44, 'pad=hear  shift+pad=gen  copy=dup', 1);
         print(0, 56, 'k8=chaos  heat=btm-left pad', 1);
     } else if (lenArm) {
@@ -1077,7 +1085,7 @@ globalThis.tick = function () {
     if (running && patView && patPending >= 0) ledDirty = true;   /* animate the queued-slot pulse */
     if (recView && recState !== 'idle') ledDirty = true;          /* animate the rec/armed pad */
     if (editTrack >= 0 && !fxView) { for (var _lv = 0; _lv < N_STEPS; _lv++) if (editLiving[_lv]) { ledDirty = true; break; } }  /* pulse living steps */
-    if ((heatOn || shufOn || quakeOn || churnOn || brkOn || strobeOn || armedSet.quake || armedSet.break || armedSet.strobe || armedSet.shuffle) && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse the six modifier pads */
+    if ((heatOn || shufOn || quakeOn || churnOn || brkOn || strobeOn || armedSet.quake) && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse the six modifier pads */
     /* promote a sustained press on the SAMPLE pad into a HOLD (record-arm) */
     if (paletteHeld === SAMPLE_CELL && !smpHold && (Date.now() - paletteHeldStart) >= HOLD_MS) {
         smpHold = true; ledDirty = true; screenDirty = true;
@@ -1394,7 +1402,7 @@ globalThis.onMidiMessageInternal = function (data) {
         if (cell === SHUF_CELL) {                          /* Shuffle pad up: short press = toggle */
             if (shufHeld) {
                 shufOn = !shufOn;                          /* optimistic; server confirms via status */
-                sendCmd('shuffle', shufOn ? 1 : 0, shiftHeld ? { p: { now: 1 } } : null);   /* Shift = now, don't wait for the phrase */        /* each toggle-on rolls a fresh config */
+                sendCmd('shuffle', shufOn ? 1 : 0);        /* each toggle-on rolls a fresh config */
                 showAction(shufOn ? 'SHUFFLE' : 'SHUF OFF');
             }
             shufHeld = false; ledDirty = true; screenDirty = true;
@@ -1405,9 +1413,16 @@ globalThis.onMidiMessageInternal = function (data) {
                 if (brkOn && !quakeOn) {                   /* locked out by BREAK */
                     showAction('QUAKE LOCKED - BREAK ON');
                 } else {
-                    quakeOn = !quakeOn;                    /* optimistic; server confirms via status */
-                    sendCmd('quake', quakeOn ? 1 : 0, shiftHeld ? { p: { now: 1 } } : null);   /* Shift = now, don't wait for the phrase */     /* each toggle-on rolls a fresh config */
-                    showAction(quakeOn ? 'QUAKE' : 'QUAKE OFF');
+                    /* NO OPTIMISTIC FLIP for QUAKE, unlike the other modifier pads. It is
+                       phrase-armed, so the press and the sound are seconds apart: flipping
+                       the local flag here would blink the pad immediately and then get
+                       corrected back to ARMED a frame later, which is exactly the wrong
+                       story. The pad is driven from status, so it shows armed until the
+                       audio actually changes. Shift = now, don't wait for the phrase. */
+                    var want = !quakeOn && !armedSet.quake;
+                    sendCmd('quake', want ? 1 : 0, shiftHeld ? { p: { now: 1 } } : null);
+                    showAction(armedSet.quake ? 'QUAKE CANCEL'
+                             : (want ? (shiftHeld ? 'QUAKE' : 'QUAKE ARMED') : 'QUAKE OFF'));
                 }
             }
             quakeHeld = false; ledDirty = true; screenDirty = true;
@@ -1430,7 +1445,7 @@ globalThis.onMidiMessageInternal = function (data) {
                     showAction('BREAK LOCKED - QUAKE ON');
                 } else {
                     brkOn = !brkOn;                        /* optimistic; server confirms */
-                    sendCmd('break', brkOn ? 1 : 0, shiftHeld ? { p: { now: 1 } } : null);   /* Shift = now, don't wait for the phrase */
+                    sendCmd('break', brkOn ? 1 : 0);
                     showAction(brkOn ? ('BREAK 1/' + brkEvery) : 'BREAK OFF');
                 }
             }
@@ -1440,7 +1455,7 @@ globalThis.onMidiMessageInternal = function (data) {
         if (cell === STROBE_CELL) {                        /* Strobe pad up: short = toggle */
             if (strobeHeld) {
                 strobeOn = !strobeOn;
-                sendCmd('strobe', strobeOn ? 1 : 0, shiftHeld ? { p: { now: 1 } } : null);   /* Shift = now, don't wait for the phrase */
+                sendCmd('strobe', strobeOn ? 1 : 0);
                 showAction(strobeOn ? 'STROBE' : 'STROBE OFF');
             }
             strobeHeld = false; ledDirty = true; screenDirty = true;

@@ -1113,11 +1113,13 @@ class Controller:
         "stepcopy", "rowcopy",
     })
 
-    # The modifiers that RESTRUCTURE RHYTHM. Engaging one of these mid-phrase is what makes
-    # a good effect sound like a mistake, so a press arms it and phrase.py picks the bar.
-    # CHURN and the step randomizers are absent deliberately: they ornament rather than
-    # restructure, so there is no seam to land.
-    _QUANTISED = frozenset({"quake", "break", "strobe", "shuffle"})
+    # ONLY QUAKE. Phrase-arming was tried on SHUFFLE, BREAK and STROBE too and was not
+    # wanted there: those three either already have their own timing (BREAK counts cycles)
+    # or read as an effect being switched rather than a structure being replaced, so making
+    # them wait just delays the press without making the seam sound better. QUAKE swaps the
+    # rhythmic structure itself, which is the one case where landing off the phrase sounds
+    # like a mistake. CHURN and the step randomizers were never in: they ornament.
+    _QUANTISED = frozenset({"quake"})
 
     def _dispatch(self, cmd: str, arg, p: dict) -> None:
         st = self.state
