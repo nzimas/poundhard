@@ -8,6 +8,7 @@ DEST="/data/UserData/schwung/modules/overtake/poundhard"
 
 ssh "root@$HOST" "mkdir -p $DEST"
 # COPYFILE_DISABLE + --exclude strips macOS AppleDouble junk.
-COPYFILE_DISABLE=1 tar -C "$HERE/schwung-module/poundhard" --exclude="._*" -czf - . \
+# `dsp/` is the tap plugin's SOURCE — dsp.so ships, the .c and headers do not.
+COPYFILE_DISABLE=1 tar -C "$HERE/schwung-module/poundhard" --exclude="._*" --exclude="./dsp" -czf - . \
     | ssh "root@$HOST" "tar -C $DEST -xzf -"
 ssh "root@$HOST" "chmod +x $DEST/exit-hook.sh; chown -R ableton:users $DEST; ls -la $DEST"

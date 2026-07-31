@@ -862,8 +862,10 @@
 	// rather than an assumption — the Move has no ALSA device of its own and the mic arrives
 	// through Schwung's shadow JACK driver, which is not obliged to provide it.
 	SynthDef(\phMicLevel, { |rate = 10, gain = 1|
-		var sig = SoundIn.ar([0, 1]) * gain;
-		var mono = (sig[0] + sig[1]) * 0.5;
+		// PhMicIn, NOT SoundIn. The Move exposes no audio input to a JACK client — the mic
+		// lives in the SPI mailbox and only a loaded Schwung DSP plugin can see it. Our
+		// plugin publishes it to a shm ring; this is the read end.
+		var mono = PhMicIn.ar(gain);
 		// DISTINCT path from the /ph/miclevel command: a SendReply lands in sclang on the
 		// address it names, so sharing the name would make the server's own reply re-trigger
 		// the handler that starts and stops this synth.
@@ -885,8 +887,8 @@
 	}).add;
 
 	SynthDef(\phMicCapture, { |buf = 0, thresh = 0.02, timeout = 8, gain = 1|
-		var sig = SoundIn.ar([0, 1]);
-		var mono = HPF.ar((sig[0] + sig[1]) * 0.5 * gain, 35);   // kill rumble/DC off the capsule
+		// the tap ring, not a hardware input — see \phMicLevel
+		var mono = HPF.ar(PhMicIn.ar(gain), 35);   // kill rumble/DC off the capsule
 		var amp = Amplitude.kr(mono, 0.002, 0.03);
 		var latch = SetResetFF.kr(amp > thresh, 0);
 		SendTrig.kr(Trig1.kr(latch, 0.01), 1711, 1);             // capture began

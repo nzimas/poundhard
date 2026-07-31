@@ -7,6 +7,7 @@
     "author": "nzimas",
     "license": "MIT",
     "ui": "ui.js",
+    "dsp": "dsp.so",
     "api_version": 2,
     "component_type": "overtake",
     "requires_path": "/data/UserData/poundhard/bin/sclang",

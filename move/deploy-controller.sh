@@ -47,6 +47,14 @@ scp "$SCUT/PhSoftcut.so" "$SCUT/PhSoftcut_supernova.so" "root@$HOST:$DEST/plugin
 scp "$SCUT/PhSoftcut.sc" "root@$HOST:$SEXT/"
 ssh "root@$HOST" "chown ableton:users $DEST/plugins/PhSoftcut*.so $SEXT/*.sc"
 
+echo "-> PhMicIn UGen (the engine's end of the microphone tap)"
+MIN="$ROOT/supercollider/plugins/PhMicIn"
+MEXT="$DEST/share/SuperCollider/Extensions/PhMicIn"
+ssh "root@$HOST" "mkdir -p $MEXT"
+scp "$MIN/PhMicIn.so" "$MIN/PhMicIn_supernova.so" "root@$HOST:$DEST/plugins/"
+scp "$MIN/PhMicIn.sc" "root@$HOST:$MEXT/"
+ssh "root@$HOST" "chown ableton:users $DEST/plugins/PhMicIn*.so $MEXT/*.sc"
+
 # COMPASS runs Olivier Creurer's norns script itself, so the .lua files are source and ship
 # with the controller. compass.lua is verbatim upstream and must stay that way — the shim
 # beside it is what adapts, never the script.

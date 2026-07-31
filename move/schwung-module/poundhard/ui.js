@@ -282,8 +282,10 @@ const MIC_CELL = 20;
    move. The shadow JACK backend presents system:capture_N and fills it with a ~-86 dB
    floor; the microphone itself never arrives. Every other input reads exactly zero, so
    there is no other pair to look on either.
-   The engine is complete and stays in the tree. Flip this to true the day capture works. */
-const MIC_ENABLED = false;
+   Now ON: PoundHard ships its own Schwung DSP plugin (dsp.so) which reads the mic out of
+   the SPI mailbox — the one place it exists — and publishes it to a shm ring that the
+   PhMicIn UGen reads. The capture ports were never the route. */
+const MIC_ENABLED = true;
 const MIC_ARM = 5, MIC_REC = 6, MIC_READY = 21;   /* red armed / bright red recording / green ready */
 let drumMode = -1;                   /* committed DRUM type (-1 = any); mirrors the controller */
 let drumPick = -1;                   /* type picked while the DRUM pad is held, committed on release */
