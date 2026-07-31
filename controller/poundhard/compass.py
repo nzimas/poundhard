@@ -1,202 +1,208 @@
-"""COMPASS — the norns script's command sequencer, driving a live tape loop.
+"""COMPASS — Olivier Creurer's norns script, running.
 
-After Olivier Creurer's script, and this time on the thing the original actually
-manipulates: a **softcut buffer**. The master is recorded continuously into 40 seconds of
-tape while two heads play it back, and a sequence of terse commands moves those heads —
-rate, direction, position, loop length, pan, record. That is where the tape-loop character
-lives, and no amount of step-sequencer manipulation reproduces it: a step sequencer can
-reorder notes, but it cannot play the last four seconds of the performance backwards at
-2/3 speed inside a shrinking loop.
+Not a reimplementation. `controller/compass/compass.lua` is the published script byte for
+byte, executed by a real Lua interpreter under a norns-API shim, driving real softcut voices
+inside scsynth. This module is the bridge: it starts that process, gives it a clock, relays
+the softcut calls it makes to the engine, and plays its keys and encoders.
 
-THE SELF-MODIFYING CLOCK is the other half. `<` `>` `[` `]` change how fast the command
-stream itself runs, so it accelerates, stalls and lurches under its own influence instead
-of ticking evenly.
+WHY IT IS DONE THIS WAY. Two earlier versions reimplemented Compass's ideas — one on the
+step sequencer, one on softcut — and both were wrong in ways that were obvious the moment
+the actual source was read. The script uses two SEPARATE buffers; loop points are integer
+seconds inside a 64-second tape, so a loop is never shorter than a second; commands fire
+every beat and up to sixteen times a beat; rate changes are SLEWED. Miss any of those and
+what comes out is a short modulated delay — a flanger — rather than a tape loop. The only
+reliable way to get a script's behaviour is to run the script.
 
-The commands are the original's, one for one:
+THE PIPE. Lines in, lines out, pipe-separated. No sockets, so nothing to build into Lua:
 
-    F R      rate forward / reverse (a NEGATIVE softcut rate — real reverse playback)
-    + - !    rate increment / decrement / random, from the original's rate table
-    1 P      jump to loop start / a random position inside the loop
-    L        random loop length
-    ( )      random pan, left head and right head
-    ::       toggle recording — freezes the tape, so the heads keep playing what is on it
-    [ ] < >  the command clock
-    ?        jump the command sequencer to a random position
+    ->  tick|<t>            one 1/16-beat tick; the shim's clock.sync rides on these
+        phase|<i>|<x>|<t>   softcut's real head position, so update_positions runs
+        perform|<t>         one turn of the algorithmic performer
+        tempo|<bpm>
+    <-  sc|<fn>|<voice>|<v> a softcut call, e.g. sc|rate|1|-1
+        scin|<ch>|<v>|<amp> softcut.level_input_cut, the input matrix
+        state|<glyph>|<division>|<rate>|<loopStart>|<loopEnd>|<rec>|<steps>
+        log|<text>
 
-NON-DESTRUCTIVE by construction: it records the master and plays into the master. No track,
-pattern or parameter is touched, so switching off is freeing the synth and wiping the tape.
+The tick rate is the interesting part: `clock.sync(1/division)` with division up to 16 means
+the command stream can fire sixteen times a beat, so the tick has to be at least that fine.
+It is fed from PoundHard's own clock, so the tape's commands land on the sequencer's grid.
 """
 from __future__ import annotations
 
-import random
+import os
+import subprocess
+import threading
+import time
 
-SEQ_LEN = 12
-# the original's rate table — musical ratios, both directions
-RATES = (-2.0, -1.0, -0.5, 0.5, 1.0, 2.0)
-BUF_SECONDS = 40.0
+TICKS_PER_BEAT = 16
+LUA = "/data/UserData/poundhard/lua/bin/lua"
+SCRIPT_DIR = "/data/UserData/poundhard/compass"
 
-
-class Head:
-    """One softcut head's live parameters."""
-
-    def __init__(self, pan):
-        self.rate = 1.0
-        self.start = 0.0
-        self.end = 4.0
-        self.pan = pan
-        self.rec = 1.0
-        self.pre = 0.75
-
-    def as_args(self, i):
-        n = str(i)
-        return {"rate" + n: self.rate, "start" + n: self.start, "end" + n: self.end,
-                "pan" + n: self.pan, "rec" + n: self.rec, "pre" + n: self.pre}
-
-
-# --------------------------------------------------------------------------- #
-# commands. Each takes (cp, rng) and mutates the sequencer or both heads.
-# --------------------------------------------------------------------------- #
-def c_metro_bottom(cp, rng):  cp.division = 8
-def c_metro_top(cp, rng):     cp.division = 1
-def c_metro_dec(cp, rng):     cp.division = max(1, cp.division // 2)
-def c_metro_inc(cp, rng):     cp.division = min(8, cp.division * 2)
-def c_step_rnd(cp, rng):      cp.pos = rng.randrange(SEQ_LEN)
-
-
-def c_rate_fwd(cp, rng):
-    """F — 1x forward, both heads."""
-    cp.rate_pos = 4
-    for h in cp.heads:
-        h.rate = RATES[4]
-
-
-def c_rate_rev(cp, rng):
-    """R — -1x. Reverse playback of recorded audio, which is the whole point."""
-    cp.rate_pos = 1
-    for h in cp.heads:
-        h.rate = RATES[1]
-
-
-def c_rate_inc(cp, rng):
-    cp.rate_pos = min(len(RATES) - 1, cp.rate_pos + 1)
-    for h in cp.heads:
-        h.rate = RATES[cp.rate_pos]
-
-
-def c_rate_dec(cp, rng):
-    cp.rate_pos = max(0, cp.rate_pos - 1)
-    for h in cp.heads:
-        h.rate = RATES[cp.rate_pos]
-
-
-def c_rate_rnd(cp, rng):
-    cp.rate_pos = rng.randrange(len(RATES))
-    for h in cp.heads:
-        h.rate = RATES[cp.rate_pos]
-
-
-def c_pos_start(cp, rng):
-    """1 — both heads to the top of the loop."""
-    for i, h in enumerate(cp.heads):
-        cp.cut[i] = h.start
-
-
-def c_pos_rnd(cp, rng):
-    """P — both heads somewhere else inside the loop."""
-    for i, h in enumerate(cp.heads):
-        cp.cut[i] = rng.uniform(h.start, max(h.start + 0.05, h.end))
-
-
-def c_loop_rnd(cp, rng):
-    """L — a new loop window inside the tape. Short windows are where it starts to stutter
-    rather than loop, so the low end is deliberately reachable."""
-    a = rng.uniform(0.0, BUF_SECONDS - 1.0)
-    # Weighted SHORT. A four-second window is a delay; an eighth-second window is the tape
-    # stuttering on one grain, and that is the sound the script is known for. Long windows
-    # are still reachable, they are just no longer the common case.
-    span = rng.choice((0.06, 0.08, 0.12, 0.15, 0.25, 0.4, 0.6, 1.0, 2.0, 4.0))
-    b = min(BUF_SECONDS, a + span)
-    for h in cp.heads:
-        h.start, h.end = round(a, 4), round(b, 4)
-
-
-def c_pan_l(cp, rng):
-    cp.heads[0].pan = round(rng.uniform(0, 8) / -10.0, 3)
-
-
-def c_pan_r(cp, rng):
-    cp.heads[1].pan = round(rng.uniform(0, 8) / 10.0, 3)
-
-
-def c_toggle_rec(cp, rng):
-    """:: — the original's record toggle, and the single most characterful command in the
-    set. With recording off the tape stops being overwritten, so the heads keep chewing on
-    a frozen few seconds; turn it back on and the performance bleeds in again."""
-    cp.rec_on = not cp.rec_on
-    for h in cp.heads:
-        h.rec = 1.0 if cp.rec_on else 0.0
-
-
-COMMANDS = [
-    (c_metro_bottom, "["), (c_metro_top, "]"), (c_metro_dec, "<"), (c_metro_inc, ">"),
-    (c_step_rnd, "?"), (c_rate_fwd, "F"), (c_rate_rev, "R"), (c_rate_inc, "+"),
-    (c_rate_dec, "-"), (c_rate_rnd, "!"), (c_pos_start, "1"), (c_pos_rnd, "P"),
-    (c_loop_rnd, "L"), (c_pan_l, "("), (c_pan_r, ")"), (c_toggle_rec, "::"),
-]
-# The gestures that MOVE THE TAPE are what you hear; the clock commands only shape the
-# stream. Measured on the device, an even weighting left the heads parked on a plain
-# four-second forward loop for most of a run — an echo, not a tape loop. So the loop,
-# position, rate and freeze commands carry most of the weight, and `?` (which reorders the
-# sequence without touching the audio) carries almost none.
-_WEIGHTS = {"[": 1, "]": 2, "<": 2, ">": 2, "?": 1, "F": 2, "R": 5, "+": 3, "-": 3,
-            "!": 4, "1": 3, "P": 5, "L": 7, "(": 2, ")": 2, "::": 4}
+# softcut function -> the synth argument it sets, per voice. Anything not here is either
+# handled specially below or is a call the engine has no use for (enable/buffer, which are
+# fixed by construction: voice i owns buffer i).
+_VOICE_ARG = {
+    "rate": "rate", "rate_slew_time": "rateSlew",
+    "loop_start": "start", "loop_end": "end", "loop": "loop",
+    "position": "cut", "level": "lvl", "pan": "pan",
+    "rec_level": "rec", "pre_level": "pre", "recpre_slew_time": "recPreSlew",
+    "fade_time": "fade", "phase_quant": "pq", "rec": "recF", "play": "play",
+    "pre_filter_dry": "pfDry", "pre_filter_lp": "pfLp", "pre_filter_hp": "pfHp",
+    "pre_filter_bp": "pfBp", "pre_filter_br": "pfBr",
+}
+# not per-voice
+_GLOBAL_ARG = {
+    "audio_level_cut": "cutLevel",
+    "pan_slew_time": "panSlew", "level_slew_time": "levelSlew",
+}
 
 
 class Compass:
-    """The command sequencer: a list of commands, a position, a self-modifying divider."""
+    """A running compass.lua, plus the wiring that makes it audible."""
 
-    def __init__(self, rng: random.Random | None = None):
-        self.rng = rng or random.Random()
-        # every cycle by default: the clock commands are there to slow it DOWN from this,
-        # and starting at 2 meant half the run went by before the tape did anything.
+    def __init__(self, bridge, log=None):
+        self.bridge = bridge
+        self._log = log or (lambda s: None)
+        self.proc: subprocess.Popen | None = None
+        self._reader: threading.Thread | None = None
+        self._alive = False
+        self._tick_acc = 0.0
+        self._last: dict[str, float] = {}
+        # what the readout shows
+        self.glyph = "-"
         self.division = 1
-        self.pos = 0
-        self.counter = 0
-        self.rate_pos = 4
-        self.rec_on = True
-        self.heads = [Head(-0.3), Head(0.3)]
-        self.cut = [-1.0, -1.0]
-        self.seq: list = []
-        self.reseed()
+        self.rate = 1.0
+        self.loop = (1.0, 65.0)
+        self.recording = False
+        self.steps = 16
 
-    def reseed(self) -> None:
-        fns = [c for c, _ in COMMANDS]
-        wts = [_WEIGHTS[g] for _, g in COMMANDS]
-        self.seq = self.rng.choices(fns, weights=wts, k=SEQ_LEN)
-        self.pos = 0
+    # ----------------------------------------------------------------- start/stop
+    def start(self, tempo: float) -> bool:
+        if not os.path.exists(LUA):
+            self._log("compass: no lua at %s — run move/build-lua.sh + deploy-bundle.sh" % LUA)
+            return False
+        host = os.path.join(SCRIPT_DIR, "compass_host.lua")
+        if not os.path.exists(host):
+            self._log("compass: no %s — run deploy-controller.sh" % host)
+            return False
+        self.proc = subprocess.Popen(
+            [LUA, host], cwd=SCRIPT_DIR, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, bufsize=1)
+        self._alive = True
+        self._reader = threading.Thread(target=self._read_loop, daemon=True)
+        self._reader.start()
+        self._send("tempo|%.4f" % tempo)
+        # init() runs on load; the first perform arms recording and randomises the sequence,
+        # because the script starts with every step set to a command that does nothing
+        self._send("perform|%.4f" % time.monotonic())
+        return True
 
-    def glyph(self, fn) -> str:
-        return next(g for c, g in COMMANDS if c is fn)
+    def stop(self) -> None:
+        self._alive = False
+        if self.proc:
+            try:
+                self._send("quit")
+                self.proc.stdin.close()
+                self.proc.wait(timeout=1.0)
+            except Exception:
+                try:
+                    self.proc.kill()
+                except Exception:
+                    pass
+        self.proc = None
 
-    def tick(self):
-        """One pattern cycle. Returns (log line, {synth arg: value}) when a command fired."""
-        self.counter += 1
-        if self.counter < max(1, self.division):
-            return None, None
-        self.counter = 0
-        if self.rng.random() < 0.06:
-            self.reseed()
-        self.cut = [-1.0, -1.0]                 # cut is a trigger; clear it each command
-        fn = self.seq[self.pos % len(self.seq)]
-        self.pos = (self.pos + 1) % len(self.seq)
-        fn(self, self.rng)
+    # ----------------------------------------------------------------- to Lua
+    def _send(self, line: str) -> None:
+        p = self.proc
+        if not p or not p.stdin:
+            return
+        try:
+            p.stdin.write(line + "\n")
+            p.stdin.flush()
+        except Exception:
+            self._alive = False
 
-        args = {}
-        for i, h in enumerate(self.heads, start=1):
-            args.update(h.as_args(i))
-        for i, c in enumerate(self.cut, start=1):
-            if c >= 0:
-                args["cut" + str(i)] = c
-        return ("compass: %-2s  rate %+.2g  loop %.2f-%.2f  rec %s  (every %d)"
-                % (self.glyph(fn), self.heads[0].rate, self.heads[0].start,
-                   self.heads[0].end, "on" if self.rec_on else "FROZEN", self.division)), args
+    def advance(self, beats: float) -> None:
+        """Feed the command clock. `beats` is how far the sequencer moved since last call."""
+        self._tick_acc += beats * TICKS_PER_BEAT
+        n = int(self._tick_acc)
+        if n <= 0:
+            return
+        self._tick_acc -= n
+        now = time.monotonic()
+        for _ in range(min(n, 64)):          # a stall must not fire a thousand commands
+            self._send("tick|%.4f" % now)
+
+    def phase(self, p1: float, p2: float) -> None:
+        now = time.monotonic()
+        self._send("phase|1|%.4f|%.4f" % (p1, now))
+        self._send("phase|2|%.4f|%.4f" % (p2, now))
+
+    def perform(self) -> None:
+        self._send("perform|%.4f" % time.monotonic())
+
+    # ----------------------------------------------------------------- from Lua
+    def _read_loop(self) -> None:
+        p = self.proc
+        if not p or not p.stdout:
+            return
+        for line in p.stdout:
+            if not self._alive:
+                break
+            try:
+                self._handle(line.rstrip("\n"))
+            except Exception as exc:
+                self._log("compass: %s" % exc)
+
+    def _handle(self, line: str) -> None:
+        f = line.split("|")
+        kind = f[0] if f else ""
+        if kind == "sc" and len(f) >= 4:
+            self._softcut(f[1], int(float(f[2])), float(f[3]))
+        elif kind == "scin" and len(f) >= 4:
+            # level_input_cut(channel, voice, amp) -> the synth's in<ch><voice>
+            self.bridge.compassset("in%d%d" % (int(float(f[1])), int(float(f[2]))),
+                                   float(f[3]))
+        elif kind == "state" and len(f) >= 8:
+            self.glyph = f[1]
+            self.division = int(float(f[2]))
+            self.rate = float(f[3])
+            self.loop = (float(f[4]), float(f[5]))
+            self.recording = float(f[6]) > 0
+            self.steps = int(float(f[7]))
+            self._log("compass: %-2s  rate %+.2g  loop %.0f-%.0fs  rec %s  1/%d beat  %d steps"
+                      % (self.glyph, self.rate, self.loop[0], self.loop[1],
+                         "ON" if self.recording else "FROZEN", self.division, self.steps))
+        elif kind == "log":
+            self._log("compass.lua: %s" % "|".join(f[1:]))
+
+    def _softcut(self, fn: str, voice: int, value: float) -> None:
+        if fn == "buffer_clear":
+            self.bridge.compassclear(voice)
+            return
+        arg = _GLOBAL_ARG.get(fn)
+        if arg is not None:
+            self._set(arg, value)
+            return
+        arg = _VOICE_ARG.get(fn)
+        if arg is None:
+            return                            # enable/buffer/rec_offset: fixed or unused
+        if voice not in (1, 2):
+            return
+        name = "%s%d" % (arg, voice)
+        if fn == "position":
+            # cutToPos is edge-triggered in the UGen, so two jumps to the same second have
+            # to look different. Re-arm with the sentinel, then write the value.
+            self.bridge.compassset(name, -1.0)
+            self._last[name] = -1.0
+        self._set(name, value)
+
+    def _set(self, name: str, value: float) -> None:
+        # update_positions re-pushes five parameters per voice on every phase poll, 30 times
+        # a second. Almost all of it is unchanged, and an OSC message per unchanged value is
+        # 300 messages a second for nothing.
+        if self._last.get(name) == value:
+            return
+        self._last[name] = value
+        self.bridge.compassset(name, value)

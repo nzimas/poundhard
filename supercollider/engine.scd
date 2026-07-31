@@ -128,8 +128,16 @@
 // COMPASS: one long mono buffer the softcut heads record into and play back from.
 // 40 s at 44.1k is 7 MB — plenty of tape for a performance, and nothing on a box with
 // hundreds of megabytes free.
-~compassBuf = nil;
+~compassBuf = nil;                     // TWO buffers, one per softcut voice
 ~compassSynth = nil;
+// Starting the synth is its own function because two paths reach it (buffers already
+// allocated, or freshly allocated inside a fork) and they must not diverge.
+~compassStart = {
+	~compassSynth = Synth.tail(~recGroup, \phCompass,
+		[\out, 0, \in, 0, \buf1, ~compassBuf[0].bufnum, \buf2, ~compassBuf[1].bufnum]);
+	~compassSynth.register;
+	~compassSynth.onFree({ ~compassSynth = nil });
+};
 ~smpCapSy = nil;                       // the live \phCapture synth, if any
 ~smpCapBuf = nil;                      // buffer being recorded into
 ~smpMaxDur = 2.0;                      // cap a take (buffer length caps RecordBuf)
@@ -963,37 +971,52 @@
 	}, '/ph/churnplay'),
 	// /ph/compass <on>: bring the softcut tape loop up or take it down. It sits in
 	// ~recGroup, after the master limiter, so what it records is bounded audio.
+	//
+	// TWO buffers, one per voice, because that is how the script arranges softcut
+	// (`sc.buffer(i,i)`) and sharing one made the two record heads scribble over each
+	// other. 66 s each covers the script's 65-second position range.
 	OSCdef(\phCompass, { |m|
 		var on = m[1].asInteger > 0;
 		(~ready == true).if {
 			on.if({
 				~compassSynth.isNil.if {
 					~compassBuf.isNil.if {
-						~compassBuf = Buffer.alloc(s, (44100 * 40).asInteger, 1, { |b|
-							~compassSynth = Synth.tail(~recGroup, \phCompass,
-								[\out, 0, \in, 0, \buf, b.bufnum]);
-							~compassSynth.register;
-							~compassSynth.onFree({ ~compassSynth = nil });
-						});
+						fork {
+							~compassBuf = 2.collect { Buffer.alloc(s, (44100 * 66).asInteger, 1) };
+							s.sync;
+							~compassStart.value;
+						};
 					} {
-						~compassSynth = Synth.tail(~recGroup, \phCompass,
-							[\out, 0, \in, 0, \buf, ~compassBuf.bufnum]);
-						~compassSynth.register;
-						~compassSynth.onFree({ ~compassSynth = nil });
+						~compassStart.value;
 					};
 				};
 			}, {
 				~compassSynth.notNil.if { ~compassSynth.free; ~compassSynth = nil };
 				// the tape is wiped on the way out, so the next engage starts from silence
 				// rather than from whatever the last performance left on it
-				~compassBuf.notNil.if { ~compassBuf.zero };
+				~compassBuf.notNil.if { ~compassBuf.do { |b| b.zero } };
 			});
 		};
 	}, '/ph/compass'),
-	// /ph/compassset "<arg>" <val>: one softcut parameter, straight through.
+	// /ph/compassset "<arg>" <val>: one softcut parameter, straight through. This is the
+	// whole control surface — the Lua side names softcut parameters and they land here.
 	OSCdef(\phCompassSet, { |m|
 		~compassSynth.notNil.if { ~compassSynth.set(m[1].asSymbol, m[2].asFloat) };
 	}, '/ph/compassset'),
+	// The phase poll on its way out. SendReply lands here in sclang; the script needs it
+	// in Lua, so it is relayed to the controller, which feeds the running compass.lua.
+	// This is `softcut.poll_start_phase()` completing its circuit.
+	OSCdef(\phCompassPhase, { |m|
+		~ctrl.sendMsg('/ph/compassphase', m[3].asFloat, m[4].asFloat);
+	}, '/ph/compassphase'),
+	// /ph/compassclear <which>: softcut.buffer_clear(). 0 = both.
+	OSCdef(\phCompassClear, { |m|
+		var w = m[1].asInteger;
+		~compassBuf.notNil.if {
+			(w == 0).if({ ~compassBuf.do { |b| b.zero } },
+				{ ~compassBuf[(w - 1).clip(0, 1)].zero });
+		};
+	}, '/ph/compassclear'),
 	// /ph/churnclear: toggling Churn off frees everything it made. Nothing else to undo —
 	// it never wrote to a track.
 	OSCdef(\phChurnClear, { |m|

@@ -1,15 +1,22 @@
 // PhSoftcut — monome's softcut as a SuperCollider UGen.
 //
-// ONE UGen INSTANCE IS ONE SOFTCUT VOICE: a read/write head on a shared SC buffer, with
-// crossfaded looping, subsample-accurate resampling, overdub and pre/post multimode
-// filters. Instantiate several in a SynthDef and they share the buffer exactly as norns'
-// six voices share theirs.
+// ONE UGen INSTANCE IS ONE SOFTCUT VOICE: a read/write head on an SC buffer, with
+// crossfaded looping, subsample-accurate resampling, overdub, slewed rate and pre/post
+// multimode filters. Give each instance its own buffer and you have norns' arrangement,
+// where every voice owns a buffer and they are independent by default.
 //
 // Why a UGen and not a JACK client (the route the CSOUND engine had to take): softcut-lib
 // has no audio I/O of its own and no JACK dependency — it is five source files that
 // process a block and let the CALLER own the buffer. So it drops straight onto a bus
 // inside scsynth, with no routing, no port pinning, no realtime-priority placement and no
 // inter-process latency.
+//
+// THE INPUT LIST IS THE norns softcut API, deliberately and completely. This UGen exists to
+// run real norns scripts unmodified, and a script calls whatever it calls: leave out
+// `rate_slew_time` and every rate change becomes a click instead of a tape glide; leave out
+// the PRE filter and `pre_filter_dry` silently lands on the post filter, colouring playback
+// instead of the record path. Both of those were missing from the first version of this
+// file, and both were audible. Anything the API has, this has.
 //
 // Measured on the CM4 before writing this: 1.26% of one core per voice, 8.32% for six.
 #include "SC_PlugIn.h"
@@ -24,10 +31,10 @@ struct PhSoftcut : public Unit {
     SndBuf *m_buf;
     softcut::Voice *voice;
     float m_sr;
-    // last-seen control values, so parameters are only pushed into softcut when they
-    // actually change — its setters do slew bookkeeping and are not free per block
-    float pRate, pStart, pEnd, pPos, pFade, pRec, pPre, pPlayF, pRecF, pLoopF;
-    float pFc, pRq, pLp, pHp, pBp, pDry;
+    // Last-seen control values, so parameters only reach softcut when they actually
+    // change — its setters do slew and filter-coefficient bookkeeping and are not free to
+    // call per block. 26 of them, hence the array rather than 26 named fields.
+    float prev[32];
     bool started;
 };
 
@@ -35,10 +42,44 @@ static void PhSoftcut_next(PhSoftcut *unit, int inNumSamples);
 static void PhSoftcut_Ctor(PhSoftcut *unit);
 static void PhSoftcut_Dtor(PhSoftcut *unit);
 
-// in, bufnum, rate, loopStart, loopEnd, cutPos, fade, recLevel, preLevel,
-// play, rec, loop, fc, rq, lp, hp, bp, dry
-enum { kIn, kBuf, kRate, kStart, kEnd, kCut, kFade, kRec, kPre, kPlay, kRecF, kLoop,
-       kFc, kRq, kLp, kHp, kBp, kDry };
+enum { kIn, kBuf,
+       kRate, kRateSlew, kStart, kEnd, kCut, kFade,
+       kRec, kPre, kRecPreSlew, kPlay, kRecF, kLoop, kPhaseQuant, kRecOffset,
+       kPreFc, kPreRq, kPreLp, kPreHp, kPreBp, kPreBr, kPreDry,
+       kPostFc, kPostRq, kPostLp, kPostHp, kPostBp, kPostBr, kPostDry,
+       kNumInputs };
+
+// input index -> Voice setter, for everything that is a plain float parameter
+typedef void (softcut::Voice::*VoiceSetter)(float);
+struct Mapping { int idx; VoiceSetter fn; };
+
+static const Mapping kMap[] = {
+    { kRate,       &softcut::Voice::setRate },
+    { kRateSlew,   &softcut::Voice::setRateSlewTime },
+    { kStart,      &softcut::Voice::setLoopStart },
+    { kEnd,        &softcut::Voice::setLoopEnd },
+    { kFade,       &softcut::Voice::setFadeTime },
+    { kRec,        &softcut::Voice::setRecLevel },
+    { kPre,        &softcut::Voice::setPreLevel },
+    { kRecPreSlew, &softcut::Voice::setRecPreSlewTime },
+    { kPhaseQuant, &softcut::Voice::setPhaseQuant },
+    { kRecOffset,  &softcut::Voice::setRecOffset },
+    { kPreFc,      &softcut::Voice::setPreFilterFc },
+    { kPreRq,      &softcut::Voice::setPreFilterRq },
+    { kPreLp,      &softcut::Voice::setPreFilterLp },
+    { kPreHp,      &softcut::Voice::setPreFilterHp },
+    { kPreBp,      &softcut::Voice::setPreFilterBp },
+    { kPreBr,      &softcut::Voice::setPreFilterBr },
+    { kPreDry,     &softcut::Voice::setPreFilterDry },
+    { kPostFc,     &softcut::Voice::setPostFilterFc },
+    { kPostRq,     &softcut::Voice::setPostFilterRq },
+    { kPostLp,     &softcut::Voice::setPostFilterLp },
+    { kPostHp,     &softcut::Voice::setPostFilterHp },
+    { kPostBp,     &softcut::Voice::setPostFilterBp },
+    { kPostBr,     &softcut::Voice::setPostFilterBr },
+    { kPostDry,    &softcut::Voice::setPostFilterDry },
+};
+static const int kMapCount = (int)(sizeof(kMap) / sizeof(kMap[0]));
 
 void PhSoftcut_Ctor(PhSoftcut *unit) {
     unit->voice = new softcut::Voice();
@@ -46,21 +87,14 @@ void PhSoftcut_Ctor(PhSoftcut *unit) {
     unit->voice->setSampleRate(unit->m_sr);
     unit->started = false;
     unit->m_fbufnum = -1e9f;
-    // force every parameter to be pushed on the first block
-    unit->pRate = unit->pStart = unit->pEnd = unit->pPos = unit->pFade = -12345.f;
-    unit->pRec = unit->pPre = unit->pPlayF = unit->pRecF = unit->pLoopF = -12345.f;
-    unit->pFc = unit->pRq = unit->pLp = unit->pHp = unit->pBp = unit->pDry = -12345.f;
+    for (int i = 0; i < 32; ++i) unit->prev[i] = -1e20f;  // force a push on block one
     SETCALC(PhSoftcut_next);
     ZOUT0(0) = 0.f;
+    if (unit->mNumOutputs > 1) ZOUT0(1) = 0.f;
 }
 
 void PhSoftcut_Dtor(PhSoftcut *unit) {
     delete unit->voice;
-}
-
-static inline void setIfChanged(float now, float &was, void (softcut::Voice::*fn)(float),
-                                softcut::Voice *v) {
-    if (now != was) { (v->*fn)(now); was = now; }
 }
 
 void PhSoftcut_next(PhSoftcut *unit, int inNumSamples) {
@@ -72,8 +106,7 @@ void PhSoftcut_next(PhSoftcut *unit, int inNumSamples) {
     // not GET_BUF_SHARED, whose bufData is const — a shared lock is for units that only
     // read, and softcut's whole point is that the write head is live. ---
     GET_BUF
-    if (!bufData) { ClearUnitOutputs(unit, inNumSamples); return; }
-    if (bufChannels != 1) {                 // softcut voices are mono by construction
+    if (!bufData || bufChannels != 1) {     // softcut voices are mono by construction
         ClearUnitOutputs(unit, inNumSamples);
         return;
     }
@@ -82,34 +115,39 @@ void PhSoftcut_next(PhSoftcut *unit, int inNumSamples) {
         unit->started = true;
     }
 
-    // --- parameters, pushed only on change ---
-    setIfChanged(IN0(kRate),  unit->pRate,  &softcut::Voice::setRate,      v);
-    setIfChanged(IN0(kStart), unit->pStart, &softcut::Voice::setLoopStart, v);
-    setIfChanged(IN0(kEnd),   unit->pEnd,   &softcut::Voice::setLoopEnd,   v);
-    setIfChanged(IN0(kFade),  unit->pFade,  &softcut::Voice::setFadeTime,  v);
-    setIfChanged(IN0(kRec),   unit->pRec,   &softcut::Voice::setRecLevel,  v);
-    setIfChanged(IN0(kPre),   unit->pPre,   &softcut::Voice::setPreLevel,  v);
-    setIfChanged(IN0(kFc),    unit->pFc,    &softcut::Voice::setPostFilterFc, v);
-    setIfChanged(IN0(kRq),    unit->pRq,    &softcut::Voice::setPostFilterRq, v);
-    setIfChanged(IN0(kLp),    unit->pLp,    &softcut::Voice::setPostFilterLp, v);
-    setIfChanged(IN0(kHp),    unit->pHp,    &softcut::Voice::setPostFilterHp, v);
-    setIfChanged(IN0(kBp),    unit->pBp,    &softcut::Voice::setPostFilterBp, v);
-    setIfChanged(IN0(kDry),   unit->pDry,   &softcut::Voice::setPostFilterDry, v);
+    for (int i = 0; i < kMapCount; ++i) {
+        float now = IN0(kMap[i].idx);
+        if (now != unit->prev[kMap[i].idx]) {
+            (v->*(kMap[i].fn))(now);
+            unit->prev[kMap[i].idx] = now;
+        }
+    }
 
     float play = IN0(kPlay), rec = IN0(kRecF), loop = IN0(kLoop);
-    if (play != unit->pPlayF) { v->setPlayFlag(play > 0.5f); unit->pPlayF = play; }
-    if (rec  != unit->pRecF)  { v->setRecFlag(rec > 0.5f);   unit->pRecF  = rec;  }
-    if (loop != unit->pLoopF) { v->setLoopFlag(loop > 0.5f); unit->pLoopF = loop; }
+    if (play != unit->prev[kPlay]) { v->setPlayFlag(play > 0.5f); unit->prev[kPlay] = play; }
+    if (rec  != unit->prev[kRecF]) { v->setRecFlag(rec  > 0.5f);  unit->prev[kRecF] = rec;  }
+    if (loop != unit->prev[kLoop]) { v->setLoopFlag(loop > 0.5f); unit->prev[kLoop] = loop; }
 
     // cutToPos is a TRIGGER, not a level: it fires when the value changes, so the language
-    // side jumps the head by writing a new position rather than by holding one.
+    // side jumps the head by writing a new position rather than by holding one. A script
+    // calling `softcut.position(i, 4)` twice in a row means two jumps to 4 seconds, so a
+    // negative sentinel is written between them to re-arm it.
     float cut = IN0(kCut);
-    if (cut != unit->pPos) {
+    if (cut != unit->prev[kCut]) {
         if (cut >= 0.f) v->cutToPos(cut);
-        unit->pPos = cut;
+        unit->prev[kCut] = cut;
     }
 
     v->processBlockMono(in, out, inNumSamples);
+
+    // Output 1 is the head position in seconds — norns' phase poll, which scripts use both
+    // to draw and, in Compass's case, to re-apply loop points on every poll. Without it the
+    // script's `update_positions` never runs and half its state never reaches softcut.
+    if (unit->mNumOutputs > 1) {
+        float *pos = OUT(1);
+        float p = v->getActivePosition();
+        for (int i = 0; i < inNumSamples; ++i) pos[i] = p;
+    }
 }
 
 PluginLoad(PhSoftcut) {

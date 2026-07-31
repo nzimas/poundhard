@@ -944,27 +944,53 @@ SynthDef(\phChurnVoice, { |out = 0, buf = 0, amp = 0.5, pan = 0, rate = 1, atk =
 //
 // Reads the master POST-limiter (bus 0), for the same reason Churn does: a pre-limiter mix
 // runs at or over full scale and recording that just bakes in clipping.
-SynthDef(\phCompass, { |out = 0, in = 0, buf = 0, amp = 0.55, mix = 1.0,
-	rate1 = 1, start1 = 0, end1 = 4, cut1 = -1, rec1 = 1, pre1 = 0.75, pan1 = -0.3,
-	rate2 = 1, start2 = 0, end2 = 4, cut2 = -1, rec2 = 1, pre2 = 0.75, pan2 = 0.3,
-	fc = 12000, rq = 2, fade = 0.02|
+// COMPASS — two softcut voices, one buffer each, exactly as the norns script arranges
+// them (`sc.buffer(i,i)`). The first build here put both heads on ONE shared buffer, and
+// because both heads also RECORD, each was continuously overwriting the other's material a
+// few milliseconds away from where it was being read. That is a comb filter, and it is
+// precisely what it sounded like. Independent buffers is not a detail, it is the design.
+//
+// Every parameter the script can reach is an argument, named as norns names it, because
+// compass.lua is run unmodified and calls what it calls.
+SynthDef(\phCompass, { |out = 0, in = 0, buf1 = 0, buf2 = 1,
+	// softcut.level_input_cut(channel, voice, amp) — the 2x2 input matrix. stereo() sends
+	// input L to voice 1 and input R to voice 2; mono() sends L to both at half.
+	in11 = 1, in21 = 0, in12 = 0, in22 = 1,
+	cutLevel = 1, levelSlew = 0.1, panSlew = 0.25,
+	lvl1 = 1, pan1 = 0.5, rate1 = 1, rateSlew1 = 0.1, start1 = 1, end1 = 65, cut1 = -1,
+	fade1 = 0.05, rec1 = 0, pre1 = 1, recPreSlew1 = 2, play1 = 1, recF1 = 1, loop1 = 1,
+	pq1 = 0.03, pfDry1 = 1, pfLp1 = 0, pfHp1 = 0, pfBp1 = 0, pfBr1 = 0,
+	lvl2 = 1, pan2 = -0.5, rate2 = 1, rateSlew2 = 0.1, start2 = 1, end2 = 65, cut2 = -1,
+	fade2 = 0.05, rec2 = 0, pre2 = 1, recPreSlew2 = 2, play2 = 1, recF2 = 1, loop2 = 1,
+	pq2 = 0.03, pfDry2 = 1, pfLp2 = 0, pfHp2 = 0, pfBp2 = 0, pfBr2 = 0|
+
 	var dry = In.ar(in, 2);
-	var src = dry.sum * 0.5;
-	var v1 = PhSoftcut.ar(src, buf, rate1, start1, end1, cut1, fade, rec1, pre1,
-		1, 1, 1, fc, rq, 1, 0, 0, 0);
-	var v2 = PhSoftcut.ar(src, buf, rate2, start2, end2, cut2, fade, rec2, pre2,
-		1, 1, 1, fc, rq, 1, 0, 0, 0);
-	var wet = ~spread.(v1, pan1) + ~spread.(v2, pan2);
-	var clean = HPF.ar(LeakDC.ar(wet), 90) * amp * mix;
-	// THIS IS AN INSERT, NOT A SEND, and that distinction is the whole reason it does not
-	// clip. The synth sits after the master limiter, so the dry on this bus is already
-	// pressed against its 0.95 ceiling; ADDING two tape heads to it cannot help but exceed
-	// full scale, which is exactly what the first attempt measured (peak 1.000, hundreds of
-	// samples pinned). Attenuating the heads only makes the overshoot smaller, never zero.
-	// So it takes the bus over instead: dry plus wet, through its own limiter at the same
-	// ceiling, written back with ReplaceOut. The tape now ducks the master where they
-	// collide rather than piling on top of it — which is also the more tape-like behaviour.
-	ReplaceOut.ar(out, Limiter.ar(~killbad.(dry + clean), 0.95, 0.005));
+	var src1 = (dry[0] * in11) + (dry[1] * in21);
+	var src2 = (dry[0] * in12) + (dry[1] * in22);
+	var v1 = PhSoftcut.ar(src1, buf1, rate1, rateSlew1, start1, end1, cut1, fade1,
+		rec1, pre1, recPreSlew1, play1, recF1, loop1, pq1, -0.00544,
+		12000, 2, pfLp1, pfHp1, pfBp1, pfBr1, pfDry1,
+		12000, 2, 0, 0, 0, 0, 1);
+	var v2 = PhSoftcut.ar(src2, buf2, rate2, rateSlew2, start2, end2, cut2, fade2,
+		rec2, pre2, recPreSlew2, play2, recF2, loop2, pq2, -0.00544,
+		12000, 2, pfLp2, pfHp2, pfBp2, pfBr2, pfDry2,
+		12000, 2, 0, 0, 0, 0, 1);
+	// level and pan are norns' own mixer, not softcut's — hence the slews here rather than
+	// in the UGen, matching sc.level_slew_time / sc.pan_slew_time.
+	var wet = Pan2.ar(v1[0], Lag.kr(pan1, panSlew), Lag.kr(lvl1, levelSlew))
+		+ Pan2.ar(v2[0], Lag.kr(pan2, panSlew), Lag.kr(lvl2, levelSlew));
+
+	// The phase poll. The script's `update_positions` is registered on this, and it is not
+	// cosmetic: it is where loop points, rec level, pre level and rate slew actually reach
+	// softcut. Without it the script sets Lua variables that never leave Lua.
+	SendReply.kr(Impulse.kr(30), '/ph/compassphase', [A2K.kr(v1[1]), A2K.kr(v2[1])]);
+
+	// THIS IS AN INSERT, NOT A SEND. The synth sits after the master limiter, so the dry on
+	// this bus is already against its 0.95 ceiling; adding tape heads on top of it cannot
+	// help but pass full scale — measured at peak 1.000 with hundreds of samples pinned.
+	// Attenuating the heads only shrinks the overshoot. So it takes the bus over: dry plus
+	// wet, through its own limiter at the same ceiling, written back.
+	ReplaceOut.ar(out, Limiter.ar(~killbad.(dry + (wet * cutLevel)), 0.95, 0.005));
 }).add;
 
 SynthDef(\phTrackFilter, { |in = 16, out = 16, cutoff = 18000, res = 0.0, type = 0,

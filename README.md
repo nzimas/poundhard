@@ -369,10 +369,18 @@ track — for reasons particular to each, explained there.
 > 3.13). `deploy-controller.sh` ships it to `$PH/plugins` and the `ByteBeat.sc` class to the SC
 > Extensions dir. Rebuild it from source with `move/build-bytebeat.sh` (arm64 Docker).
 
-> **COMPASS** needs a native plugin too: `supercollider/plugins/Softcut/PhSoftcut.so` wraps
-> **monome's softcut-lib** as a UGen (one instance = one softcut voice), built the same way —
-> static libstdc++, GLIBC_2.17. Both a plain and a `_supernova` variant are shipped, because
-> **supernova loads only `*_supernova.so`**. Rebuild with `move/build-softcut.sh`.
+> <a name="native-plugins"></a>**COMPASS** needs a native plugin too:
+> `supercollider/plugins/Softcut/PhSoftcut.so` wraps **monome's softcut-lib** as a UGen (one
+> instance = one softcut voice), built the same way — static libstdc++, GLIBC_2.17. Both a
+> plain and a `_supernova` variant are shipped, because **supernova loads only
+> `*_supernova.so`**. Its input list is the norns softcut API *completely*, deliberately: it
+> exists to run real norns scripts unmodified, and a script calls whatever it calls.
+> Rebuild with `move/build-softcut.sh`.
+>
+> **COMPASS also needs Lua**, to run that script. The Move does ship `/usr/bin/lua`, but that
+> lives on the 463 MB root partition Ableton's firmware owns and keeps ~99% full, so
+> PoundHard vendors its own: `move/build-lua.sh` → `move/bundle/poundhard-lua.tar.gz` →
+> `$PH/lua/bin/lua`, shipped by `deploy-bundle.sh`.
 
 > **WTABLE** reads the Move's factory **wavetable sprites** straight from `/opt/move/Dsp/Vector/
 > Sprites/` on the device — nothing is bundled or redeployed; the engine enumerates them at boot.
@@ -1248,60 +1256,63 @@ before. The machine's state fingerprint is identical before, during and after.
 
 ### Compass
 
-The sixth temporary modifier, a port of Olivier Creurer's
-[norns script](https://github.com/oliviercreurer/compass) — which is not a looper with
-effects on it but a **sequence of commands**, stepped through at a rate the commands
-themselves keep changing, driving a **live tape loop**.
+The sixth temporary modifier. Not "inspired by" Olivier Creurer's
+[norns script](https://github.com/oliviercreurer/compass) — **it is that script, running**.
+`controller/compass/compass.lua` is the published source byte for byte, executed by a real
+Lua interpreter under a norns-API shim, driving real softcut voices inside scsynth.
 
-Both halves matter, and the first attempt here got one of them wrong. That version applied
-the commands to the *sequencer* — rotating step lists, changing track rates — on the
-reasoning that PoundHard had no softcut. It measured well and it was not the script: a step
-sequencer can reorder notes, but it cannot play the last four seconds of the performance
-backwards at half speed inside a shrinking window. The tape is not an implementation detail
-of Compass, it is the instrument.
+**Two earlier versions of this were reimplementations, and both were wrong.** The first
+applied the script's commands to the sequencer, on the reasoning that PoundHard had no
+softcut. The second put softcut in and applied them to a tape loop. Both measured well and
+neither sounded like Compass, because paraphrasing a script reproduces the ideas you noticed
+and silently drops the ones you did not. Reading the actual source afterwards, the second
+version had, in ~200 lines:
 
-So softcut came to PoundHard. **[monome's softcut-lib](https://github.com/monome/softcut-lib)
-is built as a scsynth UGen** (`PhSoftcut`) — it has no
-audio I/O and no JACK dependency, five source files that process a block against a buffer
-the caller owns, so unlike the [Csound engine](#csound-engine) it needed no second process,
-no port pinning and no added latency. The modifier is then exactly what the original is:
-**two heads on 40 seconds of tape**, recording the master continuously and playing it back
-while the command stream moves them.
+| the script | the paraphrase | what it sounded like |
+|---|---|---|
+| two voices, **one buffer each** (`sc.buffer(i,i)`) | both heads sharing one buffer | two record heads scribbling over each other |
+| loop points are **integer seconds** in a 64 s tape — never shorter than 1 s | windows down to 0.06 s | a 60 ms delay summed with dry: a **flanger** |
+| `clock.sync(1/division)`, division 1–16 → **1 to 16 commands per beat** | one command per bar or slower | static |
+| `rate_slew_time` 0.1 — rate changes **glide** | instant jumps | clicks, no tape |
+| recording starts **off**, `pre_filter_dry` 1 | recording from the start through a 12 kHz lowpass | dull |
 
-The commands are the original's, one for one:
+So the script runs instead. Nothing about it is adapted; the shim adapts to it.
 
-| | |
-|---|---|
-| `F` `R` | rate forward / reverse — a **negative** softcut rate, real reverse playback |
-| `+` `-` `!` | rate up / down / random, from the original's ratio table |
-| `1` `P` | jump to the loop start / a random position inside it |
-| `L` | a new loop window, weighted short — where it stutters on a grain rather than echoes |
-| `(` `)` | random pan, left head and right head |
-| `::` | **freeze recording** — the tape stops being overwritten and the heads chew on it |
-| `<` `>` `[` `]` | the self-modifying command clock |
-| `?` | jump the command sequencer to a random position |
+**What is real:** `softcut.*` forwards to the [PhSoftcut UGens](#native-plugins) — which are
+[monome's softcut-lib](https://github.com/monome/softcut-lib) itself; `clock.*` is a
+coroutine scheduler on a 1/16-beat tick from PoundHard's own clock, so `clock.sync` lands on
+the sequencer's grid; `params` carries values, defaults and actions, and the actions are what
+push to softcut; and `softcut.event_phase` is driven by the UGen's real position output, so
+the script's `update_positions` runs — which matters, because that is where loop points, rec
+level and pre level actually reach softcut.
 
-`::` is the most characterful of the set. With recording off the heads keep playing a frozen
-few seconds while the band plays on underneath; turn it back on and the performance bleeds
-back into the tape.
+**What is stubbed:** grid, arc, screen and crow, which are hardware the Move does not have;
+`metro`, which drives LED brightness and a blink; and `pattern_time`, the grid pattern
+recorder. None of them is in the audio path.
 
-**It is an insert, not a send**, and that is what keeps it from clipping. The synth sits
-after the master limiter, so the dry signal on that bus is already against its 0.95 ceiling;
-adding two tape heads on top of it cannot help but pass full scale, which is precisely what
-the first build measured — peak **1.000**, hundreds of samples pinned. Attenuating the heads
-only shrinks the overshoot. So it takes the bus over instead: dry plus wet, through its own
-limiter at the same ceiling, written back. The tape ducks the master where they collide
-rather than piling onto it, which is also the more tape-like behaviour.
+**The algorithmic performer** does not poke the script's internals. It presses the script's
+own keys and turns its own encoders — `key(2)` short for a fresh command sequence, `key(3)`
+short to arm recording and long to wipe the tape, `key(1)`+`enc(1)` for sequence length,
+`key(1)`+`enc(2/3)` for the loop window, `params:set` for pan, fade, overdub and rate slew.
+Everything it does, a person sitting in front of a norns could do. That is the only way to be
+sure the behaviour is the script's and not a reimplementation wearing its name.
+
+**It is an insert, not a send.** The synth sits after the master limiter, so the dry on that
+bus is already against its 0.95 ceiling; adding tape heads on top of it cannot help but pass
+full scale — measured at peak **1.000** with hundreds of samples pinned. Attenuating the
+heads only shrinks the overshoot. So it takes the bus over: dry plus wet, through its own
+limiter at the same ceiling, written back.
 
 **Non-destructive by construction**, and more cleanly than the other modifiers: it records
 the master and plays into the master, so no track, pattern or parameter is touched at all.
-Switching it off frees the synth and wipes the tape. It therefore does **not** join the
-[Quake](#quake)/[Break](#break) mutual-exclusion lock — it owns no track's rate, length or
-steps, so it has nothing to collide with.
+Switching off stops the Lua process, frees the synth and wipes both tapes. It therefore does
+**not** join the [Quake](#quake)/[Break](#break) mutual-exclusion lock — it owns no track's
+rate, length or steps, so it has nothing to collide with.
 
-Measured on the device across three 32-second takes: peak **0.950 with zero full-scale
-samples in all three** (off, on, off again), bar-to-bar similarity **+0.68 off, +0.59 on,
-+0.71 after**, and 0 xruns in 45-second windows either way.
+Measured on the device across three 34-second takes — off, on, off again — bar-to-bar
+similarity **+0.72 / +0.23 / +0.65**, peak **0.950 with zero full-scale samples in all
+three**. For comparison the reimplementation it replaced managed +0.59: it was adding a
+layer, where the script rearranges what you hear.
 
 ### The chaos macro (knob 8)
 
@@ -1899,6 +1910,9 @@ To the author's best knowledge:
 | **python-osc** (vendored under `controller/vendor/`) | OSC transport in the controller | Unlicense / public domain |
 | **Csound** | the **CSOUND engine (20)** and the SAMPLE engine's offline mangler — **shipped in the runtime bundle** (`move/bundle/poundhard-csound.tar.gz`, 20 opcode plugins incl. `librtjack`) | LGPL-2.1-or-later |
 | **Composers Desktop Project (CDP8)** | the transform engine behind the **CHURN** modifier — **shipped**, built from source (`move/bundle/poundhard-cdp.tar.gz`, ~220 aarch64 programs) | see `CDP8/LICENSE.txt` (LGPL-2.1 for the library, per-program notices) |
+| **softcut-lib** (github.com/monome/softcut-lib) | the tape engine under **COMPASS**, built as the `PhSoftcut` UGen (prebuilt `.so` shipped) | **GPL-3.0** (monome) |
+| **Compass** (github.com/oliviercreurer/compass) by Olivier Creurer, w/ contributions from @justmat + @gonecaving | the **COMPASS** modifier IS this script — `controller/compass/compass.lua` is vendored **verbatim** and executed, not reimplemented | no licence file upstream; © its author, vendored unmodified with attribution |
+| **Lua** (5.4) | the interpreter COMPASS runs that script under — **shipped in the runtime bundle** (`move/bundle/poundhard-lua.tar.gz`) | MIT |
 | **Schwung** / move-anything (and its `wildrider` SC bundle) | the host takeover framework PoundHard runs *inside* — **not part of this repo** | © its author; separate project & terms |
 
 The prebuilt `ByteBeat.so` is an aarch64 binary of GPL-3.0 source; its corresponding

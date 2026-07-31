@@ -27,6 +27,11 @@ from .catalog import FX_SPECS, N_FX
 from .engine_bridge import EngineBridge
 from .tracks import DRUM_TRACKS, N_PATTERNS, N_STEPS, N_TRACKS, Project
 
+# One sequencer step is a sixteenth note. COMPASS's command clock is expressed in beats
+# (the script calls clock.sync(1/division) with division up to 16), so it needs the
+# conversion rather than a per-cycle approximation.
+STEP_BEATS = 0.25
+
 
 def _env(k: str, d: str) -> str:
     v = os.environ.get(k)
@@ -88,6 +93,7 @@ class Controller:
         # control loop. A deadlocked dispatch is indistinguishable from a dead instrument.
         self._lock = threading.RLock()         # serialize state mutations (dispatch vs telemetry)
         self.bridge.on_cycle = self._on_cycle  # apply a queued pattern switch on the bar boundary
+        self.bridge.on_step = self._compass_step   # COMPASS's command clock, at step resolution
         self.bridge.on_amp = self._on_amp      # master level while recording -> ends the tail
         self._quiet_since: float | None = None
         self._proj_slots = [False] * N_PATTERNS  # which project files exist on disk (cached)
@@ -529,21 +535,31 @@ class Controller:
         self._churn_gain = {}
         self.bridge.churnclear()
 
-    # -- COMPASS: the norns command sequencer, driving a softcut tape loop ---- #
+    # -- COMPASS: Olivier Creurer's norns script, running --------------------- #
     def _compass_tick(self) -> None:
-        """One pattern cycle of the command sequencer."""
+        """One pattern cycle. The script's own clock rides on `advance`, in 1/16 beats,
+        because `clock.sync(1/division)` goes up to sixteen commands per beat — the
+        per-cycle granularity an earlier version used was 32x too coarse to hear."""
         if not self._compass_on or not self._compass or not self.state.running:
             return
-        line, args = self._compass.tick()
-        if line is None:
+        self._compass.perform()
+
+    def _compass_step(self) -> None:
+        """Between cycles: keep the command clock moving at step resolution."""
+        if not self._compass_on or not self._compass or not self.state.running:
             return
-        for k, v in args.items():
-            self.bridge.compassset(k, v)
-        print("[poundhard] " + line, flush=True)
+        self._compass.advance(STEP_BEATS)
+
+    def _compass_phase(self, p1: float, p2: float) -> None:
+        """softcut's real head positions, on their way to the script's phase poll."""
+        if self._compass_on and self._compass:
+            self._compass.phase(p1, p2)
 
     def _compass_end(self) -> None:
         """Take the tape loop down. Nothing to restore: Compass records the master and
         plays into the master, so it never touched a track, a pattern or a parameter."""
+        if self._compass:
+            self._compass.stop()
         self.bridge.compass(False)
         self._compass = None
 
@@ -1096,8 +1112,14 @@ class Controller:
             on = int(arg) != 0
             if on:
                 from . import compass
-                self._compass = compass.Compass()
-                self.bridge.compass(True)
+                self.bridge.compass(True)          # allocate the tape, start the synth
+                self._compass = compass.Compass(
+                    self.bridge, log=lambda m: print("[poundhard] " + m, flush=True))
+                self.bridge.on_compass_phase = self._compass_phase
+                if not self._compass.start(st.tempo):
+                    self._compass = None
+                    self.bridge.compass(False)
+                    on = False
             else:
                 self._compass_end()
             self._compass_on = on

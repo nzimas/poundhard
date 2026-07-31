@@ -100,6 +100,25 @@ else
   echo "WARNING: no CDP bundle ($CDPBUNDLE) — run move/build-cdp.sh; CHURN will do nothing"
 fi
 
+# Lua — the interpreter COMPASS runs Olivier Creurer's norns script under. The device does
+# ship /usr/bin/lua, but that lives on the 463 MB root partition Ableton's firmware owns and
+# keeps ~99% full; a dependency of PoundHard's belongs in /data. Build with move/build-lua.sh.
+LUABUNDLE="$HERE/bundle/poundhard-lua.tar.gz"
+if [ -f "$LUABUNDLE" ]; then
+  echo "Installing Lua ($(du -h "$LUABUNDLE" | cut -f1)) -> $DEST/lua"
+  ssh "root@$HOST" "rm -rf $DEST/lua.new && mkdir -p $DEST/lua.new"
+  ssh "root@$HOST" "tar -C $DEST/lua.new -xzf -" < "$LUABUNDLE"
+  ssh "root@$HOST" "
+    set -e
+    rm -rf $DEST/lua && mv $DEST/lua.new/lua $DEST/lua && rm -rf $DEST/lua.new
+    chown -R ableton:users $DEST/lua
+    chmod +x $DEST/lua/bin/lua
+    echo \"  \$($DEST/lua/bin/lua -v 2>&1)\"
+  "
+else
+  echo "WARNING: no Lua bundle ($LUABUNDLE) — run move/build-lua.sh; COMPASS will not run"
+fi
+
 # PREFLIGHT — run each RT binary with an EMPTY environment. That is exactly the situation
 # the loader puts a capped binary in, so if a library is unreachable by RPATH alone it
 # fails HERE, at deploy time, instead of silently leaving the device on 'starting...'.
@@ -108,17 +127,17 @@ ssh "root@$HOST" "
   fail=0
   for b in scsynth supernova jackd sclang; do
     case \$b in jackd) arg=--version ;; *) arg=-v ;; esac
-    if env -i $DEST/bin/\$b \$arg >/dev/null 2>/tmp/ph_pre.err; then
+    if env -i $DEST/bin/\$b \$arg >/dev/null 2>$DEST/.pre.err; then
       echo \"  ok   \$b\"
     else
-      if grep -q 'error while loading shared libraries' /tmp/ph_pre.err; then
-        echo \"  FAIL \$b: \$(cat /tmp/ph_pre.err)\"; fail=1
+      if grep -q 'error while loading shared libraries' $DEST/.pre.err; then
+        echo \"  FAIL \$b: \$(cat $DEST/.pre.err)\"; fail=1
       else
         echo \"  ok   \$b (no version flag, but the loader was happy)\"
       fi
     fi
   done
-  rm -f /tmp/ph_pre.err
+  rm -f $DEST/.pre.err
   [ \$fail -eq 0 ] || { echo 'A binary cannot find its libraries — the stack would hang on starting...' >&2; exit 1; }
 "
 

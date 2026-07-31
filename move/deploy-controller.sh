@@ -47,6 +47,13 @@ scp "$SCUT/PhSoftcut.so" "$SCUT/PhSoftcut_supernova.so" "root@$HOST:$DEST/plugin
 scp "$SCUT/PhSoftcut.sc" "root@$HOST:$SEXT/"
 ssh "root@$HOST" "chown ableton:users $DEST/plugins/PhSoftcut*.so $SEXT/*.sc"
 
+# COMPASS runs Olivier Creurer's norns script itself, so the .lua files are source and ship
+# with the controller. compass.lua is verbatim upstream and must stay that way — the shim
+# beside it is what adapts, never the script.
+echo "-> Compass (compass.lua verbatim + the norns shim it runs under)"
+ssh "root@$HOST" "mkdir -p $DEST/compass"
+scp "$ROOT/controller/compass/"*.lua "root@$HOST:$DEST/compass/"
+
 echo "-> launch scripts"
 scp "$HERE/run-engine.sh" "$HERE/run-controller.sh" "$HERE/run-stack.sh" "$HERE/stop-stack.sh" "$HERE/run-csound.sh" "root@$HOST:$DEST/"
 # the CSOUND engine's orchestra — code, not runtime, so it ships with the controller
@@ -60,7 +67,7 @@ scp "$HERE/../csound/ph-engine.orc" "root@$HOST:$DEST/csound/orc/"
 ssh "root@$HOST" "
   chmod +x $DEST/run-*.sh $DEST/stop-stack.sh
   chown ableton:users $DEST/run-*.sh $DEST/stop-stack.sh
-  chown -R ableton:users $DEST/controller $DEST/sc $DEST/csound/orc
+  chown -R ableton:users $DEST/controller $DEST/sc $DEST/csound/orc $DEST/compass
   # belt and braces: re-assert the RT capabilities every deploy, so they can never be
   # missing after one, whatever else touched these files.
   setcap cap_ipc_lock,cap_sys_nice,cap_sys_resource=eip $DEST/bin/scsynth

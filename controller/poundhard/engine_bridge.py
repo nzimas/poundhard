@@ -33,6 +33,7 @@ class EngineBridge:
         self.step = -1
         self._on_ready = None
         self.on_cycle = None      # called on each /ph/cycle (bar boundary) — set by the controller
+        self.on_step = None       # called on each /ph/step — COMPASS's command clock rides this
         self.on_amp = None        # called with the master level (~10Hz) while recording
         self.amp = 0.0
 
@@ -53,6 +54,10 @@ class EngineBridge:
         disp.map("/ph/smpdone", self._h_smpdone)      # capture synth finished
         disp.map("/ph/smpwritten", self._h_smpwritten)  # take flushed to disk
         disp.map("/ph/smpready", self._h_smpready)    # mangled sample loaded
+        # softcut's real head positions, relayed from the engine. COMPASS feeds these
+        # straight back into the running compass.lua, which is where the script's own
+        # update_positions pushes loop points and record levels into softcut.
+        disp.map("/ph/compassphase", self._h_compassphase)
         try:
             # Blocking (single-threaded) server: telemetry handlers are trivial and
             # fast, so we avoid spawning a thread per incoming /ph/step datagram.
@@ -91,6 +96,12 @@ class EngineBridge:
     def _h_step(self, _addr, *a):
         self._beat()
         self.step = int(a[0]) if a else -1
+        cb = self.on_step
+        if cb:
+            try:
+                cb()
+            except Exception:
+                pass
 
     # Telemetry handlers run on the (single-threaded) OSC server. A raising callback would
     # kill that thread and silently take out /ph/step, /ph/cycle and /ph/cpu — so guard them.
@@ -168,6 +179,7 @@ class EngineBridge:
     def churnclear(self):              self.send("/ph/churnclear")
     def compass(self, on):             self.send("/ph/compass", 1 if on else 0)
     def compassset(self, arg, val):    self.send("/ph/compassset", str(arg), float(val))
+    def compassclear(self, which=0):   self.send("/ph/compassclear", int(which))
     def steplock(self, t, cell, note, vel, pan):
         self.send("/ph/steplock", int(t), int(cell), float(note), float(vel), float(pan))
     def stepmacro(self, t, cell, pairs):
@@ -205,6 +217,14 @@ class EngineBridge:
     def _h_smpwritten(self, addr, *a):
         cb = getattr(self, "on_smpwritten", None)
         cb and cb(a[0] if a else "")
+
+    def _h_compassphase(self, _addr, *args):
+        cb = getattr(self, "on_compass_phase", None)
+        if cb and len(args) >= 2:
+            try:
+                cb(float(args[0]), float(args[1]))
+            except Exception:
+                pass
 
     def _h_smpready(self, addr, *a):
         cb = getattr(self, "on_smpready", None)

@@ -2,6 +2,10 @@
 # Tear the PoundHard stack DOWN completely. Run by the overtake ui.js on Back,
 # so nothing survives into the next session.
 pkill -9 -f poundhard.headless 2>/dev/null
+# COMPASS's Lua interpreter is a CHILD of the controller and exits when its pipe closes —
+# but only if the controller got to close it. A SIGKILL leaves it orphaned holding a pipe
+# to nothing, so it is killed by name here too.
+pkill -9 -f compass_host.lua 2>/dev/null
 # supernova and csound were missing here. A surviving supernova makes the next boot attach
 # to an orphan server (ready, zero nodes, no audio); a surviving csound loses its JACK
 # server with jackd and then sits there dead-but-present, which was enough to make
