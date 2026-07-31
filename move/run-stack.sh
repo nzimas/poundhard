@@ -34,6 +34,23 @@ for p in $(pgrep -f "\.headless" 2>/dev/null); do
 done
 rm -f /dev/shm/SuperColliderServer_* 2>/dev/null   # stale shm segment breaks World_New
 
+# A HALF-DEAD STACK IS WORSE THAN A DEAD ONE, and it is the state a relaunch cannot escape.
+# supernova can die on its own while everything around it survives — JACK drops a client that
+# misses its deadline often enough, which is what happens if the stack is started while
+# MoveOriginal is still hammering the CPU after a reboot. sclang, jackd, the controller and
+# csound all keep running, so the guard below (which only asks whether OUR sclang exists)
+# skips the engine start and the relaunch does nothing at all: ready stays false, nodes stay
+# 0, and pressing the button again changes nothing forever. Observed exactly that: 877 xruns,
+# "Server 'localhost' exited with exit code 0", and a stack that could not be restarted.
+#
+# So: an sclang with no server under it is not a running engine, it is wreckage. Clear it.
+if pgrep -f "$PH/bin/sclang" >/dev/null 2>&1 \
+   && ! pgrep -x supernova >/dev/null 2>&1 && ! pgrep -x scsynth >/dev/null 2>&1; then
+    echo "[stack] sclang is up but the server is gone — tearing the stack down first"
+    sh "$PH/stop-stack.sh" >/dev/null 2>&1
+    sleep 2
+fi
+
 # Engine: jackd -d shadow + sclang(boot). Guard against double-start — match OUR
 # sclang by full path, or a sibling takeover's sclang would suppress our engine.
 if ! pgrep -f "$PH/bin/sclang" >/dev/null 2>&1; then
