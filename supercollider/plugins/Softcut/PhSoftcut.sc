@@ -18,7 +18,9 @@ PhSoftcut : MultiOutUGen {
 		preDry = 0.0,
 		postFc = 12000.0, postRq = 2.0, postLp = 0.0, postHp = 0.0, postBp = 0.0,
 		postBr = 0.0, postDry = 1.0;
-		^this.multiNew('audio', in, buf,
+		// buf goes FIRST into the UGen's input list, whatever the argument order here:
+		// scsynth's GET_BUF macro reads the buffer number from input 0 and nowhere else.
+		^this.multiNew('audio', buf, in,
 			rate, rateSlew, loopStart, loopEnd, cut, fade,
 			recLevel, preLevel, recPreSlew, play, rec, loop, phaseQuant, recOffset,
 			preFc, preRq, preLp, preHp, preBp, preBr, preDry,
@@ -31,8 +33,8 @@ PhSoftcut : MultiOutUGen {
 	}
 
 	checkInputs {
-		if (inputs.at(0).rate != 'audio') {
-			^("in is not audio rate: " + inputs.at(0) + inputs.at(0).rate);
+		if (inputs.at(1).rate != 'audio') {            // input 1 is `in`; input 0 is `buf`
+			^("in is not audio rate: " + inputs.at(1) + inputs.at(1).rate);
 		}
 		^this.checkValidInputs;
 	}

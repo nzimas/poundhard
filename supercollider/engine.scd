@@ -230,19 +230,35 @@
 ~recStop = {
 	~ampSynth.notNil.if { ~ampSynth.free; ~ampSynth = nil };
 	~recSynth.notNil.if { ~recSynth.free; ~recSynth = nil };       // stop writing first
-	~recBuf.notNil.if { ~recBuf.close; ~recBuf.free; ~recBuf = nil };   // close finalizes the WAV header
+	// The buffer must not be closed until the recorder node has actually gone, or the last
+	// blocks are still being written into a file that is being finalised underneath them.
+	~recBuf.notNil.if { |b|
+		var old = ~recBuf;
+		~recBuf = nil;
+		fork { s.sync; old.close; old.free };   // close finalizes the WAV header
+	};
 };
 ~recStart = { |path|
-	~recStop.value;
-	~recBuf = Buffer.alloc(s, 65536, 2);
-	~recSynth = Synth.basicNew(\phRec, s);
-	// open the file (leaveOpen -> cue for DiskOut streaming); start the recorder synth
-	// ONLY once the write is set up, via the write's completion message.
-	// int16: universally playable in browsers (some reject 24-bit WAV in <audio>)
-	~recBuf.write(path, "wav", "int16", 0, 0, true,
-		~recSynth.newMsg(~recGroup, [\buf, ~recBuf], \addToTail));
-	// report the master level while recording -> the controller ends the take on silence
-	~ampSynth = Synth.tail(~recGroup, \phAmp);
+	// FORKED, and both syncs are load-bearing. Buffer.alloc is ASYNCHRONOUS: it returns a
+	// Buffer object immediately while /b_alloc is still in flight, so calling .write on it
+	// in the same tick sends /b_write against a buffer the server has not made yet. The
+	// write fails, DiskOut streams into nothing, and the take silently never appears —
+	// which is exactly how this behaved: reliable right after a boot, then failing once the
+	// server had enough else to do. (Same race, same fix, as the sample-copy path.)
+	fork {
+		~recStop.value;
+		s.sync;                                  // the old node is gone and the file closed
+		~recBuf = Buffer.alloc(s, 65536, 2);
+		s.sync;                                  // /b_alloc has COMPLETED
+		~recSynth = Synth.basicNew(\phRec, s);
+		// open the file (leaveOpen -> cue for DiskOut streaming); start the recorder synth
+		// ONLY once the write is set up, via the write's completion message.
+		// int16: universally playable in browsers (some reject 24-bit WAV in <audio>)
+		~recBuf.write(path, "wav", "int16", 0, 0, true,
+			~recSynth.newMsg(~recGroup, [\buf, ~recBuf], \addToTail));
+		// report the master level while recording -> the controller ends the take on silence
+		~ampSynth = Synth.tail(~recGroup, \phAmp);
+	};
 };
 
 // (re)build a track's FX chain: free existing, recreate assigned FX in canonical

@@ -35,6 +35,8 @@ struct PhSoftcut : public Unit {
     // change — its setters do slew and filter-coefficient bookkeeping and are not free to
     // call per block. 26 of them, hence the array rather than 26 named fields.
     float prev[32];
+    float *m_data;
+    uint32 m_frames;
     bool started;
 };
 
@@ -42,7 +44,15 @@ static void PhSoftcut_next(PhSoftcut *unit, int inNumSamples);
 static void PhSoftcut_Ctor(PhSoftcut *unit);
 static void PhSoftcut_Dtor(PhSoftcut *unit);
 
-enum { kIn, kBuf,
+// THE BUFFER MUST BE INPUT 0. Not a style choice: SuperCollider's GET_BUF macro reads the
+// buffer number from ZIN0(0) — hardcoded, no way to point it elsewhere. With the audio input
+// first (the obvious-looking order, and what this file had), softcut's buffer number became
+// the first AUDIO SAMPLE of each block: it truncates to 0 almost always, so every voice was
+// reading and RECORDING INTO buffer 0 — an unrelated buffer belonging to something else —
+// and into whatever buffer number a loud sample happened to land on otherwise. The result
+// was digital noise built out of other people's memory, and it measured as a tape loop that
+// simply did not reproduce its input.
+enum { kBuf, kIn,
        kRate, kRateSlew, kStart, kEnd, kCut, kFade,
        kRec, kPre, kRecPreSlew, kPlay, kRecF, kLoop, kPhaseQuant, kRecOffset,
        kPreFc, kPreRq, kPreLp, kPreHp, kPreBp, kPreBr, kPreDry,
@@ -86,6 +96,8 @@ void PhSoftcut_Ctor(PhSoftcut *unit) {
     unit->m_sr = (float)SAMPLERATE;
     unit->voice->setSampleRate(unit->m_sr);
     unit->started = false;
+    unit->m_data = nullptr;
+    unit->m_frames = 0;
     unit->m_fbufnum = -1e9f;
     for (int i = 0; i < 32; ++i) unit->prev[i] = -1e20f;  // force a push on block one
     SETCALC(PhSoftcut_next);
@@ -110,8 +122,11 @@ void PhSoftcut_next(PhSoftcut *unit, int inNumSamples) {
         ClearUnitOutputs(unit, inNumSamples);
         return;
     }
-    if (!unit->started) {
+    if (!unit->started || unit->m_frames != bufFrames || unit->m_data != bufData) {
+        // re-hand the buffer to softcut if it was swapped or reallocated underneath us
         v->setBuffer(bufData, (unsigned int)bufFrames);
+        unit->m_data = bufData;
+        unit->m_frames = bufFrames;
         unit->started = true;
     }
 
