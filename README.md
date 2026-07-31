@@ -1407,6 +1407,39 @@ global maximum**, with no drift across a 30-second take (first half +0.455, seco
 > modifier that used them was abandoned — it never reproduced its input (see the commit
 > history), and Strobe replaces it on the same pad.
 
+### Csound tonal recipes
+
+Engine 20's variety problem was not the number of architectures, it was **how the eight
+macros were drawn**. Every other engine samples each parameter independently and uniformly
+inside a band, which is fine for three or four. In eight dimensions a uniform draw lands near
+the middle of the box virtually every time — measured over 4000 rolls, the mean per-macro
+distance from centre was **0.20 of a possible 0.40**, and only **1.2%** of rolls got even
+half their macros near an extreme. Ten architectures sampled at their centroids give you ten
+sounds, forever.
+
+So a recipe no longer describes a box, it names **points**. Each *pole* is a complete
+eight-macro vector known to be a distinct sound in that architecture; a roll picks a pole,
+wanders a little way off it, and occasionally rides one or two macros the rest of the way to
+an extreme. The extremes are reachable because they are aimed at rather than hoped for.
+
+**40 recipes across the 10 architectures**, each with its own register, note set, duration
+band and poles — `CS BELL` / `CS ANVIL` / `CS TINE` / `CS GONG` all live on the struck-metal
+architecture and sound nothing like each other.
+
+| | before | after |
+|---|---|---|
+| recipes | 10 | **40** |
+| mean per-macro distance from centre | 0.201 | **0.278** (max 0.40) |
+| rolls with 4+ macros at an extreme | 1.2% | **36.2%** |
+
+Measured on the device across six consecutive rolls: brightness spanned **557–1874 Hz**
+(128% of the mean) and note length **2.2–7.0 s**.
+
+> **Known gap: level consistency.** The same six rolls spanned **−22.9 dB to −62.0 dB** RMS —
+> the extremal draws can land where an architecture outputs almost nothing. Variety is real;
+> loudness is not yet even. The fix is the same per-model trim table PLAITS already has
+> (record each recipe, peak-analyse, write the trim), which has not been done here yet.
+
 ### The chaos macro (knob 8)
 
 In the tracks view, **knob 8 sweeps every parameter of every engine currently assigned
