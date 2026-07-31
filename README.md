@@ -1309,15 +1309,31 @@ Switching off stops the Lua process, frees the synth and wipes both tapes. It th
 **not** join the [Quake](#quake)/[Break](#break) mutual-exclusion lock — it owns no track's
 rate, length or steps, so it has nothing to collide with.
 
-**The retrigger gate.** What sets the length of an audible chunk is not the loop length but
-how often playback *restarts*: `1`, `P` and `L` each re-trigger the head, and the command
-clock runs at up to sixteen commands per beat — 31 ms at 120 BPM. Re-triggering every 31 ms
-is a ~32 Hz buzz, a sawtooth made of your own mix, and no amount of loop-point tuning fixes
-it because the loop never gets to play. Retriggers are therefore gated to **400 ms minimum**.
-A too-soon one is dropped rather than shortened; loop points are re-pushed by the script's
-own `update_positions` on every phase poll, so a dropped one lands as soon as the gate opens.
-Measured: **3.4 energy discontinuities per second with Compass on, against 5.6/s for the dry
-pattern** — fewer than the music itself.
+**The 400 ms gate.** The command clock runs at up to sixteen commands per beat — 31 ms at
+120 BPM — and on a norns that is fine, because a norns is playing softcut *as* the
+instrument. Here it means every audible parameter gets rewritten faster than the ear
+resolves as an event, which is a buzz rather than a tape loop. Counted over a minute of
+simulated play, before the gate:
+
+| what reached the engine | changes/second |
+|---|---|
+| `rate` | **9.7** |
+| `position` | **5.5** |
+| `pan` | 3.3 |
+| `loop_start` / `loop_end` | 2.2 |
+
+`rate` was the one that mattered most and the one that is least obvious. With a 0.1 s slew
+and ten changes a second the tape speed never settles: the playback pitch just swings across
+the whole ±2-octave rate table at ~10 Hz, which is a sawtooth. `position` and the loop points
+retrigger the head, which is the other half of the same problem.
+
+So everything that abruptly changes what you hear — `rate`, `position`, `loop_start`,
+`loop_end` — passes a **400 ms minimum-chunk gate**. A change arriving too soon is
+**coalesced, not dropped**: the latest value is held and applied when the gate opens, which
+preserves what the script meant, where dropping would leave softcut on a rate the script no
+longer thinks it has. Everything else softcut already slews for itself (pan over 0.25 s, rec
+and pre level over 2 s). Measured through the real bridge: nothing now reaches the synth
+faster than **1.1/s**, and `rate` is down from 9.7 to **0.6/s**.
 
 **The frame is the buffer you hear.** `loopRnd` draws its loop entirely inside Start
 point..End point, so a **5-second-wide frame caps every loop the script can produce at five
@@ -1344,10 +1360,12 @@ heads were playing buffer that had never been written. A norns player pulls End 
 the performer here keeps the frame between 8 and 24 seconds, which is long enough to be a
 tape and short enough to fill.
 
-Measured on the device: bar-to-bar similarity **+0.71 off / +0.52 on**, RMS **−9.0 / −9.6 dB**
-(engaging it costs under a decibel), peak **0.950 with zero full-scale samples**. Toggling
-off restores the mix exactly — **−9.1 dB before, −8.9 dB after** — and leaves no process
-behind.
+Measured on the device, off / on / off again: bar-to-bar similarity **+0.64 / +0.43 /
++0.66**, RMS **−9.0 / −9.6 / −9.0 dB** (engaging it costs under a decibel), peak **0.950 with
+zero full-scale samples throughout**, and abrupt energy discontinuities **5.6 / 4.0 / 6.1 per
+second** — with Compass on there are *fewer* than in the dry pattern, which is the number
+that says nothing is retriggering at buzz rate. Toggling off restores the mix and leaves no
+process behind.
 
 ### The chaos macro (knob 8)
 

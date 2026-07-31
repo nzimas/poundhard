@@ -45,6 +45,12 @@ TICKS_PER_BEAT = 16
 CHUNK_MIN = 0.4
 # start + end arrive as one gesture; anything inside this window is the same chunk
 _SAME_GESTURE = 0.02
+# Everything that changes what you HEAR abruptly. `rate` belongs here and was the miss that
+# left the buzzing in: measured over a minute of play it changed 9.7 times a SECOND, and with
+# a 0.1 s slew the tape speed never settles — the playback pitch just swings across the whole
+# ±2-octave rate table at ~10 Hz, which is a sawtooth, not a tape. Everything else softcut
+# already slews for itself: pan over 0.25 s, rec and pre level over 2 s.
+_GATED = {"rate", "position", "loop_start", "loop_end"}
 LUA = "/data/UserData/poundhard/lua/bin/lua"
 SCRIPT_DIR = "/data/UserData/poundhard/compass"
 
@@ -79,7 +85,8 @@ class Compass:
         self._tick_acc = 0.0
         self._last: dict[str, float] = {}
         self._chunk_t = 0.0
-        self.dropped = 0
+        self._pending: dict[tuple, float] = {}
+        self.held = 0
         # what the readout shows
         self.glyph = "-"
         self.division = 1
@@ -146,6 +153,7 @@ class Compass:
             self._send("tick|%.4f" % now)
 
     def phase(self, p1: float, p2: float) -> None:
+        self._flush()
         now = time.monotonic()
         self._send("phase|1|%.4f|%.4f" % (p1, now))
         self._send("phase|2|%.4f|%.4f" % (p2, now))
@@ -197,19 +205,40 @@ class Compass:
             return
         if fn == "rate" and voice == 1:
             self.rate = value
-        if fn in ("position", "loop_start", "loop_end"):
-            # A retrigger. Too soon after the last one and the chunk would be milliseconds
-            # long, so it is dropped rather than shortened. Loop points are re-pushed by the
-            # script's own update_positions on every phase poll (30 Hz), so a dropped one
-            # lands as soon as the gate opens — nothing desyncs. A dropped position jump is
-            # simply a jump not taken.
-            now = time.monotonic()
-            dt = now - self._chunk_t
-            if dt >= _SAME_GESTURE:
-                if dt < CHUNK_MIN:
-                    self.dropped += 1
-                    return
-                self._chunk_t = now
+        if fn not in _GATED:
+            self._apply(fn, voice, value)
+            return
+        # --- the gate ---
+        now = time.monotonic()
+        dt = now - self._chunk_t
+        if dt < _SAME_GESTURE:
+            self._apply(fn, voice, value)     # same gesture: start+end arrive together
+        elif dt < CHUNK_MIN:
+            # COALESCE, do not drop. Keeping the latest value and applying it when the gate
+            # opens preserves what the script meant, where dropping would leave softcut on a
+            # rate the script no longer thinks it has.
+            self._pending[(fn, voice)] = value
+            self.held += 1
+        else:
+            self._chunk_t = now
+            self._apply(fn, voice, value)
+
+    def _flush(self) -> None:
+        """Let held changes through once the minimum chunk has elapsed.
+
+        Driven off the phase poll, which arrives 30 times a second — fine grain against a
+        400 ms gate.
+        """
+        if not self._pending:
+            return
+        if time.monotonic() - self._chunk_t < CHUNK_MIN:
+            return
+        self._chunk_t = time.monotonic()
+        pending, self._pending = self._pending, {}
+        for (fn, voice), value in pending.items():
+            self._apply(fn, voice, value)
+
+    def _apply(self, fn: str, voice: int, value: float) -> None:
         arg = _GLOBAL_ARG.get(fn)
         if arg is not None:
             self._set(arg, value)
