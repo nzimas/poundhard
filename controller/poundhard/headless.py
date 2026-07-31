@@ -161,7 +161,7 @@ class Controller:
         self._mic_on = False
         self._mic_state = "idle"        # idle -> armed -> recording -> processing -> ready
         self._mic_thresh = 0.02
-        self._mic_gain = 1.0
+        self._mic_gain = 64.0     # the capsule reads ~-86 dB: this is a preamp, not a trim
         # PHRASE-QUANTISED ARMING. A pad press states an INTENT; the monitor picks the bar.
         self._phrase = phrase.PhraseMonitor()
         self._armed: dict[str, tuple] = {}   # cmd -> (arg, p, bars waited)
@@ -638,7 +638,7 @@ class Controller:
         """
         self._mic_state = "armed"
         self._dirty = True
-        self.bridge.miclevel(True)          # meter runs while armed, so aiming is possible
+        self.bridge.miclevel(True, self._mic_gain)   # meter runs while armed, so aiming is possible
         self._mic_on = True
         self.bridge.micarm(self._mic_thresh, self._mic_gain)
 
@@ -1298,14 +1298,14 @@ class Controller:
             # Floor of 0.0002, not 0.001. The Move's capsule is QUIET — a still room measures
             # about 5e-5 RMS (-86 dB) — so a 0.001 minimum sits 26 dB above the noise floor
             # and a soft sound in front of the device can never trip a take.
-            self._mic_thresh = max(0.0002, min(0.5, float(p.get("x", 0.02))))
+            self._mic_thresh = max(0.00005, min(0.5, float(p.get("x", 0.02))))
         elif cmd == "micgain":                 # hold MIC + knob 2: input gain
-            self._mic_gain = max(0.1, min(32.0, float(p.get("x", 1.0))))
+            self._mic_gain = max(0.1, min(1024.0, float(p.get("x", 64.0))))
         elif cmd == "miclevel":                # MIC: run the input level probe
             self._mic_on = int(arg) != 0
             if not self._mic_on:
                 self._mic_level = self._mic_peak = 0.0
-            self.bridge.miclevel(self._mic_on)
+            self.bridge.miclevel(self._mic_on, self._mic_gain)
         elif cmd == "strobe":                  # 6th pad: rhythmic gating + microlooping
             # No lock. Strobe inserts sit on the track buses between the per-track FX and
             # the send, so it owns no track's rate, length or step list and has nothing to

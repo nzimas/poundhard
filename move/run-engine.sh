@@ -24,6 +24,14 @@ JACK_DRIVER_DIR=/data/UserData/schwung/lib/jack
 export JACK_DRIVER_DIR
 export JACK_NO_AUDIO_RESERVATION=1
 export SC_JACK_DEFAULT_OUTPUTS=system          # scsynth out -> shadow playback
+# ...AND THE INPUTS, which were never connected. The server was booted with 36 inputs and the
+# first two documented as "microphone", but documentation is not a patch cable: JACK input
+# ports read silence until something is connected to them, and nothing ever was. Csound only
+# reaches inputs 3-34 because run-csound.sh patches them explicitly with ph-jackconnect.
+# The shadow driver does provide system:capture_N (it is in the binary), so naming the client
+# here makes SuperCollider's JACK driver connect input 1-2 to it at boot. Inputs beyond the
+# two capture ports simply find nothing to connect to, which is harmless.
+export SC_JACK_DEFAULT_INPUTS=system           # shadow capture (the built-in mic) -> engine in
 export SC_PLUGIN_PATH=$PH/plugins              # UGen plugins (backup to ph-boot)
 # SERVER: supernova (multicore) when >0, scsynth when 0. ph-boot.scd reads this and
 # picks the binary + thread count. Supernova needs the *_supernova.so plugin set (shipped)

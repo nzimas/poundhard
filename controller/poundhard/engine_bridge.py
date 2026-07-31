@@ -191,7 +191,7 @@ class EngineBridge:
     def strobeset(self, t, arg, val):  self.send("/ph/strobeset", int(t), str(arg), float(val))
     def strobeclear(self):             self.send("/ph/strobeclear", 0)
     # MIC (engine 21) — built-in microphone capture
-    def miclevel(self, on):            self.send("/ph/miclevel", 1 if on else 0)
+    def miclevel(self, on, gain=64.0): self.send("/ph/miclevel", 1 if on else 0, float(gain))
     def micarm(self, thresh, gain=1.0): self.send("/ph/micarm", float(thresh), float(gain))
     def micwrite(self, path):          self.send("/ph/micwrite", str(path))
     def micload(self, path):           self.send("/ph/micload", str(path))

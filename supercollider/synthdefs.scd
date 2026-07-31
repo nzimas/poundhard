@@ -861,8 +861,8 @@
 	// A level probe, so "is the microphone actually reaching the engine?" is a measurement
 	// rather than an assumption — the Move has no ALSA device of its own and the mic arrives
 	// through Schwung's shadow JACK driver, which is not obliged to provide it.
-	SynthDef(\phMicLevel, { |rate = 10|
-		var sig = SoundIn.ar([0, 1]);
+	SynthDef(\phMicLevel, { |rate = 10, gain = 1|
+		var sig = SoundIn.ar([0, 1]) * gain;
 		var mono = (sig[0] + sig[1]) * 0.5;
 		// DISTINCT path from the /ph/miclevel command: a SendReply lands in sclang on the
 		// address it names, so sharing the name would make the server's own reply re-trigger

@@ -949,9 +949,10 @@
 	// /ph/miclevel <on>: bring the microphone level probe up or down.
 	OSCdef(\phMicLevelCmd, { |m|
 		(~ready == true).if {
+			~micGain = (m[2] ? 64.0).asFloat.clip(0.1, 1024.0);
 			(m[1].asInteger > 0).if({
 				~micLevelSy.isNil.if {
-					~micLevelSy = Synth.head(~gClear, \phMicLevel);
+					~micLevelSy = Synth.head(~gClear, \phMicLevel, [\gain, ~micGain ? 64]);
 					~micLevelSy.register;
 					~micLevelSy.onFree({ ~micLevelSy = nil });
 				};
@@ -970,8 +971,12 @@
 		(~ready == true).if {
 			// the capsule is quiet: a still room is about 5e-5 RMS, so the floor has to be
 			// well under the 0.001 a bus-capture can assume
-			var th = (m[1] ? 0.02).asFloat.clip(0.0002, 0.5);
-			var gain = (m[2] ? 1.0).asFloat.clip(0.1, 32.0);
+			var th = (m[1] ? 0.02).asFloat.clip(0.00005, 0.5);
+			// UP TO +60 dB, and that is not excessive. Inputs 0-1 carry a real signal (input 30
+			// reads exactly zero, so something IS connected) but it sits around -86 dB — a
+			// capsule this quiet needs a preamp, not a trim. At a gain of 32 a take still
+			// peaked at -46 dBFS.
+			var gain = (m[2] ? 64.0).asFloat.clip(0.1, 1024.0);
 			~micCapSy.notNil.if { ~micCapSy.free; ~micCapSy = nil };
 			~micCapBuf.notNil.if { ~micCapBuf.free };
 			// Buffer.alloc's completion action, NOT s.sync: an OSC handler is not a Routine,
