@@ -12,7 +12,7 @@
     "requires_path": "/data/UserData/poundhard/bin/sclang",
     "capabilities": {
         "audio_out": true,
-        "audio_in": false,
+        "audio_in": true,
         "midi_in": true,
         "midi_out": false,
         "aftertouch": false,
