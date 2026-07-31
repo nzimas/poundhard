@@ -36,6 +36,15 @@ import threading
 import time
 
 TICKS_PER_BEAT = 16
+
+# The shortest a played chunk may be, in seconds. What sets chunk length is not the loop
+# length but how often playback RESTARTS: `1`, `P` and `L` each re-trigger the head, and the
+# command clock runs at up to sixteen commands per beat — 31 ms at 120 BPM. Re-triggering
+# every 31 ms is a ~32 Hz buzz, not a tape loop, and no amount of loop-point tuning fixes it
+# because the loop never gets to play. So the retrigger rate is gated here.
+CHUNK_MIN = 0.4
+# start + end arrive as one gesture; anything inside this window is the same chunk
+_SAME_GESTURE = 0.02
 LUA = "/data/UserData/poundhard/lua/bin/lua"
 SCRIPT_DIR = "/data/UserData/poundhard/compass"
 
@@ -69,6 +78,8 @@ class Compass:
         self._alive = False
         self._tick_acc = 0.0
         self._last: dict[str, float] = {}
+        self._chunk_t = 0.0
+        self.dropped = 0
         # what the readout shows
         self.glyph = "-"
         self.division = 1
@@ -186,6 +197,19 @@ class Compass:
             return
         if fn == "rate" and voice == 1:
             self.rate = value
+        if fn in ("position", "loop_start", "loop_end"):
+            # A retrigger. Too soon after the last one and the chunk would be milliseconds
+            # long, so it is dropped rather than shortened. Loop points are re-pushed by the
+            # script's own update_positions on every phase poll (30 Hz), so a dropped one
+            # lands as soon as the gate opens — nothing desyncs. A dropped position jump is
+            # simply a jump not taken.
+            now = time.monotonic()
+            dt = now - self._chunk_t
+            if dt >= _SAME_GESTURE:
+                if dt < CHUNK_MIN:
+                    self.dropped += 1
+                    return
+                self._chunk_t = now
         arg = _GLOBAL_ARG.get(fn)
         if arg is not None:
             self._set(arg, value)

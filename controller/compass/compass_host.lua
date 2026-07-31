@@ -40,6 +40,7 @@ local WATCH = {
 	pos = "count", division = "metroInc", recLevel = "toggleRec",
 	loopStart = "loopRnd", loopEnd = "loopRnd", sPoint = "loopRnd", ePoint = "loopRnd",
 	rate_pos = "rateInc", STEPS = "update_positions", act = "count", step = "count",
+	COMMANDS = "randomize_steps",
 }
 local function peek(name)
 	local holder = WATCH[name]
@@ -78,6 +79,29 @@ local function with_key1(fn)
 	shim.set_time(now); key(1, 0)
 end
 
+-- THE FRAME IS THE BUFFER YOU HEAR. loopRnd draws its loop entirely inside
+-- Start point..End point, so making that frame N seconds wide caps every loop the script
+-- can produce at N seconds — the script's loop points are integer seconds, so a 5-second
+-- frame yields loops of 1 to 5 seconds and never more.
+--
+-- It also fixes the opposite failure. The script's default frame is the whole 64-second
+-- tape, which means the heads need 64 seconds to come back round to anything they recorded:
+-- a 40-second take measured QUIETER with Compass on than off, because the heads spent it
+-- playing buffer that had never been written. A short frame fills in seconds.
+--
+-- RECYCLING is what keeps it from being one loop forever: the frame slides to a different
+-- part of the tape, so the heads move onto material recorded at a different time.
+local FRAME = 5
+
+local function reframe()
+	local a = math.random(1, 65 - FRAME)
+	-- End point clamps to at least sPoint+1 and Start point to at most ePoint-1, so the
+	-- window has to be opened before it is moved or one bound crushes the other.
+	params:set("End point", 65)
+	params:set("Start point", a)
+	params:set("End point", a + FRAME)
+end
+
 local performed = 0
 
 -- Recording is a TOGGLE in the script (`::` and key 3 both flip recLevel), so wanting a
@@ -100,18 +124,7 @@ local function perform()
 		-- knob; here that is this line.
 		params:set("Overdub", math.random(45, 80) / 100)
 		params:set("Fade", math.random(2, 12) / 100)
-		-- THE FRAME DECIDES HOW LONG A LAP TAKES, and that is the difference between a tape
-		-- loop and silence. The script's default is the whole 64-second tape, which means
-		-- the heads need 64 seconds to come back around to anything they recorded — a
-		-- 40-second take measured 3.7 dB QUIETER with Compass on than off, because for the
-		-- whole take the heads were playing buffer that had never been written. A norns
-		-- player pulls End point down for exactly this reason; that is this line.
-		--
-		-- The other end of the range matters just as much: collapse the frame to a second
-		-- or two and a loop with recording on IS a short delay. Eight to twenty-four
-		-- seconds is long enough to be a tape and short enough to fill.
-		params:set("Start point", 1)
-		params:set("End point", math.random(9, 25))
+		reframe()
 		set_rec(true)                             -- lay something down to work with
 		report()
 		return
@@ -146,11 +159,7 @@ local function perform()
 	elseif q < 0.86 then
 		params:set("Overdub", math.random(40, 85) / 100)
 	elseif q < 0.94 then
-		-- Re-frame the tape, both bounds at once and always wide, so the frame moves
-		-- without ever collapsing.
-		local a = math.random(1, 40)
-		params:set("Start point", a)
-		params:set("End point", math.min(65, a + math.random(8, 24)))
+		reframe()                                 -- recycle: the window moves to fresh tape
 	end
 	now = now + 0.5
 	report()
@@ -166,6 +175,29 @@ if not ok then
 	shim.emit("log", "init failed: " .. tostring(err))
 	os.exit(1)
 end
+-- The Crow commands do nothing on a Move — there is no Crow — so they are turned off
+-- rather than left in the rotation as no-ops that waste a step. This uses the script's OWN
+-- per-command enable flag, the one its edit page toggles, so compass.lua stays verbatim:
+-- clear the flag, rebuild the active list, reset the sequence. `act` shrinks and
+-- randomize_steps only ever draws from what is left.
+local cl = upval(build_command_list, "command_list")
+if cl then
+	local off = 0
+	for i = 1, #cl do
+		if cl[i][3] == "T" or cl[i][3] == "V" then cl[i][2] = 0; off = off + 1 end
+	end
+	build_command_list()
+	commReset()
+	-- `COMMANDS` is the count randomize_steps draws from, and the script only refreshes it
+	-- inside update_positions — which does not run until the first phase poll arrives. Skip
+	-- this and the first randomise draws indices 17 and 18 out of a list that now has 16,
+	-- and `act[step[pos]]()` calls nil and takes the command clock down with it. Calling the
+	-- script's own refresh is the fix; poking the local from outside would not be.
+	update_positions(1, 1)
+	shim.emit("log", "disabled " .. off .. " crow commands, "
+		.. tostring(peek("COMMANDS") or #cl) .. " left")
+end
+
 shim.emit("ready", 1)
 
 local phase_since_metro = 0

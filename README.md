@@ -1309,6 +1309,30 @@ Switching off stops the Lua process, frees the synth and wipes both tapes. It th
 **not** join the [Quake](#quake)/[Break](#break) mutual-exclusion lock — it owns no track's
 rate, length or steps, so it has nothing to collide with.
 
+**The retrigger gate.** What sets the length of an audible chunk is not the loop length but
+how often playback *restarts*: `1`, `P` and `L` each re-trigger the head, and the command
+clock runs at up to sixteen commands per beat — 31 ms at 120 BPM. Re-triggering every 31 ms
+is a ~32 Hz buzz, a sawtooth made of your own mix, and no amount of loop-point tuning fixes
+it because the loop never gets to play. Retriggers are therefore gated to **400 ms minimum**.
+A too-soon one is dropped rather than shortened; loop points are re-pushed by the script's
+own `update_positions` on every phase poll, so a dropped one lands as soon as the gate opens.
+Measured: **3.4 energy discontinuities per second with Compass on, against 5.6/s for the dry
+pattern** — fewer than the music itself.
+
+**The frame is the buffer you hear.** `loopRnd` draws its loop entirely inside Start
+point..End point, so a **5-second-wide frame caps every loop the script can produce at five
+seconds** — and since the script's loop points are integer seconds, loops come out 1 to 5 s
+and never more. The frame then **recycles**: it slides to a different part of the 64-second
+tape, so the heads move onto material recorded at a different time. This also fixes the
+opposite failure — the script's default frame is the *whole* tape, which means the heads need
+64 seconds to come back round to anything they recorded, and a 40-second take measured
+*quieter* with Compass on than off because the heads spent it playing buffer that had never
+been written.
+
+**The two Crow commands are disabled** — there is no Crow on a Move, so `T` and `V` would be
+no-ops wasting a step. They are turned off through the script's **own** per-command enable
+flag, the one its edit page toggles, so `compass.lua` stays verbatim.
+
 **Two things the script does not decide, and PoundHard must.** First, **level**: the script
 sets softcut's output to full, because on a norns the tape *is* the instrument. Here it is an
 effect on a running mix, so `wetMix` caps it at **30% of the signal feeding it**, with the dry
@@ -1320,9 +1344,10 @@ heads were playing buffer that had never been written. A norns player pulls End 
 the performer here keeps the frame between 8 and 24 seconds, which is long enough to be a
 tape and short enough to fill.
 
-Measured on the device — off, on, off again — bar-to-bar similarity **+0.73 / +0.56 /
-+0.67**, RMS **−9.0 / −9.9 / −9.1 dB** (engaging it costs under a decibel), peak **0.950
-with zero full-scale samples in all three**.
+Measured on the device: bar-to-bar similarity **+0.71 off / +0.52 on**, RMS **−9.0 / −9.6 dB**
+(engaging it costs under a decibel), peak **0.950 with zero full-scale samples**. Toggling
+off restores the mix exactly — **−9.1 dB before, −8.9 dB after** — and leaves no process
+behind.
 
 ### The chaos macro (knob 8)
 
