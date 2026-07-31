@@ -1295,9 +1295,19 @@ Three things keep it from being applied uniformly:
 track state. Switching off frees them and the tracks are exactly as they were — so, like the
 modifier it replaces, it does **not** join the [Quake](#quake)/[Break](#break) lock.
 
-Measured on the device, off / on / off again: bar-to-bar similarity **+0.82 / +0.58 /
-+0.66**, RMS **−9.0 / −9.9 / −9.0 dB**, peak **0.950 with zero full-scale samples**, and no
-controller errors across the run.
+**How much of the time it is actually on** is a design parameter, and the first version got
+it badly wrong: roughly two of five tracks, a mode that often chose nothing, and windows as
+short as 6% of the bar. Multiplied together the effect was present about **5%** of the time —
+inaudible, which is not the same as subtle. Every targeted track now always gets at least one
+effect, the density floor is 0.4, windows are mostly half a bar or more, and a **SLAM** fires
+now and then: every live track, full bar, full depth. Coverage measured offline over 200 bars
+went from ~0.05 to **0.79** effect-bar-fractions per track-bar.
+
+Measured on the device, off / on / off again: bar-to-bar similarity **+0.70 / +0.34 /
++0.68**, RMS **−9.0 / −11.0 / −9.1 dB**, and envelope **modulation depth −4.4 / −9.2 /
+−4.6 dB** — the gate is cutting holes more than twice as deep as the music's own dynamics.
+Peak **0.950 with zero full-scale samples** throughout, no controller errors, and it restores
+exactly.
 
 > **Softcut is still in the tree but unused.** `PhSoftcut`, `move/build-softcut.sh`, the Lua
 > runtime and `controller/compass/` remain built and deployed; nothing calls them. The COMPASS

@@ -70,7 +70,8 @@ class Strobe:
         self.bars = 0
         # the slow breathing cycle: density rises and falls over this many bars
         self.period = self.rng.randint(8, 24)
-        self.density = 0.35
+        self.density = 0.6
+        self.slam = 0
         self.mode = "both"
         self.last_log = ""
 
@@ -86,10 +87,12 @@ class Strobe:
             self.targets = set()
             return
         r = self.rng.random()
-        if r < 0.12:
-            self.targets = set(live)                       # everything, occasionally
+        if r < 0.3:
+            self.targets = set(live)                       # everything
             return
-        want = max(1, min(len(live), int(round(len(live) * self.density))))
+        # never fewer than two, or on a sparse pattern the modifier lands on one quiet
+        # track and is simply not there
+        want = max(2, min(len(live), int(round(len(live) * self.density))))
         weights = [0.35 if t in busy else 1.0 for t in live]
         chosen: set[int] = set()
         pool = list(live)
@@ -110,12 +113,19 @@ class Strobe:
         # density breathes on a slow cycle rather than being redrawn every bar, so the
         # modifier has shape over time instead of a constant rate of incident
         phase = (self.bars % self.period) / self.period
-        self.density = 0.15 + (0.55 * (1 - abs((phase * 2) - 1)))
+        # Floor of 0.4, not 0.15. The first version bottomed out at one or two tracks with
+        # short windows, and multiplied by the chance of an effect being chosen at all it
+        # was on for a few percent of the time — inaudible, which is not the same as subtle.
+        self.density = 0.4 + (0.5 * (1 - abs((phase * 2) - 1)))
+        # a SLAM: every so often, everything at once, full bar, full depth
+        self.slam = 1 if self.rng.random() < 0.12 else 0
 
-        if self.bars % max(2, self.period // 3) == 1 or not self.targets:
+        if self.bars % 3 == 1 or not self.targets or self.slam:
             self._retarget(live, busy)
+            if self.slam:
+                self.targets = set(live)
             self.mode = self.rng.choices(
-                ("gate", "loop", "both"), weights=(4, 3, 3), k=1)[0]
+                ("gate", "loop", "both"), weights=(5, 2, 6), k=1)[0]
 
         want = set(self.targets) & set(live)
         have = {t for t in range(self.n) if self.state[t].args}
@@ -128,9 +138,11 @@ class Strobe:
         for t in sorted(want):
             changes[t] = self.state[t].diff(self._voice(t))
 
-        g = sum(1 for t in want if changes.get(t, self.state[t].args).get("gMix", 0) > 0)
-        self.last_log = ("strobe: %-4s  %2d/%2d tracks  density %.2f  gating %d"
-                         % (self.mode, len(want), len(live), self.density, g))
+        g = sum(1 for t in want if self.state[t].args.get("gMix", 0) > 0)
+        l = sum(1 for t in want if self.state[t].args.get("lMix", 0) > 0)
+        self.last_log = ("strobe: %-4s%s %2d/%2d tracks  density %.2f  gate %d  loop %d"
+                         % (self.mode, " SLAM" if self.slam else "    ",
+                            len(want), len(live), self.density, g, l))
         return changes, turn_on, turn_off
 
     def _voice(self, track: int) -> dict:
@@ -138,31 +150,35 @@ class Strobe:
         rng = self.rng
         a: dict[str, float] = {}
 
-        gate_on = self.mode in ("gate", "both") and rng.random() < 0.85
-        loop_on = self.mode in ("loop", "both") and rng.random() < 0.55
+        gate_on = self.mode in ("gate", "both")
+        loop_on = self.mode in ("loop", "both") and rng.random() < 0.7
+        # A TARGETED TRACK ALWAYS GETS SOMETHING. Letting both dice come up empty is how
+        # "two of five tracks" quietly became "nothing at all on most bars".
+        if not gate_on and not loop_on:
+            gate_on = True
 
         if gate_on:
             a["gDiv"] = float(rng.choice(GATE_DIVS))
             # duty and depth together decide whether this is a shimmer or a chop
-            a["gDuty"] = round(rng.uniform(0.18, 0.72), 3)
-            a["gDepth"] = round(rng.uniform(0.45, 1.0), 3)
-            a["gMix"] = round(rng.uniform(0.5, 1.0), 3)
+            a["gDuty"] = round(rng.uniform(0.2, 0.65), 3)
+            a["gDepth"] = 1.0 if self.slam else round(rng.uniform(0.7, 1.0), 3)
+            a["gMix"] = 1.0 if self.slam else round(rng.uniform(0.8, 1.0), 3)
             # a skew offsets this track's gate against the others, so several gated tracks
             # interlock instead of pumping in unison
             a["gSkew"] = round(rng.uniform(0.0, 1.0), 3)
             a["gShape"] = round(rng.uniform(0.0015, 0.02), 4)
-            frm, span = self._window(0.25)
+            frm, span = (0.0, 1.0) if self.slam else self._window(0.4, lo=0.4)
             a["gFrom"], a["gSpan"] = frm, span
         else:
             a["gMix"] = 0.0
 
         if loop_on:
             a["lDiv"] = float(rng.choice(LOOP_DIVS))
-            a["lMix"] = round(rng.uniform(0.6, 1.0), 3)
+            a["lMix"] = 1.0 if self.slam else round(rng.uniform(0.8, 1.0), 3)
             a["lFeed"] = round(rng.uniform(0.9, 1.0), 3)
             # a microloop that runs all bar is a drone, so its window is deliberately
             # shorter than the gate's — it is an interruption, not a texture
-            frm, span = self._window(0.12, lo=0.06, hi=0.5)
+            frm, span = self._window(0.25, lo=0.25, hi=0.75)
             a["lFrom"], a["lSpan"] = frm, span
         else:
             a["lMix"] = 0.0
@@ -172,8 +188,8 @@ class Strobe:
     def _window(self, min_span: float, lo: float = 0.12, hi: float = 1.0) -> tuple[float, float]:
         """A slice of the bar, quantised to sixteenths and never running past the barline."""
         rng = self.rng
-        if rng.random() < 0.22 and hi >= 1.0:
-            return 0.0, 1.0                                # occasionally the whole bar
+        if rng.random() < 0.45 and hi >= 1.0:
+            return 0.0, 1.0                                # often the whole bar
         span = max(min_span, _q(rng.uniform(lo, hi)))
         frm = _q(rng.uniform(0.0, max(0.0, 1.0 - span)))
         return round(frm, 4), round(min(span, 1.0 - frm), 4)
