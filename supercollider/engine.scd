@@ -141,6 +141,8 @@
 	~compassSynth.onFree({ ~compassSynth = nil });
 };
 ~smpCapSy = nil;                       // the live \phCapture synth, if any
+~micLevelSy = nil;                     // MIC level probe, if any
+~micCapSy = nil;                       // the live \phMicCapture synth, if any
 ~smpCapBuf = nil;                      // buffer being recorded into
 ~smpMaxDur = 2.0;                      // cap a take (buffer length caps RecordBuf)
 ~bbExprIdx = Array.fill(~nTracks, { 0 });   // per-track expression index into ~bbExprs
@@ -943,6 +945,23 @@
 	// would delete those groups too — leaving ~gTrackVoices pointing at dead nodes so no
 	// voice could spawn again. deepFree kills every synth but keeps the group structure.
 	// ---- SAMPLE engine: threshold capture + buffer hand-off ----------------------
+	// /ph/miclevel <on>: bring the microphone level probe up or down.
+	OSCdef(\phMicLevelCmd, { |m|
+		(~ready == true).if {
+			(m[1].asInteger > 0).if({
+				~micLevelSy.isNil.if {
+					~micLevelSy = Synth.head(~gClear, \phMicLevel);
+					~micLevelSy.register;
+					~micLevelSy.onFree({ ~micLevelSy = nil });
+				};
+			}, {
+				~micLevelSy.notNil.if { ~micLevelSy.free; ~micLevelSy = nil };
+			});
+		};
+	}, '/ph/miclevel'),
+	OSCdef(\phMicLevelRep, { |m|
+		~ctrl.sendMsg('/ph/miclevel', m[3].asFloat, m[4].asFloat);
+	}, '/ph/micrep'),
 	// /ph/smparm <srcEngine> <thresh>: arm a threshold capture on the MASTER bus. The
 	// gesture auditions the tapped engine (/ph/preview -> masterBus), so master is where
 	// that sound actually appears — a track bus would only carry a SEQUENCED track. The capture synth latches on the

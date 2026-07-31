@@ -95,6 +95,7 @@ class Controller:
         self._lock = threading.RLock()         # serialize state mutations (dispatch vs telemetry)
         self.bridge.on_cycle = self._on_cycle  # apply a queued pattern switch on the bar boundary
         self.bridge.on_step = self._compass_step   # COMPASS's command clock, at step resolution
+        self.bridge.on_mic_level = self._on_mic_level
         self.bridge.on_amp = self._on_amp      # master level while recording -> ends the tail
         self._quiet_since: float | None = None
         self._proj_slots = [False] * N_PATTERNS  # which project files exist on disk (cached)
@@ -150,6 +151,10 @@ class Controller:
         self._compass = None
         self._strobe_on = False
         self._strobe = None
+        # MIC (engine 21): live input level from the built-in microphone
+        self._mic_level = 0.0
+        self._mic_peak = 0.0
+        self._mic_on = False
         # PHRASE-QUANTISED ARMING. A pad press states an INTENT; the monitor picks the bar.
         self._phrase = phrase.PhraseMonitor()
         self._armed: dict[str, tuple] = {}   # cmd -> (arg, p, bars waited)
@@ -611,6 +616,11 @@ class Controller:
                 q = dict(p)
                 q["now"] = 1
                 self._dispatch(cmd, arg, q)
+
+    # -- MIC (engine 21): the Move's built-in microphone --------------------- #
+    def _on_mic_level(self, rms: float, peak: float) -> None:
+        self._mic_level = float(rms)
+        self._mic_peak = max(self._mic_peak * 0.97, float(peak))
 
     # -- STROBE: rhythmic gating + microlooping on the track buses ----------- #
     def _strobe_live(self) -> tuple[list[int], set[int]]:
@@ -1109,7 +1119,7 @@ class Controller:
         "smparm",
         "recpad", "run",
         "patcopy", "patclipclear", "saveproj", "panic", "shuffle", "quake", "churn",
-        "break", "steprand", "strobe",
+        "break", "steprand", "strobe", "miclevel",
         "stepcopy", "rowcopy",
     })
 
@@ -1216,6 +1226,11 @@ class Controller:
                 st.heat_apply(self._heat_pct)
         elif cmd == "randdebug":               # diagnostic: log every generated value set
             self._rand_debug = int(arg) != 0
+        elif cmd == "miclevel":                # MIC: run the input level probe
+            self._mic_on = int(arg) != 0
+            if not self._mic_on:
+                self._mic_level = self._mic_peak = 0.0
+            self.bridge.miclevel(self._mic_on)
         elif cmd == "strobe":                  # 6th pad: rhythmic gating + microlooping
             # No lock. Strobe inserts sit on the track buses between the per-track FX and
             # the send, so it owns no track's rate, length or step list and has nothing to
@@ -1618,6 +1633,9 @@ class Controller:
             "brkEvery": self._break_every,     # cycles between breaks
             "brkNow": self._break_active,      # a break is running this cycle
             "strobe": self._strobe_on,         # STROBE macro engaged
+            "micLevel": round(self._mic_level, 5),   # built-in mic, live RMS
+            "micPeak": round(self._mic_peak, 5),
+            "micOn": self._mic_on,
             "armed": sorted(self._armed.keys()),   # pressed, waiting for the phrase
             "phraseBars": self._phrase.phrase_bars,
             "phraseBar": self._phrase.next_bar,

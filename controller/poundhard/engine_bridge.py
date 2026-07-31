@@ -58,6 +58,8 @@ class EngineBridge:
         # straight back into the running compass.lua, which is where the script's own
         # update_positions pushes loop points and record levels into softcut.
         disp.map("/ph/compassphase", self._h_compassphase)
+        # MIC: the built-in microphone's live level, for arming and for the meter
+        disp.map("/ph/miclevel", self._h_miclevel)
         try:
             # Blocking (single-threaded) server: telemetry handlers are trivial and
             # fast, so we avoid spawning a thread per incoming /ph/step datagram.
@@ -184,6 +186,8 @@ class EngineBridge:
     def strobe(self, t, on):           self.send("/ph/strobe", int(t), 1 if on else 0)
     def strobeset(self, t, arg, val):  self.send("/ph/strobeset", int(t), str(arg), float(val))
     def strobeclear(self):             self.send("/ph/strobeclear", 0)
+    # MIC (engine 21) — built-in microphone capture
+    def miclevel(self, on):            self.send("/ph/miclevel", 1 if on else 0)
     def steplock(self, t, cell, note, vel, pan):
         self.send("/ph/steplock", int(t), int(cell), float(note), float(vel), float(pan))
     def stepmacro(self, t, cell, pairs):
@@ -221,6 +225,14 @@ class EngineBridge:
     def _h_smpwritten(self, addr, *a):
         cb = getattr(self, "on_smpwritten", None)
         cb and cb(a[0] if a else "")
+
+    def _h_miclevel(self, _addr, *args):
+        cb = getattr(self, "on_mic_level", None)
+        if cb and len(args) >= 2:
+            try:
+                cb(float(args[0]), float(args[1]))
+            except Exception:
+                pass
 
     def _h_compassphase(self, _addr, *args):
         cb = getattr(self, "on_compass_phase", None)
