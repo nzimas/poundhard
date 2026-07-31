@@ -531,7 +531,7 @@ ICARUS = VoiceSpec(
         P("icarus.release", "Release", unit="s", rmin=0.02, rmax=10.0, default=1.5,
           curve=Curve.EXP, formatter="float2", musical=(0.4, 5.0)),
         P("icarus.gain", "Drive", rmin=0.1, rmax=6.0, default=1.4, musical=(1.0, 3.0)),
-        *_COMMON_TAIL("icarus", ampd=0.85, ampmus=(0.55, 0.95)),
+        *_COMMON_TAIL("icarus", ampd=1.15, ampmus=(0.95, 1.5)),
     ],
 )
 
@@ -561,6 +561,26 @@ PLAITS = VoiceSpec(
         P("plaits.lpgColour", "LPG Colour", default=0.5, musical=(0.0, 1.0)),
         # OUT vs AUX: two different signals per model, not a stereo pair
         P("plaits.aux", "Aux Blend", default=0.0, musical=(0.0, 1.0)),
+        # PER-NOTE MOVEMENT. Plaits is a module: on hardware its macros are patched to
+        # envelopes and LFOs, and that is most of what it sounds like. Held still, every
+        # model collapses to one static spectrum. Signed — negative sweeps downward.
+        P("plaits.harmEnv", "Harm Sweep", rmin=-1.0, rmax=1.0, default=0.0,
+          curve=Curve.BIPOLAR, musical=(-0.4, 0.4)),
+        P("plaits.timbEnv", "Timbre Sweep", rmin=-1.0, rmax=1.0, default=0.0,
+          curve=Curve.BIPOLAR, musical=(-0.5, 0.5)),
+        P("plaits.morphEnv", "Morph Sweep", rmin=-1.0, rmax=1.0, default=0.0,
+          curve=Curve.BIPOLAR, musical=(-0.5, 0.5)),
+        P("plaits.harmLfo", "Harm Drift", default=0.0, musical=(0.0, 0.25)),
+        P("plaits.timbLfo", "Timbre Drift", default=0.0, musical=(0.0, 0.35)),
+        P("plaits.morphLfo", "Morph Drift", default=0.0, musical=(0.0, 0.35)),
+        P("plaits.modRate", "Mod Rate", unit="Hz", rmin=0.02, rmax=12.0, default=0.5,
+          curve=Curve.EXP, musical=(0.05, 4.0)),
+        P("plaits.modCurve", "Sweep Shape", rmin=-1.0, rmax=1.0, default=0.0,
+          curve=Curve.BIPOLAR, musical=(-0.8, 0.8)),
+        P("plaits.fmDepth", "Vibrato", default=0.0, musical=(0.0, 0.05)),
+        P("plaits.drive", "Drive", default=0.0, musical=(0.0, 0.2)),
+        P("plaits.tilt", "Tone Tilt", rmin=-1.0, rmax=1.0, default=0.0,
+          curve=Curve.BIPOLAR, musical=(-0.25, 0.25)),
         *_COMMON_TAIL("plaits", ampd=0.7, ampmus=(0.45, 0.9)),
     ],
 )

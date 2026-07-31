@@ -213,6 +213,26 @@ track — for reasons particular to each, explained there.
   wavetable, chords, **speech**, granular cloud, filtered noise, particle noise,
   inharmonic string, modal resonator, and analog **bass drum / snare / hi-hat**.
 
+  **Plaits is a MODULE, and held still it is only half of one.** Its three macros mean
+  different things in every engine, and on hardware nobody sets timbre and morph and then
+  leaves them there — they are patched to envelopes and LFOs, and that movement is most of
+  what the thing sounds like. Every voice now gets a **per-note contour** and **two
+  uncorrelated slow drifts** on `harm`/`timbre`/`morph`, plus the three modulation CVs the
+  UGen has and this synthdef previously left at zero (`fm_mod`, `timb_mod`, `morph_mod`).
+  The contour's shape is signed: a fast fall for a pluck's timbre collapsing, a slow swell
+  for a pad opening.
+
+  **The movement is specified per model**, because sweeping `timbre` on the waveshaper is a
+  fold opening, on the speech model a formant shift, and on the hi-hat the difference
+  between a hat and a cymbal — 113 movement bands across the 16 models. The chord engine's
+  `harm` deliberately holds still (moving it arpeggiates); the string and modal engines
+  sweep brightness *downward* as struck things do; the drum models get a short downward
+  transient and drive for weight.
+
+  A **tone stage** follows: asymmetric soft saturation (`drive`) and a gentle spectral lean
+  (`tilt`), both defaulting to zero so a model that wants to stay clean is untouched. A bare
+  oscillator is a waveform, not yet a sound.
+
   The per-step trigger fires Plaits' own envelope and low-pass gate (`decay`,
   `lpgColour`), which is exactly PoundHard's per-hit voice model. Its two outputs are
   **OUT and AUX** — two *different* signals per model, not a stereo pair (the same trap

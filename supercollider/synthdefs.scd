@@ -339,18 +339,45 @@
 	// which is exactly the per-hit behaviour PoundHard's voice model wants.
 	SynthDef(\phPlaits, { |out = 16, note = 48, vel = 1,
 		model = 0, harm = 0.5, timbre = 0.5, morph = 0.5,
-		decay = 0.5, lpgColour = 0.5, aux = 0.0, amp = 0.5, pan = 0|
+		decay = 0.5, lpgColour = 0.5, aux = 0.0, amp = 0.5, pan = 0,
+		// PER-NOTE MOVEMENT. Plaits is a MODULE: on hardware nobody sets timbre and morph
+		// and then leaves them there, they are patched to envelopes and LFOs, and that is
+		// most of what the thing sounds like. Held still, all sixteen models collapse to a
+		// single static spectrum each — technically correct and lifeless, which is what
+		// "raw" means here. These are signed depths: negative sweeps downward.
+		harmEnv = 0, timbEnv = 0, morphEnv = 0,      // contour across the note
+		harmLfo = 0, timbLfo = 0, morphLfo = 0,      // continuous drift
+		modRate = 0.5, modCurve = 0, fmDepth = 0,    // LFO Hz / contour shape / vibrato
+		drive = 0, tilt = 0|
 		var v = vel.clip(0, 2).max(0.03);
 		// Plaits' internal decay is 0..1 -> roughly 0.1..4s depending on the model; give the
 		// voice a lifetime that outlasts it so nothing is cut off, then self-free.
 		var life = 0.3 + (decay.clip(0, 1) * 4.5);
 		var trig = Impulse.ar(0);                     // one strike at spawn
+		// The contour runs 0..1 across the whole note. modCurve bends it: negative is a
+		// fast fall (a pluck's timbre collapsing), positive a slow swell (a pad opening).
+		var ramp = Line.kr(0, 1, life);
+		var contour = Select.kr(modCurve < 0, [ramp ** (1 + (modCurve * 3)).max(0.15),
+			1 - (ramp ** (1 - (modCurve * 3)).max(0.15))]);
+		// Two uncorrelated slow shapes rather than one: a sine drifts predictably and a
+		// noise wanders, and the pair stops every voice of a model moving in lockstep.
+		var lfoA = SinOsc.kr(modRate * Rand(0.85, 1.18), Rand(0, 2pi));
+		var lfoB = LFNoise2.kr(modRate * Rand(0.5, 0.9));
+		var mv = { |base, envD, lfoD|
+			(base + (envD * contour) + (lfoD * ((lfoA * 0.6) + (lfoB * 0.4)))).clip(0, 1) };
 		var sig = MiPlaits.ar(
 			pitch: note.clip(0, 127),
 			engine: model.round.clip(0, 15),
-			harm: harm.clip(0, 1), timbre: timbre.clip(0, 1), morph: morph.clip(0, 1),
+			harm: mv.(harm.clip(0, 1), harmEnv, harmLfo),
+			timbre: mv.(timbre.clip(0, 1), timbEnv, timbLfo),
+			morph: mv.(morph.clip(0, 1), morphEnv, morphLfo),
 			trigger: trig,
 			level: v.clip(0, 1),                      // LEVEL cv: velocity/accent into the VCA
+			// the three modulation CVs the module actually has, and which this synthdef
+			// left at zero: fm_mod is vibrato, and the other two ride on top of the macros
+			fm_mod: fmDepth * lfoB,
+			timb_mod: timbLfo * 0.5 * lfoA,
+			morph_mod: morphLfo * 0.5 * lfoB,
 			decay: decay.clip(0, 1), lpg_colour: lpgColour.clip(0, 1));
 		// MiPlaits returns [OUT, AUX] — two DIFFERENT signals per model, NOT a stereo pair
 		// (same trap as MiRings' odd/even taps). Blend them, then Pan2 like every other
@@ -373,7 +400,20 @@
 		var aEnv = EnvGen.ar(
 			Env.new([0, 1, 1, 0], [atk, (life - atk - rel).max(0.02), rel], [\sin, \lin, \sin]),
 			doneAction: 2);
-		var s = LeakDC.ar(mono) * trim * amp * aEnv;
+		// A TONE STAGE, because a bare oscillator is a waveform and not yet a sound. `drive`
+		// is asymmetric soft saturation — it thickens the low models and gives the digital
+		// ones edges; `tilt` is a gentle spectral lean, dark below zero and bright above,
+		// which is how one model can sit under another instead of fighting it. Both default
+		// to zero, so a voice that wants to stay clean stays exactly as it was.
+		var pre = LeakDC.ar(mono) * trim;
+		var hot = (pre * (1 + (drive * 5))).tanh / (1 + (drive * 1.7));
+		var shaped = XFade2.ar(pre, hot, (drive.clip(0, 1) * 2) - 1);
+		var dark = LPF.ar(shaped, 1400 + (2600 * (1 - tilt.abs)));
+		var brite = shaped + (HPF.ar(shaped, 1800) * 0.9);
+		var toned = Select.ar(tilt < 0, [
+			XFade2.ar(shaped, brite, (tilt.clip(0, 1) * 2) - 1),
+			XFade2.ar(shaped, dark, (tilt.neg.clip(0, 1) * 2) - 1)]);
+		var s = toned * amp * aEnv;
 		~voiceOut.(out, ~killbad.(~spread.(s, pan)));
 	}).add;
 

@@ -253,11 +253,14 @@ PALETTE_ROLES: dict[str, Role] = {
     # ICARUS — evolving pads: it must SPEAK in a groove, so attacks stay short-ish and
     # feedback moderate (high feedback washes the tone into a quiet drone); brighter filter,
     # some drive for presence. Long pads still come from long track notes, not a 2s attack.
-    "ICARUS": Role("ICARUS", "ICARUS", note_choices=tuple(_SCALE), octave=0, jitter=0.85,
+    # OCTAVE 12, not 0. _ROOT is A1, so at octave 0 this ran 33..48 — the bottom of it
+    # below C2, where a saw pad with a sub an octave under it is felt rather than heard and
+    # disappears into the kick. Up one octave puts the whole range at A2..C4.
+    "ICARUS": Role("ICARUS", "ICARUS", note_choices=tuple(_SCALE), octave=12, jitter=0.85,
                    bands={"icarus.attack": (0.005, 0.2), "icarus.decay": (0.4, 2.0),
                           "icarus.release": (0.4, 2.5), "icarus.sustain": (0.6, 0.92),
                           "icarus.feedback": (0.1, 0.45), "icarus.lpf": (1800, 10000),
-                          "icarus.resonance": (0.05, 0.4), "icarus.gain": (1.4, 2.8),
+                          "icarus.resonance": (0.05, 0.4), "icarus.gain": (2.4, 4.2),
                           "icarus.destruction": (0.0, 2.5), "icarus.sublevel": (0.25, 0.6),
                           "icarus.pwmwidth": (0.05, 0.3)}),
 }
@@ -319,6 +322,68 @@ _PLAITS_SPEC = [
 ]
 
 
+# HOW EACH MODEL SHOULD MOVE. Per model, because the macros mean different things in each
+# one and so does moving them: sweeping `timbre` on the waveshaper is a fold opening, on the
+# speech model it is a formant shift, and on the hi-hat it is the difference between a hat
+# and a cymbal. Fields: sweep depths for harm/timbre/morph (signed — negative falls), drift
+# depths for the same three, LFO rate in Hz, contour shape (negative = fast fall, positive =
+# slow swell), vibrato, drive, tone tilt.
+_PLAITS_MOD = {
+    # VA — morph walks the waveform, drive thickens it. A bass that opens slightly.
+    0:  dict(mE=(0.0, 0.1), tE=(0.1, 0.3), mrE=(-0.3, 0.3), tL=(0.02, 0.1),
+             rate=(0.1, 0.7), curve=(-0.6, 0.1), drive=(0.15, 0.45), tilt=(-0.35, 0.0)),
+    # Waveshaping — the fold is the sound, so timbre sweeps hard and fast.
+    1:  dict(tE=(-0.6, 0.6), mrE=(-0.3, 0.4), tL=(0.05, 0.2), mrL=(0.05, 0.2),
+             rate=(0.3, 2.5), curve=(-0.8, 0.2), drive=(0.1, 0.5), tilt=(0.0, 0.4)),
+    # FM — index sweep IS an FM patch. Falling index = a struck bass.
+    2:  dict(tE=(-0.7, 0.2), mE=(-0.15, 0.15), tL=(0.02, 0.12),
+             rate=(0.1, 1.2), curve=(-0.9, -0.2), drive=(0.1, 0.4), tilt=(-0.3, 0.1)),
+    # Formant — moving the formant is the whole point; vocal glide.
+    3:  dict(tE=(-0.5, 0.5), mrE=(-0.4, 0.4), tL=(0.08, 0.3), mrL=(0.05, 0.25),
+             rate=(0.4, 3.0), curve=(-0.5, 0.5), fm=(0.0, 0.08), drive=(0.0, 0.3)),
+    # Harmonic — a drawbar organ opening: slow swell, no drive.
+    4:  dict(hE=(0.1, 0.45), tE=(0.1, 0.4), hL=(0.03, 0.15), tL=(0.03, 0.15),
+             rate=(0.05, 0.5), curve=(0.2, 0.9), tilt=(-0.2, 0.3)),
+    # Wavetable — scanning the table is what it is for. Wide, slow, both axes.
+    5:  dict(hE=(-0.4, 0.4), tE=(-0.5, 0.5), mrE=(-0.5, 0.5), tL=(0.1, 0.35),
+             mrL=(0.1, 0.35), rate=(0.08, 1.5), curve=(-0.6, 0.6), tilt=(-0.3, 0.35)),
+    # Chord — the chord itself must hold still or it arpeggiates; move the waveform only.
+    6:  dict(mrE=(-0.35, 0.35), mrL=(0.05, 0.2), tL=(0.03, 0.12),
+             rate=(0.03, 0.35), curve=(0.1, 0.8), tilt=(-0.3, 0.2)),
+    # Speech — morph walks the phoneme. Fast and wide, or it is one vowel forever.
+    7:  dict(tE=(-0.5, 0.5), mrE=(-0.7, 0.7), mrL=(0.1, 0.35), tL=(0.05, 0.25),
+             rate=(0.5, 4.0), curve=(-0.7, 0.7), drive=(0.0, 0.35)),
+    # Cloud — grain density and pitch spread drifting: a texture, not a note.
+    8:  dict(hE=(-0.3, 0.35), tE=(-0.3, 0.35), hL=(0.1, 0.3), tL=(0.1, 0.3),
+             mrL=(0.08, 0.3), rate=(0.05, 0.8), curve=(-0.3, 0.8), tilt=(-0.4, 0.2)),
+    # Filtered noise — the filter sweep IS the gesture.
+    9:  dict(tE=(-0.7, 0.7), mrE=(-0.3, 0.3), tL=(0.08, 0.3),
+             rate=(0.2, 2.5), curve=(-0.8, 0.5), tilt=(-0.2, 0.4)),
+    # Particle — density and Q moving makes it rhythmic instead of a hiss.
+    10: dict(hE=(-0.4, 0.4), tE=(-0.4, 0.4), hL=(0.1, 0.3), mrL=(0.08, 0.3),
+             rate=(0.3, 4.0), curve=(-0.6, 0.6), drive=(0.0, 0.3), tilt=(0.0, 0.4)),
+    # String — brightness falls as a plucked string does. Inharmonicity stays put.
+    11: dict(tE=(-0.6, -0.1), mrE=(-0.3, 0.2), hL=(0.01, 0.06),
+             rate=(0.05, 0.6), curve=(-0.9, -0.3), fm=(0.0, 0.06), drive=(0.05, 0.3)),
+    # Modal — a struck bar: excitation brightness collapses, body rings on.
+    12: dict(tE=(-0.6, -0.1), mrE=(-0.25, 0.25), hL=(0.01, 0.08),
+             rate=(0.05, 0.8), curve=(-0.9, -0.3), fm=(0.0, 0.05), tilt=(-0.2, 0.25)),
+    # Drums: the sweep is the transient. Short, downward, drive for weight.
+    13: dict(tE=(-0.4, -0.05), mrE=(-0.25, 0.0), rate=(0.05, 0.4),
+             curve=(-1.0, -0.5), drive=(0.2, 0.55), tilt=(-0.4, -0.05)),
+    14: dict(tE=(-0.45, -0.05), mrE=(-0.3, 0.1), rate=(0.05, 0.5),
+             curve=(-1.0, -0.5), drive=(0.15, 0.5), tilt=(-0.1, 0.3)),
+    15: dict(tE=(-0.35, 0.1), mrE=(-0.25, 0.05), rate=(0.1, 0.6),
+             curve=(-1.0, -0.4), drive=(0.05, 0.35), tilt=(0.1, 0.5)),
+}
+_MOD_PARAM = {"hE": "harmEnv", "tE": "timbEnv", "mrE": "morphEnv",
+              "hL": "harmLfo", "tL": "timbLfo", "mrL": "morphLfo",
+              "rate": "modRate", "curve": "modCurve", "fm": "fmDepth",
+              "drive": "drive", "tilt": "tilt"}
+# `mE` was a typo-prone alias for harm sweep in a couple of rows; accept it too.
+_MOD_PARAM["mE"] = "harmEnv"
+
+
 def _plaits_role(spec) -> Role:
     model, name, _cat, note, harm, timbre, morph, decay = spec
     kw = {}
@@ -326,11 +391,14 @@ def _plaits_role(spec) -> Role:
         kw["note"] = note
     else:
         kw["note_choices"], kw["octave"] = note[0], note[1]
+    bands = {"plaits.harm": harm, "plaits.timbre": timbre,
+             "plaits.morph": morph, "plaits.decay": decay,
+             "plaits.lpgColour": (0.15, 0.85), "plaits.aux": (0.0, 0.5)}
+    for key, band in _PLAITS_MOD.get(model, {}).items():
+        bands["plaits." + _MOD_PARAM[key]] = band
     return Role(name, "PLAITS",
                 fixed={"plaits.model": float(model)},
-                bands={"plaits.harm": harm, "plaits.timbre": timbre,
-                       "plaits.morph": morph, "plaits.decay": decay,
-                       "plaits.lpgColour": (0.15, 0.85), "plaits.aux": (0.0, 0.5)},
+                bands=bands,
                 vel=(0.8, 1.05), **kw)
 
 
