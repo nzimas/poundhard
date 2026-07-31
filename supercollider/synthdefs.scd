@@ -874,6 +874,16 @@
 	// MIC capture: the same threshold-latched recorder as \phCapture, pointed at the
 	// microphone instead of a bus. Mono — the Move's mic is one capsule, and a take that
 	// becomes a playable sample wants to be mono anyway.
+	// INPUT SCAN — measure EVERY hardware input, not just the two the launcher calls the
+	// microphone. The shadow driver names its capture ports %s:capture_%d, and how many it
+	// creates depends on the shared-memory layout it attaches to. Assuming the mic is on the
+	// first pair is exactly the kind of assumption that has already cost this engine two
+	// rounds, so this looks at all 36 and reports which carry anything.
+	SynthDef(\phInScan, { |rate = 2, gain = 64|
+		var sig = In.ar(NumOutputBuses.ir, 36) * gain;
+		SendReply.kr(Impulse.kr(rate), '/ph/inscanrep', Amplitude.kr(sig, 0.02, 0.2));
+	}).add;
+
 	SynthDef(\phMicCapture, { |buf = 0, thresh = 0.02, timeout = 8, gain = 1|
 		var sig = SoundIn.ar([0, 1]);
 		var mono = HPF.ar((sig[0] + sig[1]) * 0.5 * gain, 35);   // kill rumble/DC off the capsule

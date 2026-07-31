@@ -144,6 +144,7 @@
 ~micLevelSy = nil;                     // MIC level probe, if any
 ~micCapSy = nil;                       // the live \phMicCapture synth, if any
 ~micCapBuf = nil;                      // MIC capture buffer
+~inScanSy = nil;                       // diagnostic input sweep
 ~smpCapBuf = nil;                      // buffer being recorded into
 ~smpMaxDur = 2.0;                      // cap a take (buffer length caps RecordBuf)
 ~bbExprIdx = Array.fill(~nTracks, { 0 });   // per-track expression index into ~bbExprs
@@ -964,6 +965,23 @@
 	OSCdef(\phMicLevelRep, { |m|
 		~ctrl.sendMsg('/ph/miclevel', m[3].asFloat, m[4].asFloat);
 	}, '/ph/micrep'),
+	// /ph/inscan <on>: diagnostic sweep of every hardware input, posted to the engine log.
+	OSCdef(\phInScanCmd, { |m|
+		(~ready == true).if {
+			(m[1].asInteger > 0).if({
+				~inScanSy.isNil.if {
+					~inScanSy = Synth.head(~gClear, \phInScan, [\gain, (m[2] ? 64).asFloat]);
+					~inScanSy.register; ~inScanSy.onFree({ ~inScanSy = nil });
+				};
+			}, { ~inScanSy.notNil.if { ~inScanSy.free; ~inScanSy = nil } });
+		};
+	}, '/ph/inscan'),
+	OSCdef(\phInScanRep, { |m|
+		var vals = m.copyRange(3, m.size - 1);
+		var hot = "";
+		vals.do { |v, i| (v > 0.0005).if { hot = hot ++ ("in%d=%.4f ".format(i, v)) } };
+		("INSCAN " ++ (hot.isEmpty.if({ "ALL SILENT" }, { hot }))).postln;
+	}, '/ph/inscanrep'),
 	// /ph/micarm <thresh>: arm a threshold capture on the MICROPHONE. Unlike SAMPLE there is
 	// no source engine to tap — the room IS the source — so the gesture is holding the MIC
 	// pad on its own, and the take starts on the first sound loud enough to cross.

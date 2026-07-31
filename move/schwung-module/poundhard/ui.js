@@ -142,7 +142,7 @@ const TYPE_COL = {
  * Short-press = audition, Shift+pad = regenerate, hold pad + tap a track = assign. */
 const ENGINE_TYPES = ['DRUM', 'FM7', 'BUCHLOID', 'MOLLY', 'RINGS', 'BEN', 'NOIZEOP',
     'ICARUS', 'PLAITS', 'SHAKER', 'MEMBRANE', 'MALLET', 'BOWED', 'PLUCK', 'TUBE', 'CHAOS',
-    'WTABLE', 'BYTEBEAT', 'SAMPLE', 'CSOUND', 'MIC'];
+    'WTABLE', 'BYTEBEAT', 'SAMPLE', 'CSOUND'];
 const N_ENGINES = ENGINE_TYPES.length;
 
 /* ---- runtime state (mirrors status.json) ---- */
@@ -276,6 +276,14 @@ const SAMPLE_CELL = 18;
 /* MIC sits on slot 21, immediately after the live CSOUND engine. Unlike SAMPLE it needs no
    source pad to tap — the room is the source — so holding it alone arms the capture. */
 const MIC_CELL = 20;
+/* OFF, because the hardware will not feed it. PROVEN, not assumed: with a loud pattern
+   playing through the Move's OWN SPEAKER, inputs 0-1 measured ~0.011 — identical to the
+   level with the transport stopped. A live capsule inches from a speaker cannot fail to
+   move. The shadow JACK backend presents system:capture_N and fills it with a ~-86 dB
+   floor; the microphone itself never arrives. Every other input reads exactly zero, so
+   there is no other pair to look on either.
+   The engine is complete and stays in the tree. Flip this to true the day capture works. */
+const MIC_ENABLED = false;
 const MIC_ARM = 5, MIC_REC = 6, MIC_READY = 21;   /* red armed / bright red recording / green ready */
 let drumMode = -1;                   /* committed DRUM type (-1 = any); mirrors the controller */
 let drumPick = -1;                   /* type picked while the DRUM pad is held, committed on release */
@@ -516,7 +524,7 @@ function renderLEDs() {
                 else if (smpState === 'processing') color = (phase % 16 < 8) ? 28 : 111;
                 else if (smpState === 'ready') color = (phase % 24 < 12) ? 8 : 30;
                 else color = (smpHold && paletteHeld === c) ? White : TYPE_COL.SAMPLE[0];
-            } else if (c === MIC_CELL) {
+            } else if (c === MIC_CELL && MIC_ENABLED) {
                 /* Same narration as SAMPLE, plus a LEVEL METER while armed: the pad brightens
                  * with what the microphone is hearing, so you can aim it and judge the
                  * threshold without looking at the screen. Nothing else on the instrument
@@ -1394,7 +1402,7 @@ globalThis.onMidiMessageInternal = function (data) {
             ledDirty = true; screenDirty = true;
             return;
         }
-        if (cell === MIC_CELL && !shiftHeld) {
+        if (MIC_ENABLED && cell === MIC_CELL && !shiftHeld) {
             /* The room is the source, so there is no second pad to tap: holding this one
                arms the capture directly. A finished take is left alone — pressing again
                would throw away something you just recorded. */
