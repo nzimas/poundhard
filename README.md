@@ -1309,10 +1309,20 @@ Switching off stops the Lua process, frees the synth and wipes both tapes. It th
 **not** join the [Quake](#quake)/[Break](#break) mutual-exclusion lock — it owns no track's
 rate, length or steps, so it has nothing to collide with.
 
-Measured on the device across three 34-second takes — off, on, off again — bar-to-bar
-similarity **+0.72 / +0.23 / +0.65**, peak **0.950 with zero full-scale samples in all
-three**. For comparison the reimplementation it replaced managed +0.59: it was adding a
-layer, where the script rearranges what you hear.
+**Two things the script does not decide, and PoundHard must.** First, **level**: the script
+sets softcut's output to full, because on a norns the tape *is* the instrument. Here it is an
+effect on a running mix, so `wetMix` caps it at **30% of the signal feeding it**, with the dry
+left at unity — crossfading instead would drop the whole mix 3 dB the moment the pad is
+pressed. Second, **lap length**: the script's default frame is the whole 64-second tape,
+which means the heads need 64 seconds to come back around to anything they recorded. A
+40-second take measured *quieter* with Compass on than off for exactly that reason — the
+heads were playing buffer that had never been written. A norns player pulls End point down;
+the performer here keeps the frame between 8 and 24 seconds, which is long enough to be a
+tape and short enough to fill.
+
+Measured on the device — off, on, off again — bar-to-bar similarity **+0.73 / +0.56 /
++0.67**, RMS **−9.0 / −9.9 / −9.1 dB** (engaging it costs under a decibel), peak **0.950
+with zero full-scale samples in all three**.
 
 ### The chaos macro (knob 8)
 

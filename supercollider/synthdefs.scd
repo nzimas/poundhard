@@ -952,7 +952,7 @@ SynthDef(\phChurnVoice, { |out = 0, buf = 0, amp = 0.5, pan = 0, rate = 1, atk =
 //
 // Every parameter the script can reach is an argument, named as norns names it, because
 // compass.lua is run unmodified and calls what it calls.
-SynthDef(\phCompass, { |out = 0, in = 0, buf1 = 0, buf2 = 1,
+SynthDef(\phCompass, { |out = 0, in = 0, buf1 = 0, buf2 = 1, wetMix = 0.3,
 	// softcut.level_input_cut(channel, voice, amp) — the 2x2 input matrix. stereo() sends
 	// input L to voice 1 and input R to voice 2; mono() sends L to both at half.
 	in11 = 1, in21 = 0, in12 = 0, in22 = 1,
@@ -985,12 +985,20 @@ SynthDef(\phCompass, { |out = 0, in = 0, buf1 = 0, buf2 = 1,
 	// softcut. Without it the script sets Lua variables that never leave Lua.
 	SendReply.kr(Impulse.kr(30), '/ph/compassphase', [A2K.kr(v1[1]), A2K.kr(v2[1])]);
 
-	// THIS IS AN INSERT, NOT A SEND. The synth sits after the master limiter, so the dry on
-	// this bus is already against its 0.95 ceiling; adding tape heads on top of it cannot
-	// help but pass full scale — measured at peak 1.000 with hundreds of samples pinned.
-	// Attenuating the heads only shrinks the overshoot. So it takes the bus over: dry plus
-	// wet, through its own limiter at the same ceiling, written back.
-	ReplaceOut.ar(out, Limiter.ar(~killbad.(dry + (wet * cutLevel)), 0.95, 0.005));
+	// THIS IS AN INSERT, NOT A SEND, and it is a real DRY/WET CROSSFADE rather than an add.
+	// The script sets softcut's own output to full (`sc.level(i,1)`, `audio.level_cut(1)`)
+	// because on a norns that IS the instrument. Here it is an effect on a running mix, so
+	// full-level heads laid over the dry meant the tape was 100% of the signal feeding it,
+	// and — with the script's Overdub of 1 accumulating every lap — it grew until the
+	// limiter had eaten the dry entirely. wetMix caps the tape at about thirty percent of
+	// what feeds it. The DRY stays at unity: crossfading instead would drop the whole mix
+	// 3 dB the moment the pad is pressed, which is not what a modifier should do.
+	//
+	// The insert also has to own the ceiling: this synth sits after the master limiter, so
+	// the dry on this bus is already against 0.95 and anything added to it passes full
+	// scale (measured at peak 1.000, hundreds of samples pinned).
+	ReplaceOut.ar(out, Limiter.ar(
+		~killbad.(dry + (wet * cutLevel * wetMix)), 0.95, 0.005));
 }).add;
 
 SynthDef(\phTrackFilter, { |in = 16, out = 16, cutoff = 18000, res = 0.0, type = 0,

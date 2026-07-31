@@ -80,45 +80,77 @@ end
 
 local performed = 0
 
+-- Recording is a TOGGLE in the script (`::` and key 3 both flip recLevel), so wanting a
+-- state means comparing and pressing. Reading recLevel back is what makes that possible.
+local function set_rec(want)
+	local cur = (peek("recLevel") or 0) > 0
+	if cur ~= want then press(3) end
+end
+
 local function perform()
 	performed = performed + 1
-	local r = math.random()
 
-	-- A new command sequence is the single biggest gesture available, and the script starts
-	-- with every step set to command 1 (a no-op that only resets the clock), so the first
-	-- perform MUST randomise or nothing ever happens.
 	if performed == 1 then
-		press(2)                                  -- randomize_steps
-		press(3)                                  -- recLevel 0 -> 1, start recording
+		-- The script starts with every step set to command 1, which only resets the clock,
+		-- so without this nothing ever happens.
+		press(2)
+		-- Overdub is what stops the tape running away. The script's default is 1, meaning
+		-- new = old + input on every lap with NO decay: leave it there with recording on and
+		-- the buffer accumulates until it swamps everything. On a norns you reach for this
+		-- knob; here that is this line.
+		params:set("Overdub", math.random(45, 80) / 100)
+		params:set("Fade", math.random(2, 12) / 100)
+		-- THE FRAME DECIDES HOW LONG A LAP TAKES, and that is the difference between a tape
+		-- loop and silence. The script's default is the whole 64-second tape, which means
+		-- the heads need 64 seconds to come back around to anything they recorded — a
+		-- 40-second take measured 3.7 dB QUIETER with Compass on than off, because for the
+		-- whole take the heads were playing buffer that had never been written. A norns
+		-- player pulls End point down for exactly this reason; that is this line.
+		--
+		-- The other end of the range matters just as much: collapse the frame to a second
+		-- or two and a loop with recording on IS a short delay. Eight to twenty-four
+		-- seconds is long enough to be a tape and short enough to fill.
+		params:set("Start point", 1)
+		params:set("End point", math.random(9, 25))
+		set_rec(true)                             -- lay something down to work with
 		report()
 		return
 	end
 
-	if r < 0.16 then
+	-- THE RECORDER GOES ON AND OFF, and is off more than it is on. That is the difference
+	-- between a tape loop and a delay line: with recording on continuously the heads are
+	-- always chewing the last few seconds of live input, which is a delay however cleverly
+	-- the loop points move. With it off, they are chewing something captured a while ago
+	-- and now being played backwards, at half speed, from the wrong place.
+	local r = math.random()
+	if r < 0.34 then
+		set_rec(true)
+	elseif r < 0.72 then
+		set_rec(false)
+	end
+
+	local q = math.random()
+	if q < 0.22 then
 		press(2)                                  -- fresh command sequence
-	elseif r < 0.26 then
+	elseif q < 0.32 then
 		with_key1(function() enc(1, math.random(-4, 4)) end)   -- sequence length
-	elseif r < 0.42 then
-		-- move the loop window. Start/End point are the bounds loopRnd draws inside, so
-		-- this is what decides whether the tape roams the whole 64 seconds or worries at
-		-- a few of them.
-		with_key1(function()
-			enc(2, math.random(-12, 12))
-			enc(3, math.random(-12, 12))
-		end)
-	elseif r < 0.50 then
-		press(3)                                  -- arm / disarm recording
-	elseif r < 0.54 then
+	elseif q < 0.40 then
 		press(3, 1.4)                             -- long hold: cutReset, wipe the tape
-	elseif r < 0.68 then
+	elseif q < 0.56 then
 		params:set("Pan (L)", -math.random(0, 90) / 100)
 		params:set("Pan (R)", math.random(0, 90) / 100)
-	elseif r < 0.76 then
-		params:set("Fade", math.random(1, 40) / 100)
-	elseif r < 0.84 then
+	elseif q < 0.66 then
+		params:set("Fade", math.random(1, 30) / 100)
+	elseif q < 0.76 then
 		params:set("Rate (slew)", math.random(0, 60) / 100)
-	elseif r < 0.90 then
-		params:set("Overdub", math.random(70, 100) / 100)
+	elseif q < 0.86 then
+		params:set("Overdub", math.random(40, 85) / 100)
+	elseif q < 0.94 then
+		-- Re-frame the tape, both bounds at once and always wide, so the frame moves
+		-- without ever collapsing.
+		local a = math.random(1, 40)
+		params:set("Start point", a)
+		params:set("End point", math.min(65, a + math.random(8, 24)))
 	end
 	now = now + 0.5
 	report()

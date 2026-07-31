@@ -167,7 +167,10 @@ class Compass:
         elif kind == "state" and len(f) >= 8:
             self.glyph = f[1]
             self.division = int(float(f[2]))
-            self.rate = float(f[3])
+            # f[3] is the script's rate_pos, which is NOT the live rate: rateForward and
+            # rateReverse set softcut directly and never touch rate_pos, so a readout built
+            # on it says "+1" while the tape is running backwards. The real rate is the last
+            # value the script actually sent, tracked below.
             self.loop = (float(f[4]), float(f[5]))
             self.recording = float(f[6]) > 0
             self.steps = int(float(f[7]))
@@ -181,6 +184,8 @@ class Compass:
         if fn == "buffer_clear":
             self.bridge.compassclear(voice)
             return
+        if fn == "rate" and voice == 1:
+            self.rate = value
         arg = _GLOBAL_ARG.get(fn)
         if arg is not None:
             self._set(arg, value)
