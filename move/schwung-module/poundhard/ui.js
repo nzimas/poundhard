@@ -221,6 +221,10 @@ let seqBeats = 0, lastPulseMs = 0, wasRunning = false;
 let lastStepCol = new Array(N_TRACKS).fill(-1);
 
 let shiftHeld = false, masterTouched = false;
+/* Modifiers that RESTRUCTURE RHYTHM are phrase-quantised: the press arms them and the
+   controller commits on a musical seam. `armedSet` is what is pressed but not yet engaged,
+   so the pad can say "heard you, waiting" instead of looking broken for up to a phrase. */
+let armedSet = {}, phraseBars = 4, phraseBar = 0;
 /* Pattern-view modifiers: X (Delete) + pad = delete & close the gap; Copy + pad = copy,
  * then further pads paste while Copy stays down. Releasing Copy forgets the clipboard. */
 let deleteHeld = false, copyHeld = false, copyArmed = false;
@@ -818,7 +822,7 @@ function drawScreen() {
             return;
         }
         print(0, 6, 'POUNDHARD', 2);
-        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : '') + (shufOn ? '  SHUF' : '') + (quakeOn ? '  QUAKE' : '') + (churnOn ? '  CHURN' : '') + (brkOn ? ('  BRK/' + brkEvery) : '') + (strobeOn ? '  STRB' : ''), 1);
+        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : '') + (shufOn ? '  SHUF' : '') + (quakeOn ? '  QUAKE' : '') + (churnOn ? '  CHURN' : '') + (brkOn ? ('  BRK/' + brkEvery) : '') + (strobeOn ? '  STRB' : '') + (Object.keys(armedSet).length ? ('  ARM ' + Object.keys(armedSet).join(',').toUpperCase() + ' ' + (phraseBar + 1) + '/' + phraseBars) : ''), 1);
         print(0, 44, 'pad=hear  shift+pad=gen  copy=dup', 1);
         print(0, 56, 'k8=chaos  heat=btm-left pad', 1);
     } else if (lenArm) {
@@ -890,6 +894,9 @@ function readStatus() {
     if (s.brkEvery != null && !brkHeld) brkEvery = s.brkEvery;
     if (s.brkNow != null) brkNow = !!s.brkNow;
     if (s.strobe != null && !strobeHeld) strobeOn = !!s.strobe;
+    if (s.armed != null) { armedSet = {}; for (let i = 0; i < s.armed.length; i++) armedSet[s.armed[i]] = 1; }
+    if (s.phraseBars != null) phraseBars = s.phraseBars;
+    if (s.phraseBar != null) phraseBar = s.phraseBar;
     if (s.heatPct != null && knobShow !== 'heat') heatPct = s.heatPct;
     if (s.drumMode != null && paletteHeld !== DRUM_CELL) drumMode = s.drumMode;
     scaleLabel = (s.scale && s.scale.name) ? (noteName(s.scale.root).replace(/[0-9-]/g, '') + ' ' + s.scale.name) : '';
@@ -1070,7 +1077,7 @@ globalThis.tick = function () {
     if (running && patView && patPending >= 0) ledDirty = true;   /* animate the queued-slot pulse */
     if (recView && recState !== 'idle') ledDirty = true;          /* animate the rec/armed pad */
     if (editTrack >= 0 && !fxView) { for (var _lv = 0; _lv < N_STEPS; _lv++) if (editLiving[_lv]) { ledDirty = true; break; } }  /* pulse living steps */
-    if ((heatOn || shufOn || quakeOn || churnOn || brkOn || strobeOn) && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse the six modifier pads */
+    if ((heatOn || shufOn || quakeOn || churnOn || brkOn || strobeOn || armedSet.quake || armedSet.break || armedSet.strobe || armedSet.shuffle) && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse the six modifier pads */
     /* promote a sustained press on the SAMPLE pad into a HOLD (record-arm) */
     if (paletteHeld === SAMPLE_CELL && !smpHold && (Date.now() - paletteHeldStart) >= HOLD_MS) {
         smpHold = true; ledDirty = true; screenDirty = true;
@@ -1387,7 +1394,7 @@ globalThis.onMidiMessageInternal = function (data) {
         if (cell === SHUF_CELL) {                          /* Shuffle pad up: short press = toggle */
             if (shufHeld) {
                 shufOn = !shufOn;                          /* optimistic; server confirms via status */
-                sendCmd('shuffle', shufOn ? 1 : 0);        /* each toggle-on rolls a fresh config */
+                sendCmd('shuffle', shufOn ? 1 : 0, shiftHeld ? { p: { now: 1 } } : null);   /* Shift = now, don't wait for the phrase */        /* each toggle-on rolls a fresh config */
                 showAction(shufOn ? 'SHUFFLE' : 'SHUF OFF');
             }
             shufHeld = false; ledDirty = true; screenDirty = true;
@@ -1399,7 +1406,7 @@ globalThis.onMidiMessageInternal = function (data) {
                     showAction('QUAKE LOCKED - BREAK ON');
                 } else {
                     quakeOn = !quakeOn;                    /* optimistic; server confirms via status */
-                    sendCmd('quake', quakeOn ? 1 : 0);     /* each toggle-on rolls a fresh config */
+                    sendCmd('quake', quakeOn ? 1 : 0, shiftHeld ? { p: { now: 1 } } : null);   /* Shift = now, don't wait for the phrase */     /* each toggle-on rolls a fresh config */
                     showAction(quakeOn ? 'QUAKE' : 'QUAKE OFF');
                 }
             }
@@ -1423,7 +1430,7 @@ globalThis.onMidiMessageInternal = function (data) {
                     showAction('BREAK LOCKED - QUAKE ON');
                 } else {
                     brkOn = !brkOn;                        /* optimistic; server confirms */
-                    sendCmd('break', brkOn ? 1 : 0);
+                    sendCmd('break', brkOn ? 1 : 0, shiftHeld ? { p: { now: 1 } } : null);   /* Shift = now, don't wait for the phrase */
                     showAction(brkOn ? ('BREAK 1/' + brkEvery) : 'BREAK OFF');
                 }
             }
@@ -1433,7 +1440,7 @@ globalThis.onMidiMessageInternal = function (data) {
         if (cell === STROBE_CELL) {                        /* Strobe pad up: short = toggle */
             if (strobeHeld) {
                 strobeOn = !strobeOn;
-                sendCmd('strobe', strobeOn ? 1 : 0);
+                sendCmd('strobe', strobeOn ? 1 : 0, shiftHeld ? { p: { now: 1 } } : null);   /* Shift = now, don't wait for the phrase */
                 showAction(strobeOn ? 'STROBE' : 'STROBE OFF');
             }
             strobeHeld = false; ledDirty = true; screenDirty = true;

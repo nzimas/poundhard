@@ -23,6 +23,7 @@ import traceback
 from pathlib import Path
 
 from . import catalog
+from . import phrase
 from .catalog import FX_SPECS, N_FX
 from .engine_bridge import EngineBridge
 from .tracks import DRUM_TRACKS, N_PATTERNS, N_STEPS, N_TRACKS, Project
@@ -149,6 +150,9 @@ class Controller:
         self._compass = None
         self._strobe_on = False
         self._strobe = None
+        # PHRASE-QUANTISED ARMING. A pad press states an INTENT; the monitor picks the bar.
+        self._phrase = phrase.PhraseMonitor()
+        self._armed: dict[str, tuple] = {}   # cmd -> (arg, p, bars waited)
         self._rand_debug = False
         # performance recording
         self._rec_state = "idle"                 # idle | armed | recording
@@ -565,6 +569,49 @@ class Controller:
         self.bridge.compass(False)
         self._compass = None
 
+    # -- phrase-quantised arming -------------------------------------------- #
+    def _defer(self, cmd: str, arg, p: dict) -> bool:
+        """Hold a modifier until the phrase says now. True = held, False = do it here.
+
+        Pressing the pad again before it commits CANCELS rather than queueing a second
+        change: the gesture means "no, not that", and a queue would fire it later anyway.
+        """
+        if cmd in self._armed:
+            del self._armed[cmd]
+            print("[poundhard] %s: disarmed" % cmd, flush=True)
+            return True
+        if not self.state.running:
+            return False                      # stopped: no phrase to wait for
+        self._phrase.maybe_analyse(self.state)
+        self._armed[cmd] = (arg, dict(p), 0)
+        print("[poundhard] %s: ARMED — phrase %d bars, bar %d/%d, seam %.2f"
+              % (cmd, self._phrase.phrase_bars, self._phrase.next_bar + 1,
+                 self._phrase.phrase_bars, self._phrase.quality()), flush=True)
+        return True
+
+    def _phrase_tick(self) -> None:
+        """One bar. Commit anything armed whose moment has come."""
+        with self._lock:
+            self._phrase.maybe_analyse(self.state)
+            self._phrase.tick()
+            if not self._armed:
+                return
+            ready = []
+            for cmd, (arg, p, waited) in list(self._armed.items()):
+                if self._phrase.ready(waited):
+                    ready.append((cmd, arg, p))
+                    del self._armed[cmd]
+                else:
+                    self._armed[cmd] = (arg, p, waited + 1)
+        for cmd, arg, p in ready:
+            print("[poundhard] %s: engaging on bar %d/%d (seam %.2f)"
+                  % (cmd, self._phrase.next_bar + 1, self._phrase.phrase_bars,
+                     self._phrase.quality()), flush=True)
+            with self._lock:
+                q = dict(p)
+                q["now"] = 1
+                self._dispatch(cmd, arg, q)
+
     # -- STROBE: rhythmic gating + microlooping on the track buses ----------- #
     def _strobe_live(self) -> tuple[list[int], set[int]]:
         """Which tracks are worth touching, and which are carrying the pattern.
@@ -794,6 +841,7 @@ class Controller:
 
     # -- patterns & projects ----------------------------------------------- #
     def _on_cycle(self) -> None:
+        self._phrase_tick()                # commit anything armed, before the bar turns
         self._churn_spend()
         self._break_tick()
         self._rand_tick()
@@ -1065,8 +1113,19 @@ class Controller:
         "stepcopy", "rowcopy",
     })
 
+    # The modifiers that RESTRUCTURE RHYTHM. Engaging one of these mid-phrase is what makes
+    # a good effect sound like a mistake, so a press arms it and phrase.py picks the bar.
+    # CHURN and the step randomizers are absent deliberately: they ornament rather than
+    # restructure, so there is no seam to land.
+    _QUANTISED = frozenset({"quake", "break", "strobe", "shuffle"})
+
     def _dispatch(self, cmd: str, arg, p: dict) -> None:
         st = self.state
+        # Shift + pad sets p["now"] — the escape hatch. Waiting for the phrase is right
+        # nine times out of ten and wrong on stage, so there is always a way to say NOW.
+        if cmd in self._QUANTISED and not p.get("now"):
+            if self._defer(cmd, arg, p):
+                return
         if cmd in self._UNDOABLE:
             st.push_undo()                     # capture the state BEFORE the action
         if cmd not in self._NO_STATE:
@@ -1557,6 +1616,9 @@ class Controller:
             "brkEvery": self._break_every,     # cycles between breaks
             "brkNow": self._break_active,      # a break is running this cycle
             "strobe": self._strobe_on,         # STROBE macro engaged
+            "armed": sorted(self._armed.keys()),   # pressed, waiting for the phrase
+            "phraseBars": self._phrase.phrase_bars,
+            "phraseBar": self._phrase.next_bar,
             # performance recorder
             "recSlots": list(self._rec_slots),
             "recSlot": self._rec_slot,

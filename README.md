@@ -1130,6 +1130,44 @@ The generated tracks are laid out **contiguously from track 1 and grouped by eng
 with roles in musical order inside each block). Since the step buttons are coloured by
 engine, a generated rig reads as **contiguous colour blocks** rather than a scatter.
 
+### Phrase-quantised arming
+
+The rhythmic modifiers — [SHUFFLE](#shuffle), [QUAKE](#quake), [BREAK](#break) and
+[STROBE](#strobe) — used to engage on the keypress. A pattern does not care when you press a
+pad, so the change landed wherever your thumb did: two steps into a bar, halfway through a
+fill, in a phrase with four bars still to run. That reads as a mistake even when the effect
+itself is good, because the ear hears the seam rather than the effect.
+
+**A press now states an intent; `phrase.py` picks the bar.** The same on the way out.
+
+**The phrase is computed from the pattern, not assumed to be a bar.** Every track has its own
+length and its own clock rate, so 12 steps at rate 1 against 16 at 3:2 does not come back
+round for a while — and the moment they all realign is the one place in the piece where a
+change costs nothing. That is the LCM of the per-track cycles, taken in **exact rationals** so
+a 3:2 rate is not rounded into a cycle that never lines up, then snapped to a musical length
+(an exact LCM of 11 bars is arithmetically right and musically useless).
+
+**Seam quality** ranks the candidates — the phrase boundary is worth most, the half and
+quarter less, a plain barline least — and **onset density** adjusts it. A change *into* a
+sparse bar or *out of* a busy one is masked by the music either way, and with polymeter the
+bars of a phrase are genuinely not interchangeable, so this finds the thin one.
+
+**The threshold decays**, so nothing armed can hang: it starts out holding for a phrase
+boundary and by one full phrase will accept any barline. **The longest anything waits is one
+phrase.**
+
+- **Pad** — arm. The pad blinks fast while waiting; the screen shows `ARM STROBE 3/4`.
+- **Pad again while armed** — cancel. The gesture means "no, not that", so it does not queue.
+- **Shift + pad** — engage **now**. Waiting is right nine times out of ten and wrong on
+  stage, so there is always a way to say now.
+
+[CHURN](#churn) and the [step randomizers](#per-parameter-step-randomizers) are deliberately
+excluded: they ornament rather than restructure, so there is no seam to land on.
+
+Measured on the device: with a 4-bar phrase, arming at bar 3 (seam 0.70) engaged at bar 1
+(seam 1.00) — 3.4–3.9 s later, i.e. it held for the two bars to the phrase boundary. Shift +
+pad engaged in 0.31 s with nothing left armed.
+
 ### Quake
 
 The third temporary modifier, beside HEAT and SHUFFLE, and like them an **engine-only
