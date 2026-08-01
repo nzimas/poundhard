@@ -44,9 +44,11 @@ GENERATORS = [
   agen  gendy 1, int(k1 * 5), int(k2 * 5), ifq * 0.5, ifq * 2, k3 * 0.9 + 0.05, k4 * 0.9 + 0.05, 12, 12
   agen  = agen * 0.7"""),
     ("GRAINN", "stoch", """
-  ; Grains scattered over a frozen noise table — periodic noise, so it locks to the pulse
-  ; instead of hissing over it.
-  agen  grain3 ifq, 0, k1 * 400, k2 * 0.5, 0.005 + k3 * 0.12, 8 + k4 * 190, 40, giNoiseT, giGrEnv, 1, 1"""),
+  ; Grains scattered over a PITCHED table. This read giNoiseT — the frozen noise table — and
+  ; so was granulated hiss by construction: measured four noise draws out of four through two
+  ; of its four stages. Granulating the inharmonic bell table keeps the grain character and
+  ; gives it a fundamental to be grainy ABOUT.
+  agen  grain3 ifq, 0, k1 * 120, k2 * 0.35, 0.008 + k3 * 0.1, 12 + k4 * 160, 40, giBell, giGrEnv, 1, 1"""),
     ("RESBANK", "stoch", """
   ; Noise through a bank of sharp resonators: pitched by the filters, not by an oscillator.
   anz   PhNoise 1, 0.5 + k1 * 2.5
@@ -82,7 +84,7 @@ GENERATORS = [
   ; its own rather than following an index envelope.
   kf1   = ifq
   kf2   = ifq * (1 + k1 * 4)
-  a1, a2 crosspm kf1, kf2, k2 * 6, k3 * 6, 1 + k4 * 8, giSine, giSine
+  a1, a2 crosspm kf1, kf2, k2 * 3.5, k3 * 3.5, 1 + k4 * 5, giSine, giSine
   agen  = (a1 * 0.6 + a2 * 0.4) * 0.7"""),
     ("FMMETAL", "fm", """
   agen  fmmetal 0.55, ifq, k1 * 3, k2 * 5, 0.1 + k3 * 4, 1 + k4 * 8, giSine, giSine, giSine, giSine, giSine"""),
@@ -124,8 +126,8 @@ GENERATORS = [
   agen  pluck 0.7, ifq, ifq * (0.5 + p7 * 1.5), giNoiseT, 1 + int(p8 * 5.99), 0.1 + p9 * 0.8, 10 + p10 * 500
   agen  = agen * (0.5 + k4 * 0.6)"""),
     ("DRIP", "physical", """
-  agen  dripwater 0.8, 0.01 + p7 * 0.06, 5 + int(p8 * 40), 0.05 + p9 * 0.35, 0.6, ifq, ifq * (1.4 + p10), ifq * 2.3
-  agen  = agen * 6"""),
+  agen  dripwater 0.8, 0.01 + p7 * 0.06, 5 + int(p8 * 40), 0.02 + p9 * 0.16, 0.9, ifq, ifq * (1.4 + p10), ifq * 2.3
+  agen  = agen * 8"""),
     ("TAMB", "physical", """
   agen  tambourine 0.6, 0.01 + p7 * 0.1, 5 + int(p8 * 40), 0.1 + p9 * 0.8, 0.6, ifq, ifq * (1.5 + p10), ifq * 2.7"""),
     ("SLEIGH", "physical", """
@@ -194,12 +196,20 @@ GENERATORS = [
 # --------------------------------------------------------------------------- #
 PROCESSORS = [
     ("BODY", """
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8"""),
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)"""),
     ("SMEAR", """
   ; Streaming phase vocoder: blur the spectrum in TIME, so transients turn into weather.
   fsin  pvsanal agen, 1024, 256, 1024, 1

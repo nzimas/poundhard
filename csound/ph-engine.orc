@@ -549,12 +549,20 @@ instr 21   ; GENDY -> BODY
   agen  gendy 1, int(k1 * 5), int(k2 * 5), ifq * 0.5, ifq * 2, k3 * 0.9 + 0.05, k4 * 0.9 + 0.05, 12, 12
   agen  = agen * 0.7
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 12.0000
@@ -696,16 +704,26 @@ instr 25   ; GRAINN -> BODY
   isus   = p14 * 0.85
   kenv   transegr p6, iatk, 2, p6 * (0.25 + isus), idec, -3, p6 * isus, 0.25 + p14 * 3, -3, 0
 
-  ; Grains scattered over a frozen noise table — periodic noise, so it locks to the pulse
-  ; instead of hissing over it.
-  agen  grain3 ifq, 0, k1 * 400, k2 * 0.5, 0.005 + k3 * 0.12, 8 + k4 * 190, 40, giNoiseT, giGrEnv, 1, 1
+  ; Grains scattered over a PITCHED table. This read giNoiseT — the frozen noise table — and
+  ; so was granulated hiss by construction: measured four noise draws out of four through two
+  ; of its four stages. Granulating the inharmonic bell table keeps the grain character and
+  ; gives it a fundamental to be grainy ABOUT.
+  agen  grain3 ifq, 0, k1 * 120, k2 * 0.35, 0.008 + k3 * 0.1, 12 + k4 * 160, 40, giBell, giGrEnv, 1, 1
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 1.4038
@@ -731,9 +749,11 @@ instr 26   ; GRAINN -> SMEAR
   isus   = p14 * 0.85
   kenv   transegr p6, iatk, 2, p6 * (0.25 + isus), idec, -3, p6 * isus, 0.25 + p14 * 3, -3, 0
 
-  ; Grains scattered over a frozen noise table — periodic noise, so it locks to the pulse
-  ; instead of hissing over it.
-  agen  grain3 ifq, 0, k1 * 400, k2 * 0.5, 0.005 + k3 * 0.12, 8 + k4 * 190, 40, giNoiseT, giGrEnv, 1, 1
+  ; Grains scattered over a PITCHED table. This read giNoiseT — the frozen noise table — and
+  ; so was granulated hiss by construction: measured four noise draws out of four through two
+  ; of its four stages. Granulating the inharmonic bell table keeps the grain character and
+  ; gives it a fundamental to be grainy ABOUT.
+  agen  grain3 ifq, 0, k1 * 120, k2 * 0.35, 0.008 + k3 * 0.1, 12 + k4 * 160, 40, giBell, giGrEnv, 1, 1
 
   ; Streaming phase vocoder: blur the spectrum in TIME, so transients turn into weather.
   fsin  pvsanal agen, 1024, 256, 1024, 1
@@ -766,9 +786,11 @@ instr 27   ; GRAINN -> SHIFT
   isus   = p14 * 0.85
   kenv   transegr p6, iatk, 2, p6 * (0.25 + isus), idec, -3, p6 * isus, 0.25 + p14 * 3, -3, 0
 
-  ; Grains scattered over a frozen noise table — periodic noise, so it locks to the pulse
-  ; instead of hissing over it.
-  agen  grain3 ifq, 0, k1 * 400, k2 * 0.5, 0.005 + k3 * 0.12, 8 + k4 * 190, 40, giNoiseT, giGrEnv, 1, 1
+  ; Grains scattered over a PITCHED table. This read giNoiseT — the frozen noise table — and
+  ; so was granulated hiss by construction: measured four noise draws out of four through two
+  ; of its four stages. Granulating the inharmonic bell table keeps the grain character and
+  ; gives it a fundamental to be grainy ABOUT.
+  agen  grain3 ifq, 0, k1 * 120, k2 * 0.35, 0.008 + k3 * 0.1, 12 + k4 * 160, 40, giBell, giGrEnv, 1, 1
 
   ; Frequency shifting — not pitch shifting. Every partial moves by the SAME number of hertz,
   ; so a harmonic spectrum becomes inharmonic and metallic in one operation.
@@ -805,9 +827,11 @@ instr 28   ; GRAINN -> CRUSH
   isus   = p14 * 0.85
   kenv   transegr p6, iatk, 2, p6 * (0.25 + isus), idec, -3, p6 * isus, 0.25 + p14 * 3, -3, 0
 
-  ; Grains scattered over a frozen noise table — periodic noise, so it locks to the pulse
-  ; instead of hissing over it.
-  agen  grain3 ifq, 0, k1 * 400, k2 * 0.5, 0.005 + k3 * 0.12, 8 + k4 * 190, 40, giNoiseT, giGrEnv, 1, 1
+  ; Grains scattered over a PITCHED table. This read giNoiseT — the frozen noise table — and
+  ; so was granulated hiss by construction: measured four noise draws out of four through two
+  ; of its four stages. Granulating the inharmonic bell table keeps the grain character and
+  ; gives it a fundamental to be grainy ABOUT.
+  agen  grain3 ifq, 0, k1 * 120, k2 * 0.35, 0.008 + k3 * 0.1, 12 + k4 * 160, 40, giBell, giGrEnv, 1, 1
 
   ; Deliberate digital damage: fold, quantise, decimate, then comb. Bounded so it stays a
   ; timbre rather than a fault.
@@ -851,12 +875,20 @@ instr 29   ; RESBANK -> BODY
   ar3   reson anz, ifq * (3.1 + k3 * 5), ifq / (12 + k2 * 40), 2
   agen  = (ar1 + ar2 * 0.6 + ar3 * 0.4) * (0.3 + k4 * 0.7)
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 1.0215
@@ -1009,12 +1041,20 @@ instr 33   ; DUSTRES -> BODY
   agen  streson adst, ifq, 0.5 + k2 * 0.49
   agen  = agen * (0.3 + k3 * 0.6) + adst * k4 * 0.3
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 1.6674
@@ -1160,12 +1200,20 @@ instr 37   ; VOSIM -> BODY
   ; digital in a way no filter sweep imitates.
   agen  vosim 0.6, ifq, ifq * (2 + k1 * 18), k2 * 0.9, 1 + int(k3 * 12), 0.4 + k4, giSine
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 1.1257
@@ -1308,12 +1356,20 @@ instr 41   ; FOF2 -> BODY
   ; route to voice-like and insect-like tones from the same three numbers.
   agen  fof2 0.7, ifq, ifq * (1 + k1 * 8), 0, 40 + k2 * 900, 0.003, 0.02 + k3 * 0.1, 0.007, 20, giSine, giGrEnv, 3600, 0, k4
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 0.9857
@@ -1454,12 +1510,20 @@ instr 45   ; FMVOICE -> BODY
 
   agen  fmvoice 0.6, ifq, int(k1 * 63), k2 * 2, 0.1 + k3 * 0.9, 0.1 + k4 * 0.9, giSine, giSine, giSine, giSine, giSine
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 5.1173
@@ -1596,12 +1660,20 @@ instr 49   ; HSB -> BODY
   ; is how a bell stops sounding like an organ.
   agen  hsboscil 0.6, k1 * 4 - 2, k2 * 3, ifq, giSine, giSine, 3 + int(p9 * 5)
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 1.0856
@@ -1744,15 +1816,23 @@ instr 53   ; CROSSPM -> BODY
   ; its own rather than following an index envelope.
   kf1   = ifq
   kf2   = ifq * (1 + k1 * 4)
-  a1, a2 crosspm kf1, kf2, k2 * 6, k3 * 6, 1 + k4 * 8, giSine, giSine
+  a1, a2 crosspm kf1, kf2, k2 * 3.5, k3 * 3.5, 1 + k4 * 5, giSine, giSine
   agen  = (a1 * 0.6 + a2 * 0.4) * 0.7
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 1.2313
@@ -1782,7 +1862,7 @@ instr 54   ; CROSSPM -> SMEAR
   ; its own rather than following an index envelope.
   kf1   = ifq
   kf2   = ifq * (1 + k1 * 4)
-  a1, a2 crosspm kf1, kf2, k2 * 6, k3 * 6, 1 + k4 * 8, giSine, giSine
+  a1, a2 crosspm kf1, kf2, k2 * 3.5, k3 * 3.5, 1 + k4 * 5, giSine, giSine
   agen  = (a1 * 0.6 + a2 * 0.4) * 0.7
 
   ; Streaming phase vocoder: blur the spectrum in TIME, so transients turn into weather.
@@ -1820,7 +1900,7 @@ instr 55   ; CROSSPM -> SHIFT
   ; its own rather than following an index envelope.
   kf1   = ifq
   kf2   = ifq * (1 + k1 * 4)
-  a1, a2 crosspm kf1, kf2, k2 * 6, k3 * 6, 1 + k4 * 8, giSine, giSine
+  a1, a2 crosspm kf1, kf2, k2 * 3.5, k3 * 3.5, 1 + k4 * 5, giSine, giSine
   agen  = (a1 * 0.6 + a2 * 0.4) * 0.7
 
   ; Frequency shifting — not pitch shifting. Every partial moves by the SAME number of hertz,
@@ -1862,7 +1942,7 @@ instr 56   ; CROSSPM -> CRUSH
   ; its own rather than following an index envelope.
   kf1   = ifq
   kf2   = ifq * (1 + k1 * 4)
-  a1, a2 crosspm kf1, kf2, k2 * 6, k3 * 6, 1 + k4 * 8, giSine, giSine
+  a1, a2 crosspm kf1, kf2, k2 * 3.5, k3 * 3.5, 1 + k4 * 5, giSine, giSine
   agen  = (a1 * 0.6 + a2 * 0.4) * 0.7
 
   ; Deliberate digital damage: fold, quantise, decimate, then comb. Bounded so it stays a
@@ -1902,12 +1982,20 @@ instr 57   ; FMMETAL -> BODY
 
   agen  fmmetal 0.55, ifq, k1 * 3, k2 * 5, 0.1 + k3 * 4, 1 + k4 * 8, giSine, giSine, giSine, giSine, giSine
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 1.2296
@@ -2042,12 +2130,20 @@ instr 61   ; FMBELL -> BODY
 
   agen  fmbell 0.5, ifq, k1 * 3, k2 * 4, 0.5 + k3 * 4, 1 + k4 * 6, giSine, giSine, giSine, giSine, giSine, 0
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 1.1251
@@ -2182,12 +2278,20 @@ instr 65   ; FMPERC -> BODY
 
   agen  fmpercfl 0.55, ifq, k1 * 3, k2 * 4, 0.2 + k3 * 3, 1 + k4 * 7, giSine, giSine, giSine, giSine, giSine
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 2.0463
@@ -2322,12 +2426,20 @@ instr 69   ; FMRHOD -> BODY
 
   agen  fmrhode 0.55, ifq, k1 * 3, k2 * 4, 0.2 + k3 * 3, 1 + k4 * 6, giSine, giSine, giSine, giSine, giSine
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 1.0536
@@ -2466,12 +2578,20 @@ instr 73   ; CHAOSFM -> BODY
   agen  PhChaos aexc, ifq, 0.2 + k2 * 3.2
   agen  = agen * (0.4 + k3 * 0.5)
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 1.2653
@@ -2618,12 +2738,20 @@ instr 77   ; WGBOW -> BODY
 
   agen  wgbow 0.6, ifq, 0.5 + k1 * 5, 0.05 + k2 * 0.85, 0.5 + k3 * 8, k4 * 0.3, giSine
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 2.0368
@@ -2758,12 +2886,20 @@ instr 81   ; WGFLUTE -> BODY
 
   agen  wgflute 0.6, ifq, 0.05 + k1 * 0.7, 0.02, 0.1, 0.2 + k2 * 0.7, 0.5 + k3 * 8, k4 * 0.3, giSine
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 1.3773
@@ -2899,12 +3035,20 @@ instr 85   ; WGBRASS -> BODY
   agen  wgbrass 0.7, ifq, 0.55 + k1 * 0.9, 0.02, 0.5 + k2 * 8, k3 * 0.25, giSine
   agen  = agen * (0.5 + k4 * 0.5)
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 1.0661
@@ -3042,12 +3186,20 @@ instr 89   ; WGCLAR -> BODY
 
   agen  wgclar 0.6, ifq, 0.1 + k1 * 0.8, 0.02, 0.1, 0.2 + k2 * 0.7, 0.5 + k3 * 8, k4 * 0.3, giSine
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 2.1667
@@ -3185,12 +3337,20 @@ instr 93   ; WGPLUCK -> BODY
   agen  wgpluck2 0.05 + p7 * 0.9, 0.7, ifq, k2 * 0.9, 0.05 + k3 * 0.9
   agen  = agen * (0.4 + k4 * 0.6)
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 1.4118
@@ -3341,12 +3501,20 @@ instr 97   ; PLUCKM -> BODY
   agen  pluck 0.7, ifq, ifq * (0.5 + p7 * 1.5), giNoiseT, 1 + int(p8 * 5.99), 0.1 + p9 * 0.8, 10 + p10 * 500
   agen  = agen * (0.5 + k4 * 0.6)
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 2.7402
@@ -3500,15 +3668,23 @@ instr 101   ; DRIP -> BODY
   isus   = p14 * 0.85
   kenv   transegr p6, iatk, 2, p6 * (0.25 + isus), idec, -3, p6 * isus, 0.25 + p14 * 3, -3, 0
 
-  agen  dripwater 0.8, 0.01 + p7 * 0.06, 5 + int(p8 * 40), 0.05 + p9 * 0.35, 0.6, ifq, ifq * (1.4 + p10), ifq * 2.3
-  agen  = agen * 6
+  agen  dripwater 0.8, 0.01 + p7 * 0.06, 5 + int(p8 * 40), 0.02 + p9 * 0.16, 0.9, ifq, ifq * (1.4 + p10), ifq * 2.3
+  agen  = agen * 8
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 0.9016
@@ -3534,8 +3710,8 @@ instr 102   ; DRIP -> SMEAR
   isus   = p14 * 0.85
   kenv   transegr p6, iatk, 2, p6 * (0.25 + isus), idec, -3, p6 * isus, 0.25 + p14 * 3, -3, 0
 
-  agen  dripwater 0.8, 0.01 + p7 * 0.06, 5 + int(p8 * 40), 0.05 + p9 * 0.35, 0.6, ifq, ifq * (1.4 + p10), ifq * 2.3
-  agen  = agen * 6
+  agen  dripwater 0.8, 0.01 + p7 * 0.06, 5 + int(p8 * 40), 0.02 + p9 * 0.16, 0.9, ifq, ifq * (1.4 + p10), ifq * 2.3
+  agen  = agen * 8
 
   ; Streaming phase vocoder: blur the spectrum in TIME, so transients turn into weather.
   fsin  pvsanal agen, 1024, 256, 1024, 1
@@ -3568,8 +3744,8 @@ instr 103   ; DRIP -> SHIFT
   isus   = p14 * 0.85
   kenv   transegr p6, iatk, 2, p6 * (0.25 + isus), idec, -3, p6 * isus, 0.25 + p14 * 3, -3, 0
 
-  agen  dripwater 0.8, 0.01 + p7 * 0.06, 5 + int(p8 * 40), 0.05 + p9 * 0.35, 0.6, ifq, ifq * (1.4 + p10), ifq * 2.3
-  agen  = agen * 6
+  agen  dripwater 0.8, 0.01 + p7 * 0.06, 5 + int(p8 * 40), 0.02 + p9 * 0.16, 0.9, ifq, ifq * (1.4 + p10), ifq * 2.3
+  agen  = agen * 8
 
   ; Frequency shifting — not pitch shifting. Every partial moves by the SAME number of hertz,
   ; so a harmonic spectrum becomes inharmonic and metallic in one operation.
@@ -3606,8 +3782,8 @@ instr 104   ; DRIP -> CRUSH
   isus   = p14 * 0.85
   kenv   transegr p6, iatk, 2, p6 * (0.25 + isus), idec, -3, p6 * isus, 0.25 + p14 * 3, -3, 0
 
-  agen  dripwater 0.8, 0.01 + p7 * 0.06, 5 + int(p8 * 40), 0.05 + p9 * 0.35, 0.6, ifq, ifq * (1.4 + p10), ifq * 2.3
-  agen  = agen * 6
+  agen  dripwater 0.8, 0.01 + p7 * 0.06, 5 + int(p8 * 40), 0.02 + p9 * 0.16, 0.9, ifq, ifq * (1.4 + p10), ifq * 2.3
+  agen  = agen * 8
 
   ; Deliberate digital damage: fold, quantise, decimate, then comb. Bounded so it stays a
   ; timbre rather than a fault.
@@ -3646,12 +3822,20 @@ instr 105   ; TAMB -> BODY
 
   agen  tambourine 0.6, 0.01 + p7 * 0.1, 5 + int(p8 * 40), 0.1 + p9 * 0.8, 0.6, ifq, ifq * (1.5 + p10), ifq * 2.7
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 1.1592
@@ -3786,12 +3970,20 @@ instr 109   ; SLEIGH -> BODY
 
   agen  sleighbells 0.6, 0.01 + p7 * 0.1, 5 + int(p8 * 40), 0.1 + p9 * 0.8, 0.6, ifq, ifq * (1.3 + p10), ifq * 2.1
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 1.1916
@@ -3933,12 +4125,20 @@ instr 113   ; MODEBANK -> BODY
   am3   mode aimp, ifq * (2.1 + k3 * 6), 8 + k1 * 200
   agen  = (am1 + am2 * 0.7 + am3 * 0.5) / (1 + k1 * 8) * (0.4 + k4 * 0.6)
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 6.5558
@@ -4096,12 +4296,20 @@ instr 117   ; WTERRAIN -> BODY
   ; spectrum completely, which is exactly the behaviour a macro knob wants.
   agen  wterrain 0.6, ifq, -1 + k1 * 2, -1 + k2 * 2, 0.1 + k3 * 1.9, 0.1 + k4 * 1.9, giSine, giBell
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 1.3782
@@ -4245,12 +4453,20 @@ instr 121   ; CHEBY -> BODY
   asin  poscil 0.2 + k1 * 0.8, ifq, giSine
   agen  chebyshevpoly asin, 0, 1 - k2, k2 * 0.8, k3 * 0.7, k3 * 0.4, k4 * 0.5, k4 * 0.3
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 1.2121
@@ -4401,12 +4617,20 @@ instr 125   ; PDIST -> BODY
   agen  = agen * (1 - k3 * 0.6) + agen * ares * k3 * 0.9
   agen  = agen * (0.4 + k4 * 0.5)
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 1.1662
@@ -4568,12 +4792,20 @@ instr 129   ; VCO2 -> BODY
   agen  = (a1 + a2) * (0.4 + k3 * 0.5)
   agen  = agen * (1 - k4 * 0.5) + tanh(agen * (1 + k4 * 8)) * k4 * 0.6
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 1.2032
@@ -4731,12 +4963,20 @@ instr 133   ; SQUINE -> BODY
   agen  = agen * (0.35 + k3 * 0.5)
   agen  = agen * (1 - k4 * 0.5) + agen * agen * agen * k4 * 0.5
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 1.2133
@@ -4889,12 +5129,20 @@ instr 137   ; BUZZ -> BODY
   agen  gbuzz 0.5, ifq, 1 + int(k1 * 40), int(k2 * 6), 0.2 + k3 * 0.75, giSine
   agen  = agen * (0.4 + k4 * 0.6)
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 1.3874
@@ -5043,12 +5291,20 @@ instr 141   ; MINCER -> BODY
   agen  = agen * (0.4 + k2 * 0.6)
   agen  = agen * (1 - k3 * 0.5) + agen * poscil(1, ifq * (1 + k4 * 6), giSine) * k3 * 0.7
 
-  ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
-  abd   = agen * (0.5 + k6 * 0.5)
-  adL, adR PhFDN abd * 0.5, 0.004 + k5 * 0.14, 0.2 + k6 * 0.6
-  aflt  zdf_2pole agen, 200 + k7 * 9000, 0.7 + k7 * 3, 0
-  aL    = aflt * 0.55 + adL * 0.8
-  aR    = aflt * 0.55 + adR * 0.8
+  ; A resonant body — an enclosure around the core, NOT a reverb it disappears into.
+  ;
+  ; Measured: this stage was the noisiest of the four (mean spectral flatness 0.268 against
+  ; 0.017 for the frequency shifter) and, worse, many different cores came out at exactly the
+  ; same flatness through it — the network's wash was erasing whatever fed it, so a quarter of
+  ; the palette sounded alike whatever the generator. The fix is proportion: the direct signal
+  ; now leads and the network sits under it, with feedback kept short of the range where four
+  ; cross-fed taps turn into a reverb tail.
+  ; 600 Hz floor, not 300. A low cutoff simply erases a bright core, which is why this stage
+  ; measured 15% silent draws while SHIFT — identical but for its 600 Hz floor — measured 1%.
+  aflt  zdf_2pole agen, 600 + k7 * 11000, 0.7 + k7 * 2.5, 0
+  adL, adR PhFDN aflt * 0.35, 0.004 + k5 * 0.09, 0.12 + k6 * 0.42
+  aL    = aflt * 0.9 + adL * (0.15 + k6 * 0.3)
+  aR    = aflt * 0.9 + adR * (0.15 + k6 * 0.3)
   aL     = aL * kenv
   aR     = aR * kenv
   iTrim  = 2.1368
