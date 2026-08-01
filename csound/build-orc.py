@@ -114,15 +114,15 @@ GENERATORS = [
   ; a Karplus-Strong loop does not.
   agen  wgpluck2 0.05 + p7 * 0.9, 0.7, ifq, k2 * 0.9, 0.05 + k3 * 0.9
   agen  = agen * (0.4 + k4 * 0.6)"""),
-    ("WGUIDE2", "physical", """
-  ; Two coupled waveguides struck by an impulse: a metal bar or plate with two resonant
-  ; paths beating against each other.
-  ; (This slot held `barmodel` and then `gogobel`. Both compile and both return silence —
-  ; gogobel says why: "No table for Agogobell strike". The STK-derived models need external
-  ; rawwave excitation tables this Csound cannot find, so they are avoided entirely.)
-  aexc  mpulse 0.7, 0
-  aexc  =  aexc + dust2(0.2 * k4, 20 + k4 * 400)
-  agen  wguide2 aexc, ifq, ifq * (1.4 + k1 * 3), 2000 + k2 * 9000, 1500 + k2 * 7000, 0.7 + k3 * 0.29, 0.7 + k3 * 0.28"""),
+    ("PLUCKM", "physical", """
+  ; Karplus-Strong with a SELECTABLE decay method — `pluck`'s imeth picks between simple
+  ; averaging, recursive filtering, stretched decay, snare-like inversion and two weighted
+  ; forms, so one opcode covers plucked string through to struck metal.
+  ; (This slot held barmodel, then gogobel, then wguide2. The first two need external STK
+  ; rawwave tables this Csound cannot find and return silence; the third damps to nothing at
+  ; low feedback. `pluck` always speaks.)
+  agen  pluck 0.7, ifq, ifq * (0.5 + p7 * 1.5), giNoiseT, 1 + int(p8 * 5.99), 0.1 + p9 * 0.8, 10 + p10 * 500
+  agen  = agen * (0.5 + k4 * 0.6)"""),
     ("DRIP", "physical", """
   agen  dripwater 0.8, 0.01 + p7 * 0.06, 5 + int(p8 * 40), 0.05 + p9 * 0.35, 0.6, ifq, ifq * (1.4 + p10), ifq * 2.3
   agen  = agen * 6"""),

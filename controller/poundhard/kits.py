@@ -954,7 +954,7 @@ _CS_GENS = [
     ("CROSSPM", "fm"), ("FMMETAL", "fm"), ("FMBELL", "fm"), ("FMPERC", "fm"),
     ("FMRHOD", "fm"), ("CHAOSFM", "fm"),
     ("WGBOW", "physical"), ("WGFLUTE", "physical"), ("WGBRASS", "physical"),
-    ("WGCLAR", "physical"), ("WGPLUCK", "physical"), ("WGUIDE2", "physical"),
+    ("WGCLAR", "physical"), ("WGPLUCK", "physical"), ("PLUCKM", "physical"),
     ("DRIP", "physical"), ("TAMB", "physical"), ("SLEIGH", "physical"),
     ("MODEBANK", "physical"),
     ("WTERRAIN", "table"), ("CHEBY", "table"), ("PDIST", "table"), ("VCO2", "table"),

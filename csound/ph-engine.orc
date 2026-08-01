@@ -593,7 +593,7 @@ instr 22   ; GENDY -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 12.0000
+  iTrim  = 10.7789
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -673,7 +673,7 @@ instr 24   ; GENDY -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 9.1959
+  iTrim  = 8.8126
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -708,7 +708,7 @@ instr 25   ; GRAINN -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2581
+  iTrim  = 1.4038
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -743,7 +743,7 @@ instr 26   ; GRAINN -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.1726
+  iTrim  = 1.1214
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -782,7 +782,7 @@ instr 27   ; GRAINN -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 2.8224
+  iTrim  = 1.3586
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -821,7 +821,7 @@ instr 28   ; GRAINN -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2801
+  iTrim  = 1.1900
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -859,7 +859,7 @@ instr 29   ; RESBANK -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 0.9464
+  iTrim  = 1.0215
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -897,7 +897,7 @@ instr 30   ; RESBANK -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2875
+  iTrim  = 1.3713
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -939,7 +939,7 @@ instr 31   ; RESBANK -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2420
+  iTrim  = 1.2985
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -981,7 +981,7 @@ instr 32   ; RESBANK -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2080
+  iTrim  = 1.1999
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1017,7 +1017,7 @@ instr 33   ; DUSTRES -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.4648
+  iTrim  = 1.6674
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1053,7 +1053,7 @@ instr 34   ; DUSTRES -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 8.2574
+  iTrim  = 3.7364
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1133,7 +1133,7 @@ instr 36   ; DUSTRES -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2823
+  iTrim  = 1.3911
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1168,7 +1168,7 @@ instr 37   ; VOSIM -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.4118
+  iTrim  = 1.1257
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1203,7 +1203,7 @@ instr 38   ; VOSIM -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.3401
+  iTrim  = 1.2212
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1242,7 +1242,7 @@ instr 39   ; VOSIM -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.3070
+  iTrim  = 1.4113
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1281,7 +1281,7 @@ instr 40   ; VOSIM -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2657
+  iTrim  = 1.1584
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1316,7 +1316,7 @@ instr 41   ; FOF2 -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.3256
+  iTrim  = 0.9857
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1351,7 +1351,7 @@ instr 42   ; FOF2 -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.3864
+  iTrim  = 1.3516
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1390,7 +1390,7 @@ instr 43   ; FOF2 -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2263
+  iTrim  = 1.5688
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1429,7 +1429,7 @@ instr 44   ; FOF2 -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2351
+  iTrim  = 1.1772
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1462,7 +1462,7 @@ instr 45   ; FMVOICE -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 10.4357
+  iTrim  = 5.1173
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1495,7 +1495,7 @@ instr 46   ; FMVOICE -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 6.1633
+  iTrim  = 5.7639
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1532,7 +1532,7 @@ instr 47   ; FMVOICE -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 7.7865
+  iTrim  = 7.7895
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1569,7 +1569,7 @@ instr 48   ; FMVOICE -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2559
+  iTrim  = 1.4943
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1604,7 +1604,7 @@ instr 49   ; HSB -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.4130
+  iTrim  = 1.0856
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1639,7 +1639,7 @@ instr 50   ; HSB -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2382
+  iTrim  = 1.4107
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1678,7 +1678,7 @@ instr 51   ; HSB -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.3472
+  iTrim  = 1.2097
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1717,7 +1717,7 @@ instr 52   ; HSB -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2415
+  iTrim  = 1.1212
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1755,7 +1755,7 @@ instr 53   ; CROSSPM -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.1820
+  iTrim  = 1.2313
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1793,7 +1793,7 @@ instr 54   ; CROSSPM -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.1200
+  iTrim  = 1.0631
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1835,7 +1835,7 @@ instr 55   ; CROSSPM -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 2.1821
+  iTrim  = 2.1391
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1877,7 +1877,7 @@ instr 56   ; CROSSPM -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.1927
+  iTrim  = 1.0659
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1910,7 +1910,7 @@ instr 57   ; FMMETAL -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.1462
+  iTrim  = 1.2296
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1943,7 +1943,7 @@ instr 58   ; FMMETAL -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.7825
+  iTrim  = 1.3606
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -1980,7 +1980,7 @@ instr 59   ; FMMETAL -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 3.2503
+  iTrim  = 2.7088
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2017,7 +2017,7 @@ instr 60   ; FMMETAL -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.1861
+  iTrim  = 1.1806
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2050,7 +2050,7 @@ instr 61   ; FMBELL -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.1566
+  iTrim  = 1.1251
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2083,7 +2083,7 @@ instr 62   ; FMBELL -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.8359
+  iTrim  = 1.3234
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2120,7 +2120,7 @@ instr 63   ; FMBELL -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 2.8003
+  iTrim  = 1.5992
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2157,7 +2157,7 @@ instr 64   ; FMBELL -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.4115
+  iTrim  = 1.1415
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2190,7 +2190,7 @@ instr 65   ; FMPERC -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 2.6020
+  iTrim  = 2.0463
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2223,7 +2223,7 @@ instr 66   ; FMPERC -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 2.0992
+  iTrim  = 2.0947
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2260,7 +2260,7 @@ instr 67   ; FMPERC -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 3.8139
+  iTrim  = 3.3160
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2297,7 +2297,7 @@ instr 68   ; FMPERC -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2366
+  iTrim  = 1.2331
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2330,7 +2330,7 @@ instr 69   ; FMRHOD -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.0466
+  iTrim  = 1.0536
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2363,7 +2363,7 @@ instr 70   ; FMRHOD -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.3218
+  iTrim  = 1.2897
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2400,7 +2400,7 @@ instr 71   ; FMRHOD -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.9829
+  iTrim  = 1.3051
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2437,7 +2437,7 @@ instr 72   ; FMRHOD -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2011
+  iTrim  = 1.0992
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2474,7 +2474,7 @@ instr 73   ; CHAOSFM -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.4138
+  iTrim  = 1.2653
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2511,7 +2511,7 @@ instr 74   ; CHAOSFM -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.1709
+  iTrim  = 1.2254
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2552,7 +2552,7 @@ instr 75   ; CHAOSFM -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.4747
+  iTrim  = 1.4215
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2593,7 +2593,7 @@ instr 76   ; CHAOSFM -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.1477
+  iTrim  = 1.1618
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2626,7 +2626,7 @@ instr 77   ; WGBOW -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 2.3634
+  iTrim  = 2.0368
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2696,7 +2696,7 @@ instr 79   ; WGBOW -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 3.9165
+  iTrim  = 1.5389
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2733,7 +2733,7 @@ instr 80   ; WGBOW -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2105
+  iTrim  = 1.2418
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2766,7 +2766,7 @@ instr 81   ; WGFLUTE -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.8618
+  iTrim  = 1.3773
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2799,7 +2799,7 @@ instr 82   ; WGFLUTE -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 4.1948
+  iTrim  = 1.9690
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2836,7 +2836,7 @@ instr 83   ; WGFLUTE -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 3.6048
+  iTrim  = 2.2601
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2873,7 +2873,7 @@ instr 84   ; WGFLUTE -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2370
+  iTrim  = 1.1849
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2907,7 +2907,7 @@ instr 85   ; WGBRASS -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.0000
+  iTrim  = 1.0661
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2941,7 +2941,7 @@ instr 86   ; WGBRASS -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 12.0000
+  iTrim  = 1.6400
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -2979,7 +2979,7 @@ instr 87   ; WGBRASS -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.0000
+  iTrim  = 1.3791
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -3017,7 +3017,7 @@ instr 88   ; WGBRASS -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.1634
+  iTrim  = 1.3783
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -3050,7 +3050,7 @@ instr 89   ; WGCLAR -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 4.4643
+  iTrim  = 2.1667
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -3083,7 +3083,7 @@ instr 90   ; WGCLAR -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 3.3886
+  iTrim  = 1.8595
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -3120,7 +3120,7 @@ instr 91   ; WGCLAR -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 8.3344
+  iTrim  = 2.2748
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -3157,7 +3157,7 @@ instr 92   ; WGCLAR -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2651
+  iTrim  = 1.2805
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -3193,7 +3193,7 @@ instr 93   ; WGPLUCK -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.3364
+  iTrim  = 1.4118
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -3229,7 +3229,7 @@ instr 94   ; WGPLUCK -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 4.9762
+  iTrim  = 2.9889
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -3269,7 +3269,7 @@ instr 95   ; WGPLUCK -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 3.3915
+  iTrim  = 2.4487
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -3309,12 +3309,12 @@ instr 96   ; WGPLUCK -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2963
+  iTrim  = 1.3565
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
 
-instr 97   ; WGUIDE2 -> BODY
+instr 97   ; PLUCKM -> BODY
   itrack = p4
   ichan  = itrack * 2 + 3
   ifq    = p5
@@ -3332,14 +3332,14 @@ instr 97   ; WGUIDE2 -> BODY
   isus   = p14 * 0.85
   kenv   transegr p6, iatk, 2, p6 * (0.25 + isus), idec, -3, p6 * isus, 0.25 + p14 * 3, -3, 0
 
-  ; Two coupled waveguides struck by an impulse: a metal bar or plate with two resonant
-  ; paths beating against each other.
-  ; (This slot held `barmodel` and then `gogobel`. Both compile and both return silence —
-  ; gogobel says why: "No table for Agogobell strike". The STK-derived models need external
-  ; rawwave excitation tables this Csound cannot find, so they are avoided entirely.)
-  aexc  mpulse 0.7, 0
-  aexc  =  aexc + dust2(0.2 * k4, 20 + k4 * 400)
-  agen  wguide2 aexc, ifq, ifq * (1.4 + k1 * 3), 2000 + k2 * 9000, 1500 + k2 * 7000, 0.7 + k3 * 0.29, 0.7 + k3 * 0.28
+  ; Karplus-Strong with a SELECTABLE decay method — `pluck`'s imeth picks between simple
+  ; averaging, recursive filtering, stretched decay, snare-like inversion and two weighted
+  ; forms, so one opcode covers plucked string through to struck metal.
+  ; (This slot held barmodel, then gogobel, then wguide2. The first two need external STK
+  ; rawwave tables this Csound cannot find and return silence; the third damps to nothing at
+  ; low feedback. `pluck` always speaks.)
+  agen  pluck 0.7, ifq, ifq * (0.5 + p7 * 1.5), giNoiseT, 1 + int(p8 * 5.99), 0.1 + p9 * 0.8, 10 + p10 * 500
+  agen  = agen * (0.5 + k4 * 0.6)
 
   ; A resonant body: the feedback delay network used as a physical enclosure, not a reverb.
   abd   = agen * (0.5 + k6 * 0.5)
@@ -3349,12 +3349,12 @@ instr 97   ; WGUIDE2 -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 2.7999
+  iTrim  = 2.7402
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
 
-instr 98   ; WGUIDE2 -> SMEAR
+instr 98   ; PLUCKM -> SMEAR
   itrack = p4
   ichan  = itrack * 2 + 3
   ifq    = p5
@@ -3372,14 +3372,14 @@ instr 98   ; WGUIDE2 -> SMEAR
   isus   = p14 * 0.85
   kenv   transegr p6, iatk, 2, p6 * (0.25 + isus), idec, -3, p6 * isus, 0.25 + p14 * 3, -3, 0
 
-  ; Two coupled waveguides struck by an impulse: a metal bar or plate with two resonant
-  ; paths beating against each other.
-  ; (This slot held `barmodel` and then `gogobel`. Both compile and both return silence —
-  ; gogobel says why: "No table for Agogobell strike". The STK-derived models need external
-  ; rawwave excitation tables this Csound cannot find, so they are avoided entirely.)
-  aexc  mpulse 0.7, 0
-  aexc  =  aexc + dust2(0.2 * k4, 20 + k4 * 400)
-  agen  wguide2 aexc, ifq, ifq * (1.4 + k1 * 3), 2000 + k2 * 9000, 1500 + k2 * 7000, 0.7 + k3 * 0.29, 0.7 + k3 * 0.28
+  ; Karplus-Strong with a SELECTABLE decay method — `pluck`'s imeth picks between simple
+  ; averaging, recursive filtering, stretched decay, snare-like inversion and two weighted
+  ; forms, so one opcode covers plucked string through to struck metal.
+  ; (This slot held barmodel, then gogobel, then wguide2. The first two need external STK
+  ; rawwave tables this Csound cannot find and return silence; the third damps to nothing at
+  ; low feedback. `pluck` always speaks.)
+  agen  pluck 0.7, ifq, ifq * (0.5 + p7 * 1.5), giNoiseT, 1 + int(p8 * 5.99), 0.1 + p9 * 0.8, 10 + p10 * 500
+  agen  = agen * (0.5 + k4 * 0.6)
 
   ; Streaming phase vocoder: blur the spectrum in TIME, so transients turn into weather.
   fsin  pvsanal agen, 1024, 256, 1024, 1
@@ -3389,12 +3389,12 @@ instr 98   ; WGUIDE2 -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 12.0000
+  iTrim  = 1.0668
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
 
-instr 99   ; WGUIDE2 -> SHIFT
+instr 99   ; PLUCKM -> SHIFT
   itrack = p4
   ichan  = itrack * 2 + 3
   ifq    = p5
@@ -3412,14 +3412,14 @@ instr 99   ; WGUIDE2 -> SHIFT
   isus   = p14 * 0.85
   kenv   transegr p6, iatk, 2, p6 * (0.25 + isus), idec, -3, p6 * isus, 0.25 + p14 * 3, -3, 0
 
-  ; Two coupled waveguides struck by an impulse: a metal bar or plate with two resonant
-  ; paths beating against each other.
-  ; (This slot held `barmodel` and then `gogobel`. Both compile and both return silence —
-  ; gogobel says why: "No table for Agogobell strike". The STK-derived models need external
-  ; rawwave excitation tables this Csound cannot find, so they are avoided entirely.)
-  aexc  mpulse 0.7, 0
-  aexc  =  aexc + dust2(0.2 * k4, 20 + k4 * 400)
-  agen  wguide2 aexc, ifq, ifq * (1.4 + k1 * 3), 2000 + k2 * 9000, 1500 + k2 * 7000, 0.7 + k3 * 0.29, 0.7 + k3 * 0.28
+  ; Karplus-Strong with a SELECTABLE decay method — `pluck`'s imeth picks between simple
+  ; averaging, recursive filtering, stretched decay, snare-like inversion and two weighted
+  ; forms, so one opcode covers plucked string through to struck metal.
+  ; (This slot held barmodel, then gogobel, then wguide2. The first two need external STK
+  ; rawwave tables this Csound cannot find and return silence; the third damps to nothing at
+  ; low feedback. `pluck` always speaks.)
+  agen  pluck 0.7, ifq, ifq * (0.5 + p7 * 1.5), giNoiseT, 1 + int(p8 * 5.99), 0.1 + p9 * 0.8, 10 + p10 * 500
+  agen  = agen * (0.5 + k4 * 0.6)
 
   ; Frequency shifting — not pitch shifting. Every partial moves by the SAME number of hertz,
   ; so a harmonic spectrum becomes inharmonic and metallic in one operation.
@@ -3433,12 +3433,12 @@ instr 99   ; WGUIDE2 -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.0000
+  iTrim  = 4.9312
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
 
-instr 100   ; WGUIDE2 -> CRUSH
+instr 100   ; PLUCKM -> CRUSH
   itrack = p4
   ichan  = itrack * 2 + 3
   ifq    = p5
@@ -3456,14 +3456,14 @@ instr 100   ; WGUIDE2 -> CRUSH
   isus   = p14 * 0.85
   kenv   transegr p6, iatk, 2, p6 * (0.25 + isus), idec, -3, p6 * isus, 0.25 + p14 * 3, -3, 0
 
-  ; Two coupled waveguides struck by an impulse: a metal bar or plate with two resonant
-  ; paths beating against each other.
-  ; (This slot held `barmodel` and then `gogobel`. Both compile and both return silence —
-  ; gogobel says why: "No table for Agogobell strike". The STK-derived models need external
-  ; rawwave excitation tables this Csound cannot find, so they are avoided entirely.)
-  aexc  mpulse 0.7, 0
-  aexc  =  aexc + dust2(0.2 * k4, 20 + k4 * 400)
-  agen  wguide2 aexc, ifq, ifq * (1.4 + k1 * 3), 2000 + k2 * 9000, 1500 + k2 * 7000, 0.7 + k3 * 0.29, 0.7 + k3 * 0.28
+  ; Karplus-Strong with a SELECTABLE decay method — `pluck`'s imeth picks between simple
+  ; averaging, recursive filtering, stretched decay, snare-like inversion and two weighted
+  ; forms, so one opcode covers plucked string through to struck metal.
+  ; (This slot held barmodel, then gogobel, then wguide2. The first two need external STK
+  ; rawwave tables this Csound cannot find and return silence; the third damps to nothing at
+  ; low feedback. `pluck` always speaks.)
+  agen  pluck 0.7, ifq, ifq * (0.5 + p7 * 1.5), giNoiseT, 1 + int(p8 * 5.99), 0.1 + p9 * 0.8, 10 + p10 * 500
+  agen  = agen * (0.5 + k4 * 0.6)
 
   ; Deliberate digital damage: fold, quantise, decimate, then comb. Bounded so it stays a
   ; timbre rather than a fault.
@@ -3477,7 +3477,7 @@ instr 100   ; WGUIDE2 -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.0000
+  iTrim  = 1.0794
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -3511,7 +3511,7 @@ instr 101   ; DRIP -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.4117
+  iTrim  = 0.9016
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -3545,7 +3545,7 @@ instr 102   ; DRIP -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.5590
+  iTrim  = 1.4117
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -3583,7 +3583,7 @@ instr 103   ; DRIP -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.0000
+  iTrim  = 5.6545
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -3621,7 +3621,7 @@ instr 104   ; DRIP -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.3215
+  iTrim  = 1.2438
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -3654,7 +3654,7 @@ instr 105   ; TAMB -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.4117
+  iTrim  = 1.1592
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -3687,7 +3687,7 @@ instr 106   ; TAMB -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2886
+  iTrim  = 1.2171
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -3724,7 +3724,7 @@ instr 107   ; TAMB -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.4797
+  iTrim  = 1.4753
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -3761,7 +3761,7 @@ instr 108   ; TAMB -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.3387
+  iTrim  = 1.1017
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -3794,7 +3794,7 @@ instr 109   ; SLEIGH -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2593
+  iTrim  = 1.1916
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -3827,7 +3827,7 @@ instr 110   ; SLEIGH -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.5170
+  iTrim  = 1.2966
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -3864,7 +3864,7 @@ instr 111   ; SLEIGH -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.1979
+  iTrim  = 1.2485
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -3901,7 +3901,7 @@ instr 112   ; SLEIGH -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.0435
+  iTrim  = 1.0462
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -3981,7 +3981,7 @@ instr 114   ; MODEBANK -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 12.0000
+  iTrim  = 9.0022
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4025,7 +4025,7 @@ instr 115   ; MODEBANK -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 12.0000
+  iTrim  = 6.0383
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4069,7 +4069,7 @@ instr 116   ; MODEBANK -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 4.7330
+  iTrim  = 1.6263
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4104,7 +4104,7 @@ instr 117   ; WTERRAIN -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2990
+  iTrim  = 1.3782
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4139,7 +4139,7 @@ instr 118   ; WTERRAIN -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.4321
+  iTrim  = 1.3946
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4178,7 +4178,7 @@ instr 119   ; WTERRAIN -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 2.8824
+  iTrim  = 2.1887
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4217,7 +4217,7 @@ instr 120   ; WTERRAIN -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2913
+  iTrim  = 1.2804
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4253,7 +4253,7 @@ instr 121   ; CHEBY -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.3397
+  iTrim  = 1.2121
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4289,7 +4289,7 @@ instr 122   ; CHEBY -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 2.0832
+  iTrim  = 1.5978
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4329,7 +4329,7 @@ instr 123   ; CHEBY -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 3.1337
+  iTrim  = 3.1292
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4369,7 +4369,7 @@ instr 124   ; CHEBY -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.4024
+  iTrim  = 1.3387
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4409,7 +4409,7 @@ instr 125   ; PDIST -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.4079
+  iTrim  = 1.1662
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4449,7 +4449,7 @@ instr 126   ; PDIST -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2957
+  iTrim  = 1.3855
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4537,7 +4537,7 @@ instr 128   ; PDIST -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.4270
+  iTrim  = 1.1810
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4576,7 +4576,7 @@ instr 129   ; VCO2 -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.1575
+  iTrim  = 1.2032
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4615,7 +4615,7 @@ instr 130   ; VCO2 -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2731
+  iTrim  = 1.2534
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4658,7 +4658,7 @@ instr 131   ; VCO2 -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 3.4559
+  iTrim  = 1.4294
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4701,7 +4701,7 @@ instr 132   ; VCO2 -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2123
+  iTrim  = 1.2121
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4739,7 +4739,7 @@ instr 133   ; SQUINE -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.7776
+  iTrim  = 1.2133
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4777,7 +4777,7 @@ instr 134   ; SQUINE -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.4213
+  iTrim  = 1.3193
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4819,7 +4819,7 @@ instr 135   ; SQUINE -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.9022
+  iTrim  = 1.2744
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4861,7 +4861,7 @@ instr 136   ; SQUINE -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2335
+  iTrim  = 1.2819
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4897,7 +4897,7 @@ instr 137   ; BUZZ -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.9793
+  iTrim  = 1.3874
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4933,7 +4933,7 @@ instr 138   ; BUZZ -> SMEAR
   aL, aR PhWide amix, 0.2 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 2.7664
+  iTrim  = 1.5118
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -4973,7 +4973,7 @@ instr 139   ; BUZZ -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 5.1054
+  iTrim  = 1.5632
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -5013,7 +5013,7 @@ instr 140   ; BUZZ -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.0888
+  iTrim  = 1.2108
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -5051,7 +5051,7 @@ instr 141   ; MINCER -> BODY
   aR    = aflt * 0.55 + adR * 0.8
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 2.9839
+  iTrim  = 2.1368
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -5131,7 +5131,7 @@ instr 143   ; MINCER -> SHIFT
   aL, aR PhWide alad, 0.3 + k7 * 0.5
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 4.5733
+  iTrim  = 3.4444
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
@@ -5173,7 +5173,7 @@ instr 144   ; MINCER -> CRUSH
   aL, aR PhWide amix, 0.25 + k7 * 0.6
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.3645
+  iTrim  = 1.4800
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
