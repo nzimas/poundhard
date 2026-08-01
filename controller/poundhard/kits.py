@@ -936,7 +936,86 @@ def _cs_role(spec) -> Role:
                 poles=tuple(poles), spread=spread, vel=(0.8, 1.05))
 
 
+# --------------------------------------------------------------------------- #
+# THE GENERATED MATRIX (architectures 10..133, Csound instruments 21..144).
+#
+# csound/build-orc.py emits one instrument per (generator core x processor stage) pair. The
+# recipes for them are generated here from the same two lists rather than written out 124
+# times: a hand-written table that large would be neither reviewable nor kept in step with
+# the orchestra. The ORDER must match build-orc.py exactly — it is the architecture index.
+#
+# Poles come from the pair: the generator's family decides where its four macros want to
+# sit, the processor decides its three, and the envelope macro is what separates two
+# otherwise identical voices into a percussive one and a sustained one.
+# --------------------------------------------------------------------------- #
+_CS_GENS = [
+    ("GENDY", "stoch"), ("GRAINN", "stoch"), ("RESBANK", "stoch"), ("DUSTRES", "stoch"),
+    ("VOSIM", "formant"), ("FOF2", "formant"), ("FMVOICE", "formant"), ("HSB", "formant"),
+    ("CROSSPM", "fm"), ("FMMETAL", "fm"), ("FMBELL", "fm"), ("FMPERC", "fm"),
+    ("FMRHOD", "fm"), ("CHAOSFM", "fm"),
+    ("WGBOW", "physical"), ("WGFLUTE", "physical"), ("WGBRASS", "physical"),
+    ("WGCLAR", "physical"), ("WGPLUCK", "physical"), ("WGUIDE2", "physical"),
+    ("DRIP", "physical"), ("TAMB", "physical"), ("SLEIGH", "physical"),
+    ("MODEBANK", "physical"),
+    ("WTERRAIN", "table"), ("CHEBY", "table"), ("PDIST", "table"), ("VCO2", "table"),
+    ("SQUINE", "table"), ("BUZZ", "table"), ("MINCER", "table"),
+]
+_CS_PROCS = ["BODY", "SMEAR", "SHIFT", "CRUSH"]
+
+# Where each family's four generator macros want to sit, as two contrasting corners.
+_FAM_POLES = {
+    "stoch":    [(0.15, 0.80, 0.30, 0.75), (0.85, 0.25, 0.70, 0.35)],
+    "formant":  [(0.20, 0.75, 0.15, 0.60), (0.70, 0.30, 0.65, 0.25)],
+    "fm":       [(0.25, 0.85, 0.20, 0.55), (0.80, 0.35, 0.75, 0.20)],
+    "physical": [(0.15, 0.60, 0.75, 0.30), (0.65, 0.25, 0.35, 0.80)],
+    "table":    [(0.10, 0.70, 0.85, 0.25), (0.75, 0.30, 0.40, 0.85)],
+}
+# ...and each processor's three, likewise.
+_PROC_POLES = {
+    "BODY":  [(0.20, 0.65, 0.35), (0.75, 0.30, 0.80)],
+    "SMEAR": [(0.15, 0.80, 0.55), (0.70, 0.45, 0.25)],
+    "SHIFT": [(0.35, 0.70, 0.40), (0.80, 0.30, 0.75)],
+    "CRUSH": [(0.25, 0.75, 0.30), (0.85, 0.35, 0.70)],
+}
+# Register and length by family — a bar model wants a different octave from a drone.
+_FAM_NOTE = {
+    "stoch":    ((0, 5, 7), 0, (0.1, 1.2)),
+    "formant":  ((0, 3, 7, 10), 12, (0.2, 1.8)),
+    "fm":       ((0, 3, 7), 0, (0.15, 2.0)),
+    "physical": ((0, 5, 7, 12), 12, (0.2, 2.2)),
+    "table":    ((0, 1, 5, 7), 0, (0.2, 2.5)),
+}
+# The processor stretches or shortens what the family wants.
+_PROC_DUR = {"BODY": 1.0, "SMEAR": 2.2, "SHIFT": 1.3, "CRUSH": 0.6}
+
+
+def _cs_matrix_roles(first_arch: int) -> dict[str, Role]:
+    """One Role per (generator, processor), in build-orc.py's order."""
+    out: dict[str, Role] = {}
+    arch = first_arch
+    for gen, fam in _CS_GENS:
+        for proc in _CS_PROCS:
+            notes, octv, (dlo, dhi) = _FAM_NOTE[fam]
+            scale = _PROC_DUR[proc]
+            poles = []
+            for gp in _FAM_POLES[fam]:
+                for pp in _PROC_POLES[proc]:
+                    # percussive and sustained readings of the same spectrum, which is the
+                    # cheapest way to double the palette
+                    poles.append(gp + pp + (0.15,))
+                    poles.append(gp + pp + (0.8,))
+            name = "%s %s" % (gen, proc[:2])
+            out[name] = Role(name, "CSOUND", note_choices=notes, octave=octv,
+                             fixed={"csound.arch": float(arch)},
+                             bands={"csound.dur": (dlo * scale, dhi * scale)},
+                             poles=tuple(poles), spread=0.11, vel=(0.8, 1.05))
+            arch += 1
+    return out
+
+
 CSOUND_ROLES: dict[str, Role] = {s[0]: _cs_role(s) for s in _CS_SPEC}
+# the ten hand-written architectures occupy arch 0..9; the matrix follows
+CSOUND_ROLES.update(_cs_matrix_roles(10))
 PALETTE_ROLES["CSOUND"] = CSOUND_ROLES["CS METAL"] if "CS METAL" in CSOUND_ROLES \
     else CSOUND_ROLES["CS BELL"]
 # Weighted toward the architectures that carry a track rather than ornament it. Anything
@@ -1026,8 +1105,12 @@ def gen_palette_voice(engine: str, rng: random.Random | None = None,
         name = rng.choices(names, weights=[_BB_WEIGHTS[n] for n in names])[0]
         return gen_voice(BYTEBEAT_ROLES[name], rng)  # gen_voice picks a random expression
     if engine == "CSOUND":
-        names = list(_CS_WEIGHTS)
-        name = rng.choices(names, weights=[_CS_WEIGHTS[n] for n in names])[0]
+        # EVERY recipe is reachable, not just the ones with a hand-written weight. Drawing
+        # from _CS_WEIGHTS alone is how an expanded palette stays exactly as small as it was:
+        # the table listed 20 names, so 20 names is all the pad could ever roll. Anything
+        # without an explicit weight gets 1, which is the whole point of a default.
+        names = list(CSOUND_ROLES)
+        name = rng.choices(names, weights=[_CS_WEIGHTS.get(n, 1) for n in names])[0]
         return gen_voice(CSOUND_ROLES[name], rng)    # the architecture is the sound
     voice = gen_voice(PALETTE_ROLES[engine], rng)
     if engine == "DRUM":                       # put the drum in register for its mode
