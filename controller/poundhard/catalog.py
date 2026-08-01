@@ -870,10 +870,10 @@ BYTEBEAT = VoiceSpec(
 # sweep drive a completely different instrument in each one.
 # --------------------------------------------------------------------------- #
 # MUST match the instrument numbers in csound/ph-engine.orc (instr 11 + arch).
-# 10 hand-written architectures (instr 11-20) + the generated matrix (instr 21-144).
+# 10 hand-written architectures (instr 11-20) + the generated sixteen (instr 21-36).
 # The engine maps architecture -> instrument as `11 + arch`, so this is just how far the
 # selector reaches. Keep in step with csound/build-orc.py.
-CS_ARCH_COUNT = 134
+CS_ARCH_COUNT = 26
 CS_ARCH_NAMES = ["fmmetal", "granclouds", "modalstrike", "chaosdrone", "waveguide",
                  "spectral", "phasedist", "noisemachine", "additive", "padwave"]
 _cs_hi = float(CS_ARCH_COUNT - 1)

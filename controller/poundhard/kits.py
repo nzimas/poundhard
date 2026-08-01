@@ -948,82 +948,96 @@ def _cs_role(spec) -> Role:
 # sit, the processor decides its three, and the envelope macro is what separates two
 # otherwise identical voices into a percussive one and a sustained one.
 # --------------------------------------------------------------------------- #
-_CS_GENS = [
-    ("GENDY", "stoch"), ("GRAINN", "stoch"), ("RESBANK", "stoch"), ("DUSTRES", "stoch"),
-    ("VOSIM", "formant"), ("FOF2", "formant"), ("FMVOICE", "formant"), ("HSB", "formant"),
-    ("CROSSPM", "fm"), ("FMMETAL", "fm"), ("FMBELL", "fm"), ("FMPERC", "fm"),
-    ("FMRHOD", "fm"), ("CHAOSFM", "fm"),
-    ("WGBOW", "physical"), ("WGFLUTE", "physical"), ("WGBRASS", "physical"),
-    ("WGCLAR", "physical"), ("WGPLUCK", "physical"), ("PLUCKM", "physical"),
-    ("DRIP", "physical"), ("TAMB", "physical"), ("SLEIGH", "physical"),
-    ("MODEBANK", "physical"),
-    ("WTERRAIN", "table"), ("CHEBY", "table"), ("PDIST", "table"), ("VCO2", "table"),
-    ("SQUINE", "table"), ("BUZZ", "table"), ("MINCER", "table"),
+# THE SIXTEEN, one recipe block each. Poles are per ARCHITECTURE here, not per family:
+# sharing one pole set across every generator in a family is what flattened the character out
+# — six FM cores all aimed at the same four numbers sound like one FM core. Each entry is
+# (name, note choices, octave, duration band, [pole ...]) where a pole is the full eight
+# macros: four for the core, three for the stage, one for the envelope shape.
+_CS16 = [
+    ("CS GENDY", (0, 3, 7), 12, (0.12, 0.9),
+     [(0.15, 0.20, 0.75, 0.30, 0.70, 0.20, 0.35, 0.10),
+      (0.80, 0.85, 0.25, 0.70, 0.35, 0.65, 0.70, 0.55)]),
+    ("CS VOSIM", (0, 5, 7, 12), 12, (0.1, 0.8),
+     [(0.10, 0.25, 0.85, 0.20, 0.60, 0.20, 0.30, 0.08),
+      (0.65, 0.80, 0.30, 0.75, 0.30, 0.60, 0.75, 0.45)]),
+    ("CS FOFCLOUD", (0, 3, 7, 10), 24, (0.8, 4.0),
+     [(0.20, 0.70, 0.35, 0.55, 0.15, 0.85, 0.55, 0.85),
+      (0.75, 0.30, 0.75, 0.25, 0.55, 0.45, 0.30, 0.60)]),
+    ("CS FMVOX", (0, 1, 5, 7), 0, (0.3, 2.2),
+     [(0.35, 0.60, 0.20, 0.70, 0.30, 0.75, 0.40, 0.55),
+      (0.80, 0.25, 0.75, 0.30, 0.75, 0.30, 0.70, 0.20)]),
+    ("CS STRETCH", (0, 3, 7, 10), 24, (0.5, 3.0),
+     [(0.15, 0.30, 0.80, 0.20, 0.75, 0.20, 0.25, 0.30),
+      (0.70, 0.75, 0.30, 0.65, 0.30, 0.70, 0.65, 0.75)]),
+    ("CS CROSSPM", (0, 5, 7), 0, (0.25, 2.0),
+     [(0.20, 0.75, 0.25, 0.60, 0.65, 0.25, 0.45, 0.25),
+      (0.70, 0.30, 0.70, 0.25, 0.30, 0.70, 0.75, 0.60)]),
+    ("CS FMMETAL", (0, 3, 7), 12, (0.1, 0.7),
+     [(0.75, 0.80, 0.30, 0.65, 0.30, 0.25, 0.65, 0.08),
+      (0.30, 0.45, 0.75, 0.35, 0.70, 0.55, 0.30, 0.35)]),
+    ("CS FMBELL", (0, 3, 7, 10), 24, (0.6, 3.5),
+     [(0.20, 0.35, 0.75, 0.25, 0.45, 0.30, 0.35, 0.25),
+      (0.60, 0.70, 0.30, 0.60, 0.65, 0.70, 0.75, 0.65)]),
+    ("CS CHAOS", (0, 7), -12, (0.2, 1.6),
+     [(0.80, 0.70, 0.35, 0.20, 0.25, 0.20, 0.55, 0.12),
+      (0.35, 0.30, 0.75, 0.60, 0.70, 0.60, 0.25, 0.45)]),
+    ("CS BOW", (0, 5, 7, 12), 12, (0.5, 3.0),
+     [(0.25, 0.60, 0.30, 0.20, 0.60, 0.25, 0.35, 0.70),
+      (0.70, 0.30, 0.70, 0.55, 0.30, 0.65, 0.70, 0.85)]),
+    ("CS BLOWN", (0, 5, 7), 24, (0.6, 3.5),
+     [(0.20, 0.55, 0.30, 0.20, 0.20, 0.75, 0.45, 0.80),
+      (0.65, 0.25, 0.70, 0.50, 0.60, 0.35, 0.25, 0.55)]),
+    ("CS PLUCK", (0, 3, 5, 7, 10), 12, (0.15, 1.4),
+     [(0.15, 0.10, 0.70, 0.30, 0.65, 0.20, 0.40, 0.10),
+      (0.70, 0.85, 0.25, 0.70, 0.30, 0.60, 0.75, 0.30)]),
+    ("CS STRUCK", (0, 3, 7, 10), 24, (0.3, 2.0),
+     [(0.10, 0.30, 0.75, 0.25, 0.30, 0.70, 0.30, 0.15),
+      (0.55, 0.70, 0.30, 0.65, 0.75, 0.30, 0.70, 0.40)]),
+    ("CS TERRAIN", (0, 1, 5, 7), 0, (0.4, 2.5),
+     [(0.20, 0.75, 0.30, 0.65, 0.65, 0.25, 0.30, 0.45),
+      (0.75, 0.25, 0.70, 0.30, 0.25, 0.70, 0.70, 0.70)]),
+    ("CS CHEBY", (0, 5, 7), 12, (0.2, 1.8),
+     [(0.75, 0.20, 0.30, 0.15, 0.60, 0.20, 0.35, 0.20),
+      (0.30, 0.70, 0.75, 0.60, 0.30, 0.65, 0.70, 0.60)]),
+    ("CS SCAN", (0, 7, 12), -12, (1.0, 5.0),
+     [(0.15, 0.70, 0.25, 0.30, 0.20, 0.80, 0.50, 0.85),
+      (0.70, 0.30, 0.70, 0.65, 0.55, 0.40, 0.25, 0.65)]),
 ]
-_CS_PROCS = ["BODY", "SMEAR", "SHIFT", "CRUSH"]
-
-# Where each family's four generator macros want to sit, as two contrasting corners.
-_FAM_POLES = {
-    "stoch":    [(0.15, 0.80, 0.30, 0.75), (0.85, 0.25, 0.70, 0.35)],
-    "formant":  [(0.20, 0.75, 0.15, 0.60), (0.70, 0.30, 0.65, 0.25)],
-    "fm":       [(0.25, 0.85, 0.20, 0.55), (0.80, 0.35, 0.75, 0.20)],
-    "physical": [(0.15, 0.60, 0.75, 0.30), (0.65, 0.25, 0.35, 0.80)],
-    "table":    [(0.10, 0.70, 0.85, 0.25), (0.75, 0.30, 0.40, 0.85)],
-}
-# ...and each processor's three, likewise.
-_PROC_POLES = {
-    "BODY":  [(0.20, 0.65, 0.35), (0.75, 0.30, 0.80)],
-    "SMEAR": [(0.15, 0.80, 0.55), (0.70, 0.45, 0.25)],
-    "SHIFT": [(0.35, 0.70, 0.40), (0.80, 0.30, 0.75)],
-    "CRUSH": [(0.25, 0.75, 0.30), (0.85, 0.35, 0.70)],
-}
-# Register and length by family — a bar model wants a different octave from a drone.
-_FAM_NOTE = {
-    "stoch":    ((0, 5, 7), 0, (0.1, 1.2)),
-    "formant":  ((0, 3, 7, 10), 12, (0.2, 1.8)),
-    "fm":       ((0, 3, 7), 0, (0.15, 2.0)),
-    "physical": ((0, 5, 7, 12), 12, (0.2, 2.2)),
-    "table":    ((0, 1, 5, 7), 0, (0.2, 2.5)),
-}
-# The processor stretches or shortens what the family wants.
-_PROC_DUR = {"BODY": 1.0, "SMEAR": 2.2, "SHIFT": 1.3, "CRUSH": 0.6}
 
 
-def _cs_matrix_roles(first_arch: int) -> dict[str, Role]:
-    """One Role per (generator, processor), in build-orc.py's order."""
+# NOTE ON A FAILED EXPERIMENT. Brightness and envelope were briefly assigned ACROSS the
+# sixteen by index, on the theory that forcing each architecture onto its own slot of the
+# bright/dark axis would push the closest pairs apart. It failed on both counts: measured
+# pairwise distance got WORSE (closest pair 0.011 -> 0.007) and live rolls collapsed from a
+# 346-5820 Hz brightness spread to 77-573 Hz, because indexing put half the palette at the
+# dark end regardless of what the core wanted. The per-architecture poles below are the
+# design; they are not overridden.
+def _cs16_roles(first_arch: int) -> dict[str, Role]:
     out: dict[str, Role] = {}
-    arch = first_arch
-    for gen, fam in _CS_GENS:
-        for proc in _CS_PROCS:
-            notes, octv, (dlo, dhi) = _FAM_NOTE[fam]
-            scale = _PROC_DUR[proc]
-            poles = []
-            for gp in _FAM_POLES[fam]:
-                for pp in _PROC_POLES[proc]:
-                    # percussive and sustained readings of the same spectrum, which is the
-                    # cheapest way to double the palette
-                    poles.append(gp + pp + (0.15,))
-                    poles.append(gp + pp + (0.8,))
-            name = "%s %s" % (gen, proc[:2])
-            out[name] = Role(name, "CSOUND", note_choices=notes, octave=octv,
-                             fixed={"csound.arch": float(arch)},
-                             bands={"csound.dur": (dlo * scale, dhi * scale)},
-                             poles=tuple(poles), spread=0.11, vel=(0.8, 1.05))
-            arch += 1
+    for i, (name, notes, octv, dur, poles) in enumerate(_CS16):
+        out[name] = Role(name, "CSOUND", note_choices=notes, octave=octv,
+                         fixed={"csound.arch": float(first_arch + i)},
+                         bands={"csound.dur": dur},
+                         poles=tuple(poles), spread=0.12, vel=(0.8, 1.05))
     return out
 
 
 CSOUND_ROLES: dict[str, Role] = {s[0]: _cs_role(s) for s in _CS_SPEC}
 # the ten hand-written architectures occupy arch 0..9; the matrix follows
-CSOUND_ROLES.update(_cs_matrix_roles(10))
+CSOUND_ROLES.update(_cs16_roles(10))
 PALETTE_ROLES["CSOUND"] = CSOUND_ROLES["CS METAL"] if "CS METAL" in CSOUND_ROLES \
     else CSOUND_ROLES["CS BELL"]
 # Weighted toward the architectures that carry a track rather than ornament it. Anything
 # absent gets weight 1, so adding a recipe above needs no edit here.
-_CS_WEIGHTS = {"CS BELL": 3, "CS ANVIL": 3, "CS STRIKE": 3, "CS WOOD": 3, "CS CHAOS": 3,
-               "CS SCREW": 2, "CS NOISE": 3, "CS GRIT": 3, "CS CRACK": 2, "CS PHASE": 3,
-               "CS CRUSH": 2, "CS FOLD": 2, "CS CLOUD": 2, "CS DUST": 2, "CS PLATE": 2,
-               "CS GLASS": 2, "CS WGUIDE": 2, "CS STRING": 2, "CS ADD": 2, "CS PAD": 2}
+# THE SIXTEEN ARE THE PALETTE'S FIRST CHOICE. This table used to give twenty legacy names a
+# 2-3x bonus while everything else defaulted to 1 — with 39 legacy recipes against 16 new
+# ones, that meant the pad played the old set 79% of the time and the newly designed
+# architectures barely appeared. Adding architectures could not change what anyone heard.
+# Now the designed sixteen carry the weight and the legacy recipes are the seasoning.
+_CS16_NAMES = {n for n, _n, _o, _d, _p in _CS16}
+_CS_WEIGHTS = {"CS BELL": 1, "CS ANVIL": 1, "CS STRIKE": 1, "CS WOOD": 1, "CS CHAOS": 1,
+               "CS NOISE": 1, "CS GRIT": 1, "CS PHASE": 1, "CS CLOUD": 1, "CS PLATE": 1,
+               "CS GLASS": 1, "CS WGUIDE": 1, "CS STRING": 1, "CS ADD": 1, "CS PAD": 1}
 
 
 # SAMPLE plays back whatever was just captured + mangled, so its "sound" is playback
@@ -1110,7 +1124,8 @@ def gen_palette_voice(engine: str, rng: random.Random | None = None,
         # the table listed 20 names, so 20 names is all the pad could ever roll. Anything
         # without an explicit weight gets 1, which is the whole point of a default.
         names = list(CSOUND_ROLES)
-        name = rng.choices(names, weights=[_CS_WEIGHTS.get(n, 1) for n in names])[0]
+        name = rng.choices(names,
+            weights=[4 if n in _CS16_NAMES else _CS_WEIGHTS.get(n, 1) for n in names])[0]
         return gen_voice(CSOUND_ROLES[name], rng)    # the architecture is the sound
     voice = gen_voice(PALETTE_ROLES[engine], rng)
     if engine == "DRUM":                       # put the drum in register for its mode
