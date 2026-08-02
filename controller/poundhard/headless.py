@@ -23,6 +23,7 @@ import traceback
 from pathlib import Path
 
 from . import catalog
+from . import lfo as lfomod
 from . import phrase
 from .catalog import FX_SPECS, N_FX
 from .engine_bridge import EngineBridge
@@ -55,6 +56,7 @@ REC_TAIL_MAX_SEC = 30.0                            # safety: cut the tail if it 
 REC_SILENCE_THRESH = float(_env("PH_REC_SILENCE", "0.004"))   # master level counted as "silent"
 REC_SILENCE_SEC = 1.2                              # ...must stay below it this long to end the take
 CONTROL_HZ = float(_env("PH_CONTROL_HZ", "30"))    # control.json poll rate
+LFO_HZ = float(_env("PH_LFO_HZ", "24"))           # modulation update rate
 SNAP_HZ = float(_env("PH_SNAPSHOT_HZ", "5"))       # status.json write rate (lower = less SD I/O)
 # AUTOSAVE: a recovery file, deliberately SEPARATE from the 32 user project slots — it
 # never overwrites anything you saved by hand. Written only when something changed, and
@@ -113,6 +115,9 @@ class Controller:
         self._smp_chain: list[str] = []     # the Csound stages the take went through
         self._smp_thresh = 0.02
         # HEAT macro: mass-mark a fraction of sequenced steps as living (live performance)
+        self._lfo = lfomod.Bank()
+        self._lfo_bar = 0.0
+        self._lfo_t0 = time.monotonic()
         self._heat_on = False                    # macro engaged
         self._heat_pct = 0.5                     # fraction of hits to heat (knob-1 adjustable)
         # SHUFFLE macro: temporarily swap rhythmic structures (pattern/length/rate) BETWEEN
@@ -196,7 +201,7 @@ class Controller:
         self._autosaved = AUTOSAVE_FILE.exists()
         self.bridge.start(on_ready=self._on_ready)
         for fn in (self._control_loop, self._status_loop, self._handshake_loop,
-                   self._autosave_loop):
+                   self._autosave_loop, self._lfo_loop):
             t = threading.Thread(target=self._safe_loop, args=(fn,), daemon=True)
             t.start()
             self._threads.append(t)
@@ -246,6 +251,7 @@ class Controller:
         self.state.shuffle_perm = {}
         self._quake_on = False
         self._quake_saved = {}
+        self._lfo.all_off(self.state, self.bridge)
         self.bridge.steps(self.state.steps)
         self.bridge.tempo(self.state.tempo)
         for t in range(N_TRACKS):
@@ -913,6 +919,10 @@ class Controller:
 
     # -- patterns & projects ----------------------------------------------- #
     def _on_cycle(self) -> None:
+        # RESYNC: the engine owns the bar. Interpolating from wall clock between cycles is
+        # smooth but drifts; snapping here means an LFO set to "one cycle per 4 bars" is
+        # still exactly in phase with the pattern an hour later.
+        self._lfo_bar = float(round(self._lfo_bar))
         self._phrase_tick()                # commit anything armed, before the bar turns
         self._churn_spend()
         self._break_tick()
@@ -1096,6 +1106,31 @@ class Controller:
         for t in range(N_TRACKS):
             self.bridge.push_track(t, self.state.tracks[t])
 
+    # -- modulation ---------------------------------------------------------- #
+    def _lfo_loop(self) -> None:
+        """Advance the LFO bank and push whatever moved.
+
+        THE CLOCK IS THE BAR, not this loop. Phase is `bars * cycles_per_bar`, and `bars`
+        advances at tempo/(60*4) — so the update RATE here only decides how smooth the
+        modulation is, never how fast it runs. A tempo change moves every LFO with it and
+        this loop does not need to know.
+
+        LFOs FREEZE WHEN THE SEQUENCER IS STOPPED. A bank that kept sweeping while the
+        machine was silent would leave every parameter somewhere unpredictable the moment
+        you pressed play.
+        """
+        period = 1.0 / LFO_HZ
+        while not self._stop.is_set():
+            now = time.monotonic()
+            dt = max(0.0, now - self._lfo_t0)
+            self._lfo_t0 = now
+            if self.state.running:
+                self._lfo_bar += dt * (float(self.state.tempo) / 60.0) / 4.0
+            if self._lfo.active():
+                with self._lock:
+                    self._lfo.tick(self._lfo_bar, self.state, self.bridge)
+            time.sleep(period)
+
     # -- control.json (UI -> controller) ----------------------------------- #
     def _control_loop(self) -> None:
         period = 1.0 / max(10.0, CONTROL_HZ)
@@ -1178,7 +1213,7 @@ class Controller:
     # Commands that change no persisted state — they don't mark the project dirty.
     _NO_STATE = frozenset({
         "editenter", "editexit", "audition", "palettegen", "drummode", "drumaudition",
-        "smparm",
+        "smparm", "lfopad", "lfogen", "lfoenter",
         "recpad", "run",
         "patcopy", "patclipclear", "saveproj", "panic", "shuffle", "quake", "churn",
         "break", "steprand", "strobe", "miclevel", "micarm", "micthresh", "micgain",
@@ -1645,6 +1680,30 @@ class Controller:
             slot = int(arg)
             if 0 <= slot < N_PATTERNS:
                 self._load_project_file(slot)
+        elif cmd == "lfopad":                  # modulation view: pad toggles one LFO
+            slot = int(arg)
+            if 0 <= slot < lfomod.N_LFO:
+                l = self._lfo.bank[slot]
+                if l is None:
+                    # fewer targets than pads: the pad is dark and does nothing, rather than
+                    # doubling up on a parameter another LFO already owns
+                    print("[poundhard] lfo %d has no target" % (slot + 1), flush=True)
+                else:
+                    on = self._lfo.toggle(slot, st, self.bridge)
+                    print("[poundhard] lfo %d %s: %s"
+                          % (slot + 1, "ON" if on else "off", l.label()), flush=True)
+        elif cmd == "lfogen":                  # modulation view: re-roll the whole bank
+            # Everything OFF first, through the restore path, or a parameter driven by the
+            # OLD assignment would be abandoned wherever the LFO happened to leave it.
+            self._lfo.all_off(st, self.bridge)
+            n = self._lfo.regenerate(st)
+            print("[poundhard] modulation: %d targets assigned" % n, flush=True)
+        elif cmd == "lfoenter":                # opening the view: refresh against the project
+            if not any(l is not None for l in self._lfo.bank):
+                n = self._lfo.regenerate(st)
+                print("[poundhard] modulation: %d targets assigned" % n, flush=True)
+            else:
+                self._lfo.rebase(st)           # centres follow whatever the project now says
         elif cmd == "recpad":                  # recorder view: press a slot pad
             slot = int(arg)
             if 0 <= slot < N_RECORDINGS:
@@ -1698,6 +1757,8 @@ class Controller:
             "canRedo": len(st.redo_stack) > 0,
             "autoSave": self._autosaved,       # a recovery file exists (Shift+Menu restores it)
             "heat": self._heat_on,             # HEAT macro engaged
+            "lfo": self._lfo.status(),         # 32 pads: 0 none / 1 assigned / 2 active
+            "lfoOn": self._lfo.active(),
             "heatPct": round(self._heat_pct, 3),
             # the project's scale, once something pitched has established it
             "scale": (None if st.scale_name is None

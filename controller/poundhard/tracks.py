@@ -592,10 +592,15 @@ class Project:
     def fx_top(self, track: int) -> int:
         return self.track_fx[track][-1] if self.track_fx[track] else -1
 
-    def macro_values(self, fx: int) -> list:
+    def macro_values(self, fx: int, pos: float | None = None) -> list:
         """(arg, value) for every param of FX `fx` at its current macro position.
-        Half the params move with the knob, half inverted (fx_dir)."""
-        pos = self.fx_macro[fx]
+        Half the params move with the knob, half inverted (fx_dir).
+
+        `pos` overrides the stored position WITHOUT writing it. That is what lets an LFO
+        drive an FX macro non-destructively: the modulated values are computed here, from
+        the one authoritative mapping, and sent straight to the engine while `fx_macro`
+        keeps whatever the user programmed."""
+        pos = self.fx_macro[fx] if pos is None else float(pos)
         out = []
         for (arg, lo, hi) in FX_SPECS[fx].params:
             # .get(arg, 1): a project saved with an OLDER FX param set has no direction for

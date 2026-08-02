@@ -27,7 +27,7 @@
 import {
     Black, VividYellow, White, BrightGreen,
     MoveShift, MoveBack, MovePlay, MoveKnob1, MoveKnob1Touch, MoveKnob8Touch,
-    MoveMasterTouch, MoveRow1, MoveRow2, MoveRow3, MoveMenu, MoveLeft, MoveRight, MoveUp, MoveDown,
+    MoveMasterTouch, MoveRow1, MoveRow2, MoveRow3, MoveRow4, MoveMenu, MoveLeft, MoveRight, MoveUp, MoveDown,
     MoveMainKnob, MoveMainTouch,
     MoveMainButton, MoveDelete, MoveCopy, MoveUndo, MoveRec
 } from '/data/UserData/move-anything/shared/constants.mjs';
@@ -189,6 +189,14 @@ let canUndo = false, canRedo = false;   /* whether the stacks have anything in t
 let autoSave = false;               /* an autosave recovery file exists (Shift+Menu restores) */
 /* RECORDER view (Shift + Track3): 8 pads = 8 recording slots. */
 let recView = false;
+/* MODULATION view: 32 auto-assigned, tempo-synced LFOs. `lfoState[i]` mirrors the
+ * controller: 0 = this pad has no target (fewer targets than pads), 1 = assigned and idle,
+ * 2 = running. Pads 1-16 are sample-and-hold, 17-32 are sine — two colour families so the
+ * halves read apart at a glance. */
+let modView = false;
+let lfoState = new Array(32).fill(0), lfoOn = 0, lfoLast = '';
+/* amber = sample & hold, cyan = sine; the dim tone is the assigned-but-idle state */
+const LFO_SH_ON = 25, LFO_SH_OFF = 106, LFO_SIN_ON = 14, LFO_SIN_OFF = 87;
 let recSlots = new Array(8).fill(false), recSlot = -1, recState = 'idle', recElapsed = 0;
 let webPort = 7177;
 /* SOLO: double-tap a step button. (Shift+step is NOT used — Shift + step-13 is a fatal
@@ -339,7 +347,7 @@ let ledDirty = true, screenDirty = true, lastLedSig = '', lastScreenSig = '', la
  * the invariant — one view, controller told when an edit closes — holds by construction.
  * ------------------------------------------------------------------------------------- */
 const V_MAIN = 'tracks', V_PAT = 'pattern', V_PROJ = 'project',
-      V_REC = 'recorder', V_FX = 'fx', V_EDIT = 'edit';
+      V_REC = 'recorder', V_FX = 'fx', V_EDIT = 'edit', V_MOD = 'modulation';
 
 function currentView() {
     if (editTrack >= 0) return V_EDIT;
@@ -347,6 +355,7 @@ function currentView() {
     if (patView) return V_PAT;
     if (projView) return V_PROJ;
     if (recView) return V_REC;
+    if (modView) return V_MOD;
     return V_MAIN;
 }
 
@@ -355,6 +364,7 @@ function setView(v, track) {
     patView  = (v === V_PAT);
     projView = (v === V_PROJ);
     recView  = (v === V_REC);
+    modView  = (v === V_MOD);
     fxView   = (v === V_FX);
     fxHeld   = -1;
     editTrack = (v === V_EDIT) ? track : -1;
@@ -531,6 +541,21 @@ function renderStepButtons() {
     }
 }
 function renderLEDs() {
+    if (modView) {
+        for (let c = 0; c < 32; c++) {
+            const sh = (c < 16);
+            let color;
+            if (lfoState[c] === 0) color = Black;              /* no target -> dark, inert */
+            else if (lfoState[c] === 2) color = sh ? LFO_SH_ON : LFO_SIN_ON;
+            else color = sh ? LFO_SH_OFF : LFO_SIN_OFF;
+            setLED(PAD_NOTES[c], color);
+        }
+        renderStepButtons();
+        btnLED(MoveRow1, Black); btnLED(MoveRow2, Black); btnLED(MoveRow3, Black);
+        btnLED(MoveRow4, White); btnLED(MoveMenu, Black);
+        btnLED(MovePlay, running ? BrightGreen : Black);
+        return;
+    }
     if (patView || projView || recView) {              /* pads = slots */
         for (let c = 0; c < 32; c++) {
             let color;
@@ -557,6 +582,7 @@ function renderLEDs() {
         renderStepButtons();
         btnLED(MoveRow1, Black); btnLED(MoveRow2, Black);   /* Row1 lights only in the tracks view */
         btnLED(MoveRow3, recView ? 1 : (patView ? White : Black)); btnLED(MoveMenu, projView ? White : Black);
+        btnLED(MoveRow4, Black);
         btnLED(MovePlay, running ? BrightGreen : Black);
         ledDirty = false;
         return;
@@ -574,7 +600,7 @@ function renderLEDs() {
         }
         renderStepButtons();
         btnLED(MoveRow1, Black); btnLED(MoveRow2, White);   /* Row2 lit = FX view active */
-        btnLED(MoveRow3, Black); btnLED(MoveMenu, Black);
+        btnLED(MoveRow3, Black); btnLED(MoveRow4, Black); btnLED(MoveMenu, Black);
         btnLED(MovePlay, running ? BrightGreen : Black);
         ledDirty = false;
         return;
@@ -692,7 +718,7 @@ function renderLEDs() {
      * other view), so the button itself tells you where you are. */
     btnLED(MoveRow1, editTrack < 0 ? TRACK_COLOR : Black);
     btnLED(MoveRow2, Black);
-    btnLED(MoveRow3, Black); btnLED(MoveMenu, Black);
+    btnLED(MoveRow3, Black); btnLED(MoveRow4, lfoOn > 0 ? LFO_SIN_OFF : Black); btnLED(MoveMenu, Black);
     btnLED(MovePlay, running ? BrightGreen : Black);
     ledDirty = false;
 }
@@ -827,6 +853,15 @@ function drawFx() {
     print(0, 44, 'tap trk=bypass  sh+knob=wet', 1);
     print(0, 56, 'knobs 1-8 = macros', 1);
 }
+function drawMod() {
+    clear_screen();
+    const n = lfoState.filter(function (x) { return x > 0; }).length;
+    /* The count IS the readout: with 32 auto-assigned LFOs the useful question during a
+     * performance is "how much is moving", not which parameter each pad holds. */
+    drawParamBig('MODULATION', lfoOn + '/' + n, 'uni', n ? clampf(lfoOn / n, 0, 1) : 0);
+    print(0, 56, 'pad=toggle  sh+trk4=new bank', 1);
+}
+
 function drawRec() {
     if (recState === 'recording' || recState === 'tail') {
         var mm = Math.floor(recElapsed / 60), ss = recElapsed % 60;
@@ -894,6 +929,7 @@ function drawSample() {
 function drawScreen() {
     if (typeof clear_screen !== 'function' || typeof print !== 'function') return;
     if (exitConfirm) { drawExitConfirm(); return; }
+    if (modView) { drawMod(); return; }
     if (recView) { drawRec(); return; }
     /* the capture engine narrates its own lifecycle on screen */
     if ((smpHold || smpState !== 'idle') && !fxView && !patView && !projView && editTrack < 0) {
@@ -1032,6 +1068,8 @@ function readStatus() {
     if (s.patCur != null) patCur = s.patCur;
     if (s.patPending != null) patPending = s.patPending;
     if (Array.isArray(s.recSlots)) recSlots = s.recSlots;
+    if (Array.isArray(s.lfo)) lfoState = s.lfo;
+    if (s.lfoOn != null) lfoOn = s.lfoOn | 0;
     if (s.recSlot != null) recSlot = s.recSlot;
     if (s.recState != null) recState = s.recState;
     if (s.recElapsed != null) recElapsed = s.recElapsed;
@@ -1144,6 +1182,7 @@ globalThis.init = function () {
     patFilled = new Array(N_STEPS).fill(false); projFilled = new Array(N_STEPS).fill(false);
     projCur = -1;
     recView = false; recSlots = new Array(8).fill(false); recSlot = -1; recState = 'idle'; recElapsed = 0;
+    modView = false; lfoState = new Array(32).fill(0); lfoOn = 0; lfoLast = '';
     solo = -1; lastTapAt = new Array(N_TRACKS).fill(0);
 };
 
@@ -1382,6 +1421,23 @@ globalThis.onMidiMessageInternal = function (data) {
     /* PATTERN / PROJECT view: the 32 pads are 32 slots. Shift+pad = save, tap = load.
      * NOTE messages only — knob CCs (71-78) and Play CC (85) fall in the same numeric
      * range as the pad notes, so we must NOT swallow them here. */
+    /* MODULATION view: every pad is one LFO, and pressing it toggles that LFO alone. */
+    if (modView && d1 >= 68 && d1 <= 99) {
+        if (status === 0x90 && d2 > 0) {
+            const slot = NOTE_TO_CELL[d1];
+            if (lfoState[slot] === 0) showAction('LFO ' + (slot + 1) + ' UNASSIGNED');
+            else {
+                /* optimistic: the controller confirms on the next status push */
+                lfoState[slot] = (lfoState[slot] === 2) ? 1 : 2;
+                lfoOn += (lfoState[slot] === 2) ? 1 : -1;
+                sendCmd('lfopad', slot);
+                showAction('LFO ' + (slot + 1) + (lfoState[slot] === 2 ? ' ON' : ' OFF'));
+            }
+            ledDirty = true; screenDirty = true;
+        }
+        return;                                  /* this view owns all pad events */
+    }
+
     if ((patView || projView || recView) && (status === 0x90 || status === 0x80) && d1 >= 68 && d1 <= 99) {
         if (status === 0x90 && d2 > 0) {
             const slot = NOTE_TO_CELL[d1];
@@ -1898,6 +1954,17 @@ globalThis.onMidiMessageInternal = function (data) {
                 else showAction('open a track first');
             } else { setView(V_MAIN); showAction('TRACKS'); }
             ledDirty = true; screenDirty = true;
+            return;
+        }
+        if (d1 === MoveRow4 && d2 > 0) {                   /* Track 4 = MODULATION view */
+            if (shiftHeld && modView) {                    /* Shift = re-roll the whole bank */
+                sendCmd('lfogen', -1); showAction('NEW MODULATION');
+                ledDirty = true; screenDirty = true;
+                return;
+            }
+            const on = toggleView(V_MOD);
+            if (on) sendCmd('lfoenter', -1);               /* assign/refresh against the project */
+            showAction(on ? 'MODULATION' : 'TRACKS');
             return;
         }
         if (d1 === MovePlay && d2 > 0) {
