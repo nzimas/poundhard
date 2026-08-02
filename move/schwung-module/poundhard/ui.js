@@ -196,7 +196,26 @@ let expSeed = -1;                            /* which seed's row is open (-1 = n
 let expCur = -1;                             /* -1 = the seed itself is live */
 /* seeds are periwinkle as before; expansions are a warmer amber family, so the two halves
  * of the grid never read as one bank of 32 */
-const EXP_FILLED = 25, EXP_EMPTY = 106, EXP_LOCKED = 0;
+/* Three warm levels for the expansion half against the seeds' cool blues, so the two zones
+ * read as different banks at a glance — including BEFORE a seed is opened, which is when the
+ * distinction matters most. */
+const EXP_FILLED = 25;      /* amber: holds a variation */
+const EXP_EMPTY = 106;      /* dark amber: this seed's row, slot free */
+const EXP_LOCKED = 74;      /* very dark yellow: no seed open — a zone, not a void */
+let pasteFlash = -1, pasteFlashUntil = 0;   /* the pad just written, briefly white */
+
+/* patFilled holds the 16 SEEDS and expFilled the open seed's 16 EXPANSIONS, so a raw pad
+ * number cannot index either one directly. Every pattern-view test goes through these. */
+function slotFilled(slot) {
+    return slot < N_SEEDS ? !!patFilled[slot] : !!expFilled[slot - N_SEEDS];
+}
+function markSlotFilled(slot) {
+    if (slot < N_SEEDS) patFilled[slot] = true; else expFilled[slot - N_SEEDS] = true;
+}
+function slotName(slot) {
+    return slot < N_SEEDS ? ('SEED ' + (slot + 1))
+                          : ('S' + (expSeed + 1) + '.' + (slot - N_SEEDS + 1));
+}
 let projFilled = new Array(N_STEPS).fill(false);
 let projCur = -1;                   /* which project is LOADED (-1 = none) */
 let canUndo = false, canRedo = false;   /* whether the stacks have anything in them */
@@ -591,7 +610,8 @@ function renderLEDs() {
                 /* EXPANSIONS. Dark until a seed is opened — an expansion has to belong to
                  * something, so an unopened row is inert rather than misleadingly empty. */
                 const e = c - N_SEEDS;
-                if (expSeed < 0) color = EXP_LOCKED;
+                if (c === pasteFlash && phase < pasteFlashUntil) color = White;
+                else if (expSeed < 0) color = EXP_LOCKED;
                 else if (expCur === e && patCur === expSeed)
                     color = trackPulseOn(0) ? White : EXP_FILLED;   /* the live expansion */
                 else color = expFilled[e] ? EXP_FILLED : EXP_EMPTY;
@@ -599,6 +619,7 @@ function renderLEDs() {
             else if (c === patPending) color = trackPulseOn(0) ? White : 50;  /* queued: pulse periwinkle */
             /* current slot: White when it holds a pattern, LightGrey when it's an empty
              * slot you've SELECTED as the destination for the next generate/write. */
+            else if (c === pasteFlash && phase < pasteFlashUntil) color = White;
             else if (c === patCur && expCur < 0) color = patFilled[c] ? White : 118;
             else if (c === expSeed) color = EXP_FILLED;             /* its expansions are open */
             else color = patFilled[c] ? 50 : 102;                   /* LavenderBlue(periwinkle) / DarkIndigo empty */
@@ -1277,6 +1298,7 @@ globalThis.tick = function () {
     if (running && patView && patPending >= 0) ledDirty = true;   /* animate the queued-slot pulse */
     if (recView && recState !== 'idle') ledDirty = true;          /* animate the rec/armed pad */
     if (editTrack >= 0 && !fxView) { for (var _lv = 0; _lv < N_STEPS; _lv++) if (editLiving[_lv]) { ledDirty = true; break; } }  /* pulse living steps */
+    if (pasteFlash >= 0 && phase < pasteFlashUntil + 2) ledDirty = true;
     if ((heatOn || shufOn || quakeOn || churnOn || brkOn || strobeOn || whimOn || armedSet.quake) && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse the six modifier pads */
     /* promote a sustained press on the SAMPLE pad into a HOLD (record-arm) */
     if (paletteHeld === SAMPLE_CELL && !smpHold && (Date.now() - paletteHeldStart) >= HOLD_MS) {
@@ -1490,7 +1512,7 @@ globalThis.onMidiMessageInternal = function (data) {
                  * while the canonical idea stays exactly as you left it. The first expansion
                  * starts life as a copy of the seed, so there is always something there. */
                 if (recHeld && slot < N_SEEDS) {
-                    if (!patFilled[slot]) { showAction('SEED ' + (slot + 1) + ' EMPTY'); }
+                    if (!slotFilled(slot)) { showAction('SEED ' + (slot + 1) + ' EMPTY'); }
                     else {
                         sendCmd('expfirst', slot);
                         expSeed = slot;                              /* optimistic */
@@ -1504,20 +1526,34 @@ globalThis.onMidiMessageInternal = function (data) {
                     showAction('REC + SEED FIRST');                  /* no row is open yet */
                     return;
                 }
-                if (deleteHeld) {                                    /* X + pad = delete, bank closes the gap */
-                    sendCmd('patdel', slot); showAction('DEL PAT ' + (slot + 1));
+                if (deleteHeld) {                                    /* X + pad = delete */
+                    sendCmd('patdel', slot); showAction('DEL ' + slotName(slot));
                 } else if (copyHeld) {                               /* Copy + pad = copy, then paste while held */
                     if (!copyArmed) {
-                        if (patFilled[slot]) { sendCmd('patcopy', slot); copyArmed = true; showAction('COPY PAT ' + (slot + 1)); }
-                        else showAction('PAT ' + (slot + 1) + ' EMPTY');
-                    } else { patFilled[slot] = true; sendCmd('patpaste', slot); showAction('PASTE PAT ' + (slot + 1)); }
-                } else if (shiftHeld) { patFilled[slot] = true; sendCmd('savepat', slot); showAction('SAVE PAT ' + (slot + 1)); }
-                else if (patFilled[slot]) { sendCmd('loadpat', slot); showAction((running ? 'QUEUE ' : 'LOAD ') + 'PAT ' + (slot + 1)); }
-                else {
+                        if (slotFilled(slot)) { sendCmd('patcopy', slot); copyArmed = true; showAction('COPY ' + slotName(slot)); }
+                        else showAction(slotName(slot) + ' EMPTY');
+                    } else {
+                        /* PASTE. The pad is marked filled and flashed immediately: the
+                         * controller confirms on the next status push, but a performer
+                         * pressing four destinations in a row needs to see each one land
+                         * as it happens, not a beat later. */
+                        markSlotFilled(slot);
+                        pasteFlash = slot; pasteFlashUntil = phase + 12;
+                        sendCmd('patpaste', slot); showAction('PASTE -> ' + slotName(slot));
+                    }
+                } else if (shiftHeld) {
+                    markSlotFilled(slot); pasteFlash = slot; pasteFlashUntil = phase + 12;
+                    sendCmd('savepat', slot); showAction('SAVE ' + slotName(slot));
+                } else if (slotFilled(slot)) {
+                    sendCmd('loadpat', slot);
+                    showAction((running ? 'QUEUE ' : 'LOAD ') + slotName(slot));
+                } else {
                     /* empty pad = pick this slot as the destination for the next
                      * generate / hand-written pattern. Nothing loads, nothing changes. */
-                    sendCmd('loadpat', slot); patCur = slot;        /* optimistic */
-                    showAction('SELECT PAT ' + (slot + 1));
+                    sendCmd('loadpat', slot);
+                    if (slot < N_SEEDS) { patCur = slot; expCur = -1; }   /* optimistic */
+                    else { patCur = expSeed; expCur = slot - N_SEEDS; }
+                    showAction('SELECT ' + slotName(slot));
                 }
             } else {
                 if (shiftHeld) { projFilled[slot] = true; sendCmd('saveproj', slot); showAction('SAVE PROJ ' + (slot + 1)); }

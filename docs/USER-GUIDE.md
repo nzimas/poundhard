@@ -1023,8 +1023,20 @@ reach back into the seed or into any other expansion. They are deep copies, not 
 | **Pad 17–32** | load / select an expansion of the open seed |
 | **Copy + source, then destinations** | the clipboard stays live while Copy is held, so one pattern can be pasted into several expansion slots in a row — the fast way to build a family |
 
-Rows 3 and 4 stay **dark until a seed has been opened** — an expansion has to belong to
-something, so an unopened row is inert rather than misleadingly empty.
+**Reading the grid.** The seeds are the cool blue family and the expansions a warm amber
+one, so the two halves never look like one bank of 32 — including *before* a seed is opened,
+which is when the distinction matters most:
+
+| | |
+|---|---|
+| very dark yellow | expansion row, **no seed open** — inert; an expansion has to belong to something |
+| dark amber | this seed's row, slot free |
+| amber | holds a variation |
+| white pulse | the expansion playing now |
+
+A pad flashes **white the moment you save or paste into it**, before the controller has
+confirmed — pressing four destinations in a row, you need to see each one land as it happens
+rather than a beat later.
 
 The screen states the live pattern as its address: `S3` is seed 3, `S3.4` is expansion 4 of
 seed 3.
