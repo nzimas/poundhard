@@ -773,8 +773,6 @@ class Controller:
         for t, g in picks.items():
             if g == "stop":
                 self._whim_stop(t)
-            elif g == "burst":
-                self._whim_burst(t)
             elif g == "colour":
                 self._whim_colour(t)
         if picks:
@@ -800,22 +798,6 @@ class Controller:
             self._whim_sent.get("mute", set()).discard(t)
         except Exception:
             pass
-
-    def _whim_burst(self, t: int) -> None:
-        """A compact cluster: ratchets on a couple of the track's own hits, for one bar.
-        Placed on EXISTING steps, so a burst is an embellishment of the part rather than
-        notes the part never had."""
-        with self._lock:
-            tr = self.state.tracks[t]
-            hits = [c for c in range(min(tr.length, len(tr.pattern))) if tr.pattern[c]]
-        if not hits:
-            return
-        cells = random.sample(hits, min(len(hits), random.choice((1, 2, 2, 3))))
-        for c in cells:
-            self.bridge.stepratchet(t, c, random.choice((3, 3, 4, 4, 6)))
-        self._whim_sent.setdefault("ratchet", set()).update((t, c) for c in cells)
-        if self._whim and t in self._whim.state:
-            self._whim.state[t].burst_cells = cells
 
     def _whim_colour(self, t: int) -> None:
         """An abrupt timbral lurch: one modulatable parameter thrown somewhere else and left
@@ -847,6 +829,14 @@ class Controller:
         with self._lock:
             rates = self._whim.rates(bars)
             cuts = self._whim.cutoffs(bars)
+            # A track that has just left the modulated subset would otherwise stay stuck at
+            # whatever multiplier it held at that instant — permanently out of time, with
+            # nothing moving it back.
+            for t in list(self._whim_sent.get("rate", set())):
+                if t not in rates:
+                    self.bridge.rate(t, float(self.state.tracks[t].rate))
+                    self._whim_sent["rate"].discard(t)
+                    self._whim_sent.pop(("r", t), None)
             for t, mul in rates.items():
                 tr = self.state.tracks[t]
                 r = max(0.05, min(8.0, float(tr.rate) * mul))
@@ -878,8 +868,6 @@ class Controller:
                 self.bridge.filter(t, tr.filt_cutoff, tr.filt_res, tr.filt_type)
             for t in sent.get("mute", set()):
                 self.bridge.mute(t, st.eff_muted(t))
-            for (t, c) in sent.get("ratchet", set()):
-                self.bridge.stepratchet(t, c, int(st.tracks[t].step_ratchet[c]))
             for (t, pid) in sent.get("param", set()):
                 tr = st.tracks[t]
                 if pid in tr.params:

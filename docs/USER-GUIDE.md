@@ -1496,55 +1496,63 @@ before. The machine's state fingerprint is identical before, during and after.
 
 ### Whim
 
-**The seventh pad on the bottom row.** Whim is the trickster: where every other modifier does
-one thing, Whim runs several small processes at once and lets them interfere. Tracks breathe
-in and out of time, hesitate, surge, drop out for a sixteenth, fire off a burst, and change
-colour — then settle back.
+**The seventh pad on the bottom row.** Whim's defining feature is **tempo modulation**: it
+does not touch the master tempo, it continuously modulates the playback *speed* of a subset
+of the active tracks. The groove breathes, sways and bends — parts rush ahead and linger
+behind and then fall back into place — while everything stays locked to the master clock.
 
-**What it does continuously**
+**Whim never adds notes.** Ratchets and rapid repetitions are another modifier's job. Whim
+expresses itself by reshaping the flow of time, not by filling it.
 
-- **Rate breathing.** Each track's playback rate is modulated by its own sine or triangle,
-  at its own division of the bar — deep enough that a track audibly drags and pushes against
-  the grid while the pattern stays recognisably itself.
-- **Filter movement.** Per-track cutoff moves within a few octaves of what you programmed,
-  driven by a sine, triangle, random-smooth or sample-and-hold curve — a sweep you hear as an
-  event rather than as drift. Resonance is *nudged*,
-  never swept: a resonant filter driven hard by an LFO self-oscillates and stops being a
-  filter.
+**The tempo modulation**
 
-**Gestures, decided once per bar**
+- **A subset of tracks, re-chosen every few bars.** Not everything: if every track wobbles,
+  nothing is wobbling *against* anything and the result just sounds like an unsteady tempo.
+  Holding some parts firm is what makes the modulated ones audibly elastic.
+- **Each selected track gets its own modulator** — its own waveform, its own division of the
+  bar, its own depth and **its own phase**. Without independent phases every track would
+  reach its fastest point at the same instant and the whole pattern would surge together.
+  Re-selection re-rolls the curve, so being picked twice never means the same wobble twice.
+- **Waveforms are sine, triangle and a smooth multi-sine wobble** — continuous curves, no
+  abrupt jumps in playback speed.
+- **Every rate is a division of the bar** — 4 bars, 2 bars, a bar, 1/2, 1/2 dotted, 1/2
+  triplet. Nothing free-runs, so a tempo change carries the whole modifier with it.
+
+> **Why "smooth random" is not actual random.** True random-smooth interpolation is the
+> obvious choice here and it is wrong: its average over a cycle is not zero, so a track gains
+> or loses a little time every cycle and walks away from the grid permanently. The `wobble`
+> curve adds two quiet harmonics at their own phases — the same wandering, never-quite-
+> repeating character — while integrating to *exactly* zero. Elasticity without drift.
+
+**Gestures, decided once per bar** (temporal ones weighted highest, since that is the point):
 
 | | |
 |---|---|
 | **slow** | the track hesitates, then runs on and lands back on the grid |
 | **surge** | it pushes ahead, then settles back |
 | **stop** | a short hole — a sixteenth up to a quarter of the bar |
-| **burst** | ratchets on a couple of the track's *own* hits, so a burst embellishes the part rather than adding notes it never had |
-| **colour** | one parameter thrown somewhere else and left there for the gesture |
+| **colour** | one parameter thrown somewhere else for the duration of the gesture |
+
+**Alongside it**, per-track filter cutoff moves within a few octaves of what you programmed,
+on a sine, triangle, random-smooth or sample-and-hold curve. Resonance is *nudged*, never
+swept: a resonant filter driven hard by an LFO self-oscillates and stops being a filter.
 
 **Why it does not fall apart**
 
 - **Time modulation is zero-mean, and so are the gestures.** The slow/surge envelope is a
-  *full* sine, which integrates to exactly zero — so a track that hesitates then runs on by
-  precisely what it lost lands back where it belongs. A half-sine envelope would steal phase
-  the track never recovers, and after a few gestures it would be nowhere near the pattern.
-  Sample-and-hold is used for *timbre* and never for time, for the same reason.
-- **Every rate is a division of the bar.** Nothing free-runs; a tempo change carries the
-  whole modifier with it.
-- **Gestures are budgeted** — at most three tracks doing something disruptive at once, two
-  when it is already busy.
-- **The pulse is protected.** Whatever is carrying the beat is eligible far less often, and
-  is largely spared stops and bursts — measured, it receives about 5% of gestures where an
-  even share would be 20%.
-- **It reads the room.** Density, phrase position and how many other modifiers are already
-  running all scale the intensity down: measured, intensity falls from 0.93 on a sparse
-  pattern to 0.70 on a dense one, and to 0.48 with three other modifiers engaged. It never
-  falls below 0.35 — an earlier floor let Whim quietly switch itself off on a busy pattern,
-  which is exactly when you had reached for it.
+  *full* sine, which integrates to exactly zero — the track hesitates, then runs on by
+  precisely what it lost. A half-sine would steal phase it never recovers.
+- **Gestures are budgeted** — at most three tracks doing something disruptive at once.
+- **The pulse is protected.** Whatever carries the beat is selected for wobble far less
+  often and largely spared stops — measured, it receives about 5% of gestures where an even
+  share would be 20%. Bending the beat now and then is lovely; bending it constantly just
+  sounds like a bad clock.
+- **It reads the room.** Intensity falls from 0.93 on a sparse pattern to 0.70 on a dense one
+  and to 0.48 with three other modifiers running, never below 0.35.
 
 **Non-destructive**, like every modifier here. Whim writes nothing to the project; rate,
-filter, mute, ratchet and parameter changes go straight to the engine and every one is
-remembered. Switching it off restores all five to exactly what you programmed.
+filter, mute and parameter changes go to the engine and every one is remembered. Switching it
+off — or a track simply leaving the modulated subset — restores the programmed value exactly.
 
 ---
 

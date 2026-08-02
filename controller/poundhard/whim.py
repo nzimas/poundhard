@@ -46,7 +46,9 @@ CUT_OCTAVES = (1.0, 3.0)
 # combined swing is checked in the tests rather than assumed.
 G_SLOW, G_SURGE = -0.46, 0.58
 
-GESTURES = ("slow", "surge", "stop", "burst", "colour")
+# NO BURST. Ratchets and rapid repetitions belong to another modifier; Whim adds no note
+# events at all. It expresses itself by reshaping the flow of time, not by filling it.
+GESTURES = ("slow", "surge", "stop", "colour")
 
 
 def _tri(ph: float) -> float:
@@ -70,6 +72,24 @@ def _sh(seed: int, ph: float) -> float:
     return random.Random((seed << 20) ^ (math.floor(ph) & 0xFFFFF)).uniform(-1, 1)
 
 
+def _wobble(seed: int, ph: float) -> float:
+    """A smooth, wandering curve that is EXACTLY zero-mean over its cycle.
+
+    Genuine random-smooth interpolation is the obvious choice for "smooth random", and it is
+    wrong here: its mean over any given cycle is not zero, so a track modulated by it gains
+    or loses a little phase every cycle and walks away from the grid for good. Adding two
+    quiet harmonics to the fundamental gives the same wandering, never-quite-repeating
+    character — no two cycles feel alike because the harmonics sit at their own phases — while
+    every component completes a whole number of cycles per period and therefore integrates to
+    zero. Smoothness and elasticity without the drift.
+    """
+    r = random.Random(seed)
+    p2, p3 = r.random(), r.random()
+    return (0.62 * math.sin(2.0 * math.pi * ph)
+            + 0.26 * math.sin(2.0 * math.pi * (2.0 * ph + p2))
+            + 0.12 * math.sin(2.0 * math.pi * (3.0 * ph + p3)))
+
+
 def wave(shape: str, seed: int, ph: float) -> float:
     if shape == "sine":
         return math.sin(2.0 * math.pi * ph)
@@ -77,21 +97,28 @@ def wave(shape: str, seed: int, ph: float) -> float:
         return _tri(ph)
     if shape == "smooth":
         return _smooth(seed, ph)
+    if shape == "wobble":
+        return _wobble(seed, ph)
     return _sh(seed, ph)
 
 
 class TrackWhim:
     """One track's continuous modulation, plus whatever gesture it is currently running."""
 
-    __slots__ = ("track", "rate_shape", "rate_div", "rate_depth", "rate_seed",
+    __slots__ = ("track", "rate_shape", "rate_div", "rate_depth", "rate_seed", "rate_phase",
                  "cut_shape", "cut_div", "cut_oct", "cut_seed", "res_add",
                  "gesture", "g_until", "g_from", "muted", "burst_cells")
 
     def __init__(self, track: int, rng: random.Random, gentle: bool):
         self.track = track
         # TIME gets zero-mean shapes only, so a track always comes back to the grid.
-        self.rate_shape = rng.choice(("sine", "sine", "tri"))
+        # `wobble` is the smooth-random one — see _wobble for why it is not actual noise.
+        self.rate_shape = rng.choice(("sine", "tri", "wobble", "wobble"))
         self.rate_div = rng.choice(_SLOW)[1]
+        # ITS OWN PHASE. Without this every modulated track reaches its fastest point at the
+        # same instant and the whole pattern surges together, which reads as one sloppy
+        # tempo rather than several parts pulling against each other.
+        self.rate_phase = rng.random()
         lo, hi = RATE_DEPTH
         self.rate_depth = rng.uniform(lo, hi * (0.7 if gentle else 1.0))
         self.rate_seed = rng.randrange(1 << 20)
@@ -108,10 +135,20 @@ class TrackWhim:
         self.muted = False
         self.burst_cells: list[int] = []
 
+    def reroll_rate(self, rng: random.Random, gentle: bool) -> None:
+        """New shape, division, phase and depth — called whenever this track is (re)selected
+        for tempo modulation, so being picked twice does not mean the same wobble twice."""
+        self.rate_shape = rng.choice(("sine", "tri", "wobble", "wobble"))
+        self.rate_div = rng.choice(_SLOW)[1]
+        self.rate_phase = rng.random()
+        lo, hi = RATE_DEPTH
+        self.rate_depth = rng.uniform(lo, hi * (0.7 if gentle else 1.0))
+        self.rate_seed = rng.randrange(1 << 20)
+
     # -- continuous ------------------------------------------------------- #
     def rate_mul(self, bars: float) -> float:
         """Multiplier on the track's programmed rate. Averages to 1.0 over a cycle."""
-        w = wave(self.rate_shape, self.rate_seed, bars * self.rate_div)
+        w = wave(self.rate_shape, self.rate_seed, bars * self.rate_div + self.rate_phase)
         m = 1.0 + self.rate_depth * w
         if self.gesture in ("slow", "surge") and bars < self.g_until:
             # A FULL sine over the gesture, not a half one. A half-sine is always the same
@@ -142,6 +179,11 @@ class Whim:
         self.bars = 0
         self.intensity = 0.6
         self.last_log = ""
+        # WHICH TRACKS ARE BEING TEMPO-MODULATED. A subset, not everything: if every track
+        # wobbles, nothing is wobbling AGAINST anything and the result reads as one unsteady
+        # tempo. Holding some parts firm is what makes the modulated ones audible as elastic.
+        self.rate_on: set[int] = set()
+        self._reselect_at = 0
 
     # -- per bar ----------------------------------------------------------- #
     def bar(self, live: list[int], pulse: int, density: float, busy_mods: int,
@@ -168,6 +210,24 @@ class Whim:
             if t not in live:
                 del self.state[t]
 
+        # RE-SELECT the tempo-modulated subset every few bars, so the relationship between
+        # what bends and what holds keeps changing over a long performance.
+        if live and self.bars >= self._reselect_at:
+            self._reselect_at = self.bars + rng.randint(4, 12)
+            want = max(1, min(len(live), round(len(live) * rng.uniform(0.35, 0.7))))
+            # the pulse is eligible but unlikely — bending the beat itself now and then is a
+            # lovely effect, bending it constantly just sounds like a bad clock
+            pool = [t for t in live for _ in range(1 if t == pulse else 3)]
+            picked: set[int] = set()
+            while pool and len(picked) < want:
+                c = rng.choice(pool)
+                picked.add(c)
+                pool = [x for x in pool if x != c]
+            self.rate_on = picked
+            for t in picked:                      # a fresh curve each time it is selected
+                self.state[t].reroll_rate(rng, gentle or t == pulse)
+        self.rate_on &= set(live)
+
         # expire finished gestures
         for w in self.state.values():
             if w.gesture and self.bars >= w.g_until:
@@ -190,8 +250,10 @@ class Whim:
             # few bars stops being a surprise and becomes the arrangement.
             if t == pulse and rng.random() < 0.75:
                 continue
+            # slow and surge are weighted highest: they ARE the tempo modulation, taken to
+            # gesture scale, and Whim's defining feature is temporal rather than timbral.
             g = rng.choices(GESTURES, weights=(
-                3, 3, 2 if t != pulse else 0.5, 2 if t != pulse else 0.5, 4))[0]
+                5, 5, 1.5 if t != pulse else 0.4, 3))[0]
             w = self.state[t]
             w.gesture = g
             w.g_from = float(self.bars)
@@ -199,14 +261,18 @@ class Whim:
             picks.append((t, g))
             budget -= 1
 
-        self.last_log = ("whim: intensity %.2f  %d/%d tracks moving  %s"
-                         % (self.intensity, sum(1 for w in self.state.values() if w.gesture),
-                            len(live), ", ".join("T%d:%s" % (t + 1, g) for t, g in picks) or "-"))
+        self.last_log = ("whim: intensity %.2f  wobble on %d/%d  %d gesturing  %s"
+                         % (self.intensity, len(self.rate_on), len(live),
+                            sum(1 for w in self.state.values() if w.gesture),
+                            ", ".join("T%d:%s" % (t + 1, g) for t, g in picks) or "-"))
         return {t: g for t, g in picks}
 
     # -- continuous -------------------------------------------------------- #
     def rates(self, bars: float) -> dict[int, float]:
-        return {t: w.rate_mul(bars) for t, w in self.state.items()}
+        """Only the SELECTED tracks are tempo-modulated. A track running a slow/surge gesture
+        is included regardless — the gesture is a temporal one and has to be heard."""
+        return {t: w.rate_mul(bars) for t, w in self.state.items()
+                if t in self.rate_on or w.gesture in ("slow", "surge")}
 
     def cutoffs(self, bars: float) -> dict[int, tuple[float, float]]:
         return {t: (w.cutoff_mul(bars), w.res_add) for t, w in self.state.items()}
