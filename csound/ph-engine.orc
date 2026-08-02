@@ -1042,7 +1042,13 @@ instr 32   ; PLUCKM -> TONE
   ; (This slot held barmodel, then gogobel, then wguide2. The first two need external STK
   ; rawwave tables this Csound cannot find and return silence; the third damps to nothing at
   ; low feedback. `pluck` always speaks.)
-  agen  pluck 0.7, ifq, ifq * (0.5 + p7 * 1.5), giNoiseT, 1 + int(p8 * 5.99), 0.1 + p9 * 0.8, 10 + p10 * 500
+  ; imeth 5 (weighted averaging) requires param1 + param2 <= 1, and param2 here is a
+  ; filter cutoff in the hundreds — so every draw that landed on 5 died at init with
+  ; "coefficients too large" and produced silence. The five remaining methods take these
+  ; arguments happily, so 5 is skipped rather than special-cased.
+  iM    = int(p8 * 4.99)
+  imeth = iM < 4 ? iM + 1 : 6
+  agen  pluck 0.7, ifq, ifq * (0.5 + p7 * 1.5), giNoiseT, imeth, 0.1 + p9 * 0.8, 10 + p10 * 500
   agen  = agen * (0.5 + k4 * 0.6)
 
   ; A resonant filter and a little drive — no feedback network.

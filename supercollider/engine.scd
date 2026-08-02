@@ -368,8 +368,16 @@
 // Fire one note. A $-prefixed line on Csound's UDP port is a score event (a bare line is
 // compiled as orchestra code and errors; `&` is silently ignored) — this is the whole
 // note path, so it has to be exactly right.
+// The architecture ceiling. This was `clip(0, 9)` — a literal from the first CSOUND commit,
+// when ten hand-written architectures was all there was — and it was never widened as more
+// were added. `clip` does not DROP an out-of-range architecture, it PINS it: every
+// architecture from 10 up played as instr 20, so sixteen designed pairings all came out of
+// one FDN-washed instrument. The palette sounded like variations on a single wash because
+// that is exactly what it was. csound/build-orc.py now asserts this against the instruments
+// it actually emits and fails the build if they disagree, so it cannot drift again.
+~csArchMax = 25;
 ~csHit = { |t, nn, vv, params, dur|
-	var arch = ((params[\arch] ? 0).round.clip(0, 9)).asInteger;
+	var arch = ((params[\arch] ? 0).round.clip(0, ~csArchMax)).asInteger;
 	var freq = nn.midicps;
 	var m = (1..8).collect { |i| (params[("m" ++ i).asSymbol] ? 0.5).clip(0, 1) };
 	var line = "$i" ++ (11 + arch) ++ " 0 " ++ dur.clip(0.02, 12)

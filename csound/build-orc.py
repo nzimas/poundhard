@@ -123,7 +123,13 @@ GENERATORS = [
   ; (This slot held barmodel, then gogobel, then wguide2. The first two need external STK
   ; rawwave tables this Csound cannot find and return silence; the third damps to nothing at
   ; low feedback. `pluck` always speaks.)
-  agen  pluck 0.7, ifq, ifq * (0.5 + p7 * 1.5), giNoiseT, 1 + int(p8 * 5.99), 0.1 + p9 * 0.8, 10 + p10 * 500
+  ; imeth 5 (weighted averaging) requires param1 + param2 <= 1, and param2 here is a
+  ; filter cutoff in the hundreds — so every draw that landed on 5 died at init with
+  ; "coefficients too large" and produced silence. The five remaining methods take these
+  ; arguments happily, so 5 is skipped rather than special-cased.
+  iM    = int(p8 * 4.99)
+  imeth = iM < 4 ? iM + 1 : 6
+  agen  pluck 0.7, ifq, ifq * (0.5 + p7 * 1.5), giNoiseT, imeth, 0.1 + p9 * 0.8, 10 + p10 * 500
   agen  = agen * (0.5 + k4 * 0.6)"""),
     ("DRIP", "physical", """
   agen  dripwater 0.8, 0.01 + p7 * 0.06, 5 + int(p8 * 40), 0.02 + p9 * 0.16, 0.9, ifq, ifq * (1.4 + p10), ifq * 2.3
@@ -367,6 +373,55 @@ def main() -> None:
     orc.write_text(text)
     rows = names()
     print("wrote %d architectures, instr %d..%d" % (len(rows), rows[0][0], rows[-1][0]))
+    _assert_reachable(text, rows)
+
+
+def _assert_reachable(orc_text: str, rows) -> None:
+    """Fail the build if the engine cannot actually PLAY what was just written.
+
+    This exists because of a bug that hid every architecture added after the first ten.
+    engine.scd clipped the architecture index to a literal 9 and catalog.py advertised a
+    range far wider, and nothing connected the two — so the controller assigned architecture
+    21, SuperCollider clipped it to 9 and fired instr 20, and sixteen distinct pairings came
+    out of one instrument for months. It was silent in every sense: no error, no warning,
+    just a palette that would not diversify no matter what was written here.
+
+    The three numbers have to agree, so they are checked together, at the one moment they
+    are all known.
+    """
+    here = pathlib.Path(__file__).resolve().parent.parent
+    legacy = sorted(int(m) for m in re.findall(r"^instr (\d+)", orc_text, flags=re.M)
+                    if int(m) < FIRST and int(m) >= 11)
+    total = len(legacy) + len(rows)          # architecture INDEX 0 is the lowest instrument
+    lo = legacy[0] if legacy else FIRST
+    want_max = total - 1
+    problems = []
+
+    scd = (here / "supercollider" / "engine.scd").read_text()
+    m = re.search(r"~csArchMax\s*=\s*(\d+)", scd)
+    if not m:
+        problems.append("engine.scd: no ~csArchMax — the architecture ceiling is a literal "
+                        "again, which is the bug this guard exists to prevent")
+    elif int(m.group(1)) != want_max:
+        problems.append("engine.scd: ~csArchMax = %s, but the orchestra offers 0..%d"
+                        % (m.group(1), want_max))
+    m = re.search(r"^\s*\"\$i\"\s*\+\+\s*\((\d+)\s*\+\s*arch\)", scd, flags=re.M)
+    if m and int(m.group(1)) != lo:
+        problems.append("engine.scd: fires instr %s+arch, but the lowest architecture is %d"
+                        % (m.group(1), lo))
+
+    cat = (here / "controller" / "poundhard" / "catalog.py").read_text()
+    m = re.search(r"^CS_ARCH_COUNT\s*=\s*(\d+)", cat, flags=re.M)
+    if not m:
+        problems.append("catalog.py: no CS_ARCH_COUNT")
+    elif int(m.group(1)) != total:
+        problems.append("catalog.py: CS_ARCH_COUNT = %s, but the orchestra has %d "
+                        "architectures" % (m.group(1), total))
+
+    if problems:
+        raise SystemExit("ARCHITECTURES ARE NOT REACHABLE:\n  " + "\n  ".join(problems))
+    print("reachable: architectures 0..%d -> instr %d..%d (engine.scd and catalog.py agree)"
+          % (want_max, lo, rows[-1][0]))
 
 
 if __name__ == "__main__":
