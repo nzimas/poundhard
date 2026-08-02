@@ -84,8 +84,10 @@ inside. For how to **play** it, go to the guide.
   gives you back exactly what you programmed.
 - **Living steps** — mark steps and they **transform themselves** as you play: ratchets,
   timbre lurches, pitch leaps, pan throws and per-step delay/reverb.
-- **Patterns are self-contained** — engines, every parameter, FX, mutes and sequences. Up to
-  32 per project, with projects saved to disk and an autosave recovery file.
+- **Patterns are self-contained** — engines, every parameter, FX, mutes and sequences — and
+  organised as a hierarchy: **16 pattern seeds**, each with its own row of **16 expansions**
+  for developing variations on one idea without risking the original. Projects save to disk
+  with an autosave recovery file.
 
 The step buttons for tracks that contain events **pulse at the pace of their sequence**;
 assigned-but-empty tracks glow steady-dim in their engine hue, and unassigned tracks are

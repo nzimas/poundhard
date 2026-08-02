@@ -22,6 +22,14 @@ MAX_STEPS = 16                  # the LONGEST a track may be. The per-step array
                                 # N_STEPS wide (older projects, and headroom), but nothing
                                 # may set a length beyond the 16 steps the editor shows.
 N_PATTERNS = 32     # pattern slots per project (and project slots on disk)
+# THE PATTERN BANK IS A HIERARCHY, not a flat 32.
+#   SEEDS       pads 1-16, patterns[0..15] — the canonical version of an idea
+#   EXPANSIONS  pads 17-32, one row of 16 PER SEED — variations derived from it
+# Expansions are allocated lazily: a project that uses three seeds and four expansions costs
+# what those seven patterns cost, not what 272 would. A snapshot is ~53 KB, so eagerly
+# allocating the full grid would be a 14 MB project file and an autosave that hitches.
+N_SEEDS = 16
+N_EXPANSIONS = 16
 
 
 # Keyword buckets for living-step flavours — a param's engine-arg name is matched
@@ -301,6 +309,13 @@ class Project:
         # pattern_cur = the slot currently playing; pattern_pending = a queued switch that
         # takes effect at the next bar boundary (-1 = none).
         self.patterns: list[dict | None] = [None] * N_PATTERNS
+        # seed index -> its 16 expansion slots. Absent until that seed is expanded.
+        self.expansions: dict[int, list] = {}
+        # WHERE THE LIVE PATTERN LIVES. `pattern_cur` is the seed; `exp_cur` is -1 when the
+        # seed itself is playing, or the expansion index when one of its variations is.
+        self.exp_cur: int = -1
+        # which seed's expansion row the pattern view is showing (-1 = none open)
+        self.exp_seed: int = -1
         self.pattern_cur: int = -1
         self.pattern_pending: int = -1
         # SOLO: -1 = none. A live performance state (not saved into patterns): while a
@@ -415,6 +430,93 @@ class Project:
         self.voice_macro = list(snap.get("voice_macro", self.voice_macro))
         self.voice_dir = [dict(d) for d in snap.get("voice_dir", self.voice_dir)]
 
+    # -- seeds & expansions ------------------------------------------------ #
+    def exp_row(self, seed: int, create: bool = False) -> list:
+        """A seed's 16 expansion slots, created on demand."""
+        if not (0 <= seed < N_SEEDS):
+            return []
+        row = self.expansions.get(seed)
+        if row is None:
+            if not create:
+                return []
+            row = [None] * N_EXPANSIONS
+            self.expansions[seed] = row
+        return row
+
+    def slot_get(self, seed: int, exp: int = -1):
+        """The snapshot at an address. `exp == -1` addresses the seed itself."""
+        if exp < 0:
+            return self.patterns[seed] if 0 <= seed < N_SEEDS else None
+        row = self.exp_row(seed)
+        return row[exp] if row and 0 <= exp < N_EXPANSIONS else None
+
+    def slot_set(self, seed: int, exp: int, snap) -> None:
+        if not (0 <= seed < N_SEEDS):
+            return
+        if exp < 0:
+            self.patterns[seed] = snap
+        else:
+            self.exp_row(seed, create=True)[exp] = snap
+
+    def save_slot(self, seed: int, exp: int = -1) -> None:
+        """Write the live state into an address and make it the live one."""
+        if not (0 <= seed < N_SEEDS):
+            return
+        self.slot_set(seed, exp, self.snapshot())
+        self.pattern_cur, self.exp_cur = seed, exp
+
+    def load_slot(self, seed: int, exp: int = -1) -> bool:
+        snap = self.slot_get(seed, exp)
+        if snap is None:
+            return False
+        self.apply_full(snap)
+        self.pattern_cur, self.exp_cur = seed, exp
+        return True
+
+    def ensure_first_expansion(self, seed: int) -> bool:
+        """Entering a seed's expansions for the first time seeds slot 1 with a COPY of it.
+
+        A deep copy, so from that moment the expansion is a fully independent pattern: editing
+        it can never reach back into the seed. That is the whole promise of the hierarchy —
+        the seed is the canonical idea and stays safe while its variations evolve.
+        """
+        if not (0 <= seed < N_SEEDS):
+            return False
+        row = self.exp_row(seed, create=True)
+        if row[0] is not None:
+            return False
+        src = self.patterns[seed]
+        if src is None:
+            return False
+        row[0] = copy.deepcopy(src)
+        return True
+
+    def expansion_filled(self, seed: int) -> list:
+        row = self.exp_row(seed)
+        return [s is not None for s in row] if row else [False] * N_EXPANSIONS
+
+    def delete_slot(self, seed: int, exp: int) -> bool:
+        if self.slot_get(seed, exp) is None:
+            return False
+        self.slot_set(seed, exp, None)
+        if self.pattern_cur == seed and self.exp_cur == exp:
+            self.pattern_cur, self.exp_cur = -1, -1
+        return True
+
+    def copy_slot(self, seed: int, exp: int) -> bool:
+        snap = self.slot_get(seed, exp)
+        if snap is None:
+            return False
+        self.clipboard = snap
+        return True
+
+    def paste_slot(self, seed: int, exp: int) -> bool:
+        if self.clipboard is None or not (0 <= seed < N_SEEDS):
+            return False
+        # deep copy: two slots must never alias, or editing one would edit the other
+        self.slot_set(seed, exp, copy.deepcopy(self.clipboard))
+        return True
+
     def save_pattern(self, slot: int) -> None:
         if 0 <= slot < N_PATTERNS:
             self.patterns[slot] = self.snapshot()
@@ -424,8 +526,8 @@ class Project:
         """Write the live state back into its own pattern slot. Called before switching
         patterns or saving a project, so live edits are never lost and the slot never
         goes stale relative to the working state / the project's `base`."""
-        if 0 <= self.pattern_cur < N_PATTERNS:
-            self.patterns[self.pattern_cur] = self.snapshot()
+        if 0 <= self.pattern_cur < N_SEEDS:
+            self.slot_set(self.pattern_cur, self.exp_cur, self.snapshot())
 
     # -- chaos macro (knob 8, tracks view) ---------------------------------- #
     def chaos_invalidate(self) -> None:
@@ -522,7 +624,8 @@ class Project:
         tracks; the pattern snapshots are immutable once stored (always replaced, never
         mutated in place), so a shallow list of them is a safe, cheap capture."""
         return {"base": self.snapshot(), "patterns": list(self.patterns),
-                "pattern_cur": self.pattern_cur, "pattern_pending": self.pattern_pending,
+                "pattern_cur": self.pattern_cur, "exp_cur": self.exp_cur,
+                "pattern_pending": self.pattern_pending,
                 "solo": self.solo}
 
     def push_undo(self) -> None:
@@ -536,6 +639,7 @@ class Project:
         self.apply_full(s["base"])
         self.patterns = list(s["patterns"])
         self.pattern_cur = s["pattern_cur"]
+        self.exp_cur = s.get("exp_cur", -1)
         self.pattern_pending = s["pattern_pending"]
         self.solo = s["solo"]
 
@@ -563,13 +667,42 @@ class Project:
     def project_to_dict(self) -> dict:
         """A whole project = its 32 pattern slots + the current live sound as `base`
         (so loading a project restores the kit even before a pattern is recalled)."""
+        # Expansions are stored SPARSELY, keyed by seed: a project using three seeds and four
+        # expansions writes those seven patterns, not a 272-slot grid of nulls.
         return {"name": self.kit_name, "base": self.snapshot(),
-                "patterns": self.patterns, "pattern_cur": self.pattern_cur}
+                "patterns": self.patterns, "pattern_cur": self.pattern_cur,
+                "exp_cur": self.exp_cur,
+                "expansions": {str(k): v for k, v in self.expansions.items()
+                               if any(x is not None for x in v)}}
 
     def project_from_dict(self, d: dict) -> None:
         pats = list(d.get("patterns", []))[:N_PATTERNS]
         self.patterns = (pats + [None] * N_PATTERNS)[:N_PATTERNS]
         self.pattern_pending = -1
+
+        self.expansions = {}
+        for k, v in (d.get("expansions") or {}).items():
+            row = (list(v) + [None] * N_EXPANSIONS)[:N_EXPANSIONS]
+            if any(x is not None for x in row):
+                self.expansions[int(k)] = row
+        self.exp_cur = int(d.get("exp_cur", -1))
+
+        # MIGRATION. Projects saved before the hierarchy existed used a flat 32, and there are
+        # only 16 seed pads now — so patterns 17-32 would silently become unreachable. They
+        # are moved into seed 1's expansion row instead, which is lossless and somewhere the
+        # user can actually find them.
+        legacy = [s for s in self.patterns[N_SEEDS:] if s is not None]
+        if legacy:
+            row = self.exp_row(0, create=True)
+            for snap in legacy:
+                free = next((i for i in range(N_EXPANSIONS) if row[i] is None), -1)
+                if free < 0:
+                    break
+                row[free] = snap
+            for i in range(N_SEEDS, N_PATTERNS):
+                self.patterns[i] = None
+            if self.pattern_cur >= N_SEEDS:
+                self.pattern_cur, self.exp_cur = 0, 0
         base = d.get("base")
         # restore the full state from `base` (or the current pattern if there's no base)
         self.pattern_cur = int(d.get("pattern_cur", -1))

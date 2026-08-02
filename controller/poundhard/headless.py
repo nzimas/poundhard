@@ -28,6 +28,7 @@ from . import whim as whimmod
 from . import phrase
 from .catalog import FX_SPECS, N_FX
 from .engine_bridge import EngineBridge
+from . import tracks as tracks_mod
 from .tracks import DRUM_TRACKS, N_PATTERNS, N_STEPS, N_TRACKS, Project
 
 # One sequencer step is a sixteenth note. COMPASS's command clock is expressed in beats
@@ -65,6 +66,10 @@ SNAP_HZ = float(_env("PH_SNAPSHOT_HZ", "5"))       # status.json write rate (low
 # stall. Restore it with Shift+Menu in the project view.
 AUTOSAVE_FILE = PROJECTS_DIR / "autosave.json"
 AUTOSAVE_SEC = float(_env("PH_AUTOSAVE_SEC", "30"))
+
+
+def _addr_name(seed: int, exp: int) -> str:
+    return "seed %d" % (seed + 1) if exp < 0 else "seed %d exp %d" % (seed + 1, exp + 1)
 
 
 class Controller:
@@ -116,6 +121,7 @@ class Controller:
         self._smp_chain: list[str] = []     # the Csound stages the take went through
         self._smp_thresh = 0.02
         # HEAT macro: mass-mark a fraction of sequenced steps as living (live performance)
+        self._pending_addr = None
         self._whim = None
         self._whim_on = False
         self._whim_sent = {}
@@ -735,6 +741,20 @@ class Controller:
         if changes or turn_on or turn_off:
             print("[poundhard] " + self._strobe.last_log, flush=True)
 
+    def _pat_addr(self, slot: int):
+        """Resolve a pattern pad to a (seed, expansion) address.
+
+        Pads 1-16 are the seeds. Pads 17-32 are the expansion row of whichever seed is
+        currently open — which is why they do nothing until one has been opened with
+        REC + a seed pad: an expansion has to belong to something.
+        """
+        st = self.state
+        if 0 <= slot < tracks_mod.N_SEEDS:
+            return slot, -1
+        if 0 <= st.exp_seed < tracks_mod.N_SEEDS:
+            return st.exp_seed, slot - tracks_mod.N_SEEDS
+        return -1, -1
+
     def _whim_live(self) -> tuple[list[int], int, float]:
         """Tracks worth touching, which one is the pulse, and how dense the pattern is."""
         st = self.state
@@ -1084,12 +1104,12 @@ class Controller:
                     self._push_living_cell(t, c)
                 if living_fx is not None:
                     self.bridge.livingfx(*living_fx)     # set delay/reverb params for this fire
-            if 0 <= st.pattern_pending < N_PATTERNS and st.patterns[st.pattern_pending] is not None:
+            if 0 <= st.pattern_pending < N_PATTERNS and getattr(self, "_pending_addr", None) \
+                    and st.slot_get(*self._pending_addr) is not None:
                 st.commit_current()             # preserve the outgoing pattern's live edits
                 # patterns are self-contained: restore the WHOLE machine — engines,
                 # params, FX, mutes, sequences AND the pattern's own tempo.
-                st.apply_full(st.patterns[st.pattern_pending])
-                st.pattern_cur = st.pattern_pending
+                st.load_slot(*self._pending_addr)
                 self._push_all()
             st.pattern_pending = -1
 
@@ -1355,7 +1375,7 @@ class Controller:
         "fxassign", "fxbypass", "loadproj", "loadauto", "marklive",
         "steppaste", "rowpaste", "stepcycle", "stepfxcycle", "trackfilter", "stepwindow",
         "stepfilter",
-        "stepgen", "trackcopy",
+        "stepgen", "trackcopy", "expenter", "expfirst",
     })
     # Commands that change no persisted state — they don't mark the project dirty.
     _NO_STATE = frozenset({
@@ -1773,20 +1793,22 @@ class Controller:
             if 0 <= fx < N_FX:
                 w = st.set_fx_wet(fx, float(p.get("wet", 0.5)))
                 self.bridge.fxset(fx, "wet", w)   # 'wet' is a stored FX synth arg
-        elif cmd == "savepat":                 # snapshot current machine state -> pattern slot
-            slot = int(arg)
-            if 0 <= slot < N_PATTERNS:
-                st.save_pattern(slot)
+        elif cmd == "savepat":                 # snapshot current machine state -> a slot
+            seed, exp = self._pat_addr(int(arg))
+            if seed >= 0:
+                st.save_slot(seed, exp)
         elif cmd == "loadpat":                 # tap a pad: load a pattern, or SELECT an empty slot
             slot = int(arg)
-            if 0 <= slot < N_PATTERNS:
-                if st.patterns[slot] is not None:
+            seed, exp = self._pat_addr(slot)
+            if seed >= 0:
+                if st.slot_get(seed, exp) is not None:
                     if st.running:
-                        st.pattern_pending = slot   # applied at the next bar boundary (/ph/cycle)
+                        # queued for the next bar boundary; the address travels with it
+                        st.pattern_pending = slot
+                        self._pending_addr = (seed, exp)
                     else:
                         st.commit_current()     # preserve the outgoing pattern's live edits
-                        st.apply_full(st.patterns[slot])
-                        st.pattern_cur = slot
+                        st.load_slot(seed, exp)
                         self._push_all()
                 else:
                     # EMPTY slot -> just SELECT it as the destination for whatever you do
@@ -1794,16 +1816,48 @@ class Controller:
                     # nothing sounds different: the live state keeps playing and now
                     # belongs to this slot. Immediate even while running.
                     st.commit_current()         # the outgoing slot keeps its edits
-                    st.pattern_cur = slot
+                    st.pattern_cur, st.exp_cur = seed, exp
                     st.pattern_pending = -1
-        elif cmd == "patdel":                  # hold X + pattern pad: delete, closing the gap
-            slot = int(arg)
-            if st.delete_pattern(slot):
-                print(f"[poundhard] deleted pattern {slot + 1} (bank compacted)", flush=True)
+        elif cmd == "expenter":                # REC + a seed pad: open that seed's expansions
+            seed = int(arg)
+            if 0 <= seed < tracks_mod.N_SEEDS and st.patterns[seed] is not None:
+                st.exp_seed = seed
+                # first time in, expansion 1 is seeded with a COPY of the seed, so there is
+                # always something to develop FROM rather than an empty row
+                if st.ensure_first_expansion(seed):
+                    print("[poundhard] seed %d: expansion 1 created from the seed"
+                          % (seed + 1), flush=True)
+                print("[poundhard] expansions of seed %d open" % (seed + 1), flush=True)
+            elif 0 <= seed < tracks_mod.N_SEEDS:
+                print("[poundhard] seed %d is empty — nothing to expand" % (seed + 1), flush=True)
+        elif cmd == "expfirst":                # REC + a seed pad (tap): load its FIRST expansion
+            seed = int(arg)
+            if 0 <= seed < tracks_mod.N_SEEDS and st.patterns[seed] is not None:
+                st.exp_seed = seed
+                st.ensure_first_expansion(seed)
+                if st.slot_get(seed, 0) is not None:
+                    st.commit_current()
+                    if st.running:
+                        st.pattern_pending = tracks_mod.N_SEEDS
+                        self._pending_addr = (seed, 0)
+                    else:
+                        st.load_slot(seed, 0)
+                        self._push_all()
+                    print("[poundhard] seed %d -> expansion 1" % (seed + 1), flush=True)
+        elif cmd == "patdel":                  # hold X + pattern pad: delete the slot
+            seed, exp = self._pat_addr(int(arg))
+            if seed >= 0 and st.delete_slot(seed, exp):
+                print("[poundhard] deleted %s" % _addr_name(seed, exp), flush=True)
         elif cmd == "patcopy":                 # hold Copy + pattern pad: take a copy
-            st.copy_pattern(int(arg))
+            seed, exp = self._pat_addr(int(arg))
+            if seed >= 0 and st.copy_slot(seed, exp):
+                print("[poundhard] copied %s" % _addr_name(seed, exp), flush=True)
         elif cmd == "patpaste":                # ...still holding Copy: paste into another pad
-            st.paste_pattern(int(arg))
+            # The clipboard stays live while Copy is held, so one source can be pasted into
+            # several expansion slots in a row — which is the fast way to build a family.
+            seed, exp = self._pat_addr(int(arg))
+            if seed >= 0 and st.paste_slot(seed, exp):
+                print("[poundhard] pasted into %s" % _addr_name(seed, exp), flush=True)
         elif cmd == "patclipclear":            # Copy button released -> clipboard is forgotten
             st.clear_clipboard()
         elif cmd == "undo":                    # Undo button: step back one discrete action
@@ -1904,7 +1958,10 @@ class Controller:
             "kit": st.kit_name,
             "solo": st.solo,
             # patterns (in-project) + projects (on disk) for the pattern/project views
-            "patFilled": [p is not None for p in st.patterns],
+            "patFilled": [p is not None for p in st.patterns[:tracks_mod.N_SEEDS]],
+            "expFilled": st.expansion_filled(st.exp_seed),
+            "expSeed": st.exp_seed,            # which seed's expansion row is open (-1 none)
+            "expCur": st.exp_cur,              # -1 = the seed itself is live
             "patCur": st.pattern_cur,
             "patPending": st.pattern_pending,
             "projFilled": list(self._proj_slots),

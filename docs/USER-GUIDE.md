@@ -996,7 +996,46 @@ patterns and projects.
 
 ### Pattern view
 
-**Track 3** opens the pattern view — the 32 pads become **32 pattern slots**.
+**Track 3** opens the pattern view. The 32 pads are **not** a flat bank — they are a
+hierarchy of compositional ideas:
+
+| | |
+|---|---|
+| **Pads 1–16 — SEEDS** | the canonical version of an idea, programmed, generated or refined |
+| **Pads 17–32 — EXPANSIONS** | variations of *one* seed: alternative developments of a single idea |
+
+A seed is the version you keep. Its expansions are where you develop alternatives for
+different sections of a performance, without ever putting the original at risk.
+
+**Opening a seed's expansions: hold REC and tap the seed.** Two things happen at once — rows
+3 and 4 become that seed's expansion row, and its **first expansion is loaded**. The first
+time you do this, expansion 1 is created as an exact copy of the seed, so there is always
+something to develop *from* rather than an empty row.
+
+From that moment the expansion is a **fully independent pattern**. Edit the sequence, change
+engines, replace sounds, generate new material, apply performance edits — none of it can
+reach back into the seed or into any other expansion. They are deep copies, not references.
+
+| Control | Action |
+|---|---|
+| **Pad 1–16 — tap** | load that **seed**, exactly as before |
+| **REC + pad 1–16** | open that seed's expansions and load its **first expansion** |
+| **Pad 17–32** | load / select an expansion of the open seed |
+| **Copy + source, then destinations** | the clipboard stays live while Copy is held, so one pattern can be pasted into several expansion slots in a row — the fast way to build a family |
+
+Rows 3 and 4 stay **dark until a seed has been opened** — an expansion has to belong to
+something, so an unopened row is inert rather than misleadingly empty.
+
+The screen states the live pattern as its address: `S3` is seed 3, `S3.4` is expansion 4 of
+seed 3.
+
+> **Expansion rows are allocated only when used.** A pattern snapshot is around 53 KB, so
+> eagerly reserving all 16 rows would mean a 14 MB project file and an autosave that hitches.
+> A project with three seeds and four expansions costs what those seven patterns cost.
+
+> **Projects saved before the hierarchy existed** used a flat 32, and there are only 16 seed
+> pads now. Patterns 17–32 are migrated into **seed 1's expansion row** on load rather than
+> becoming unreachable — lossless, and somewhere you can actually find them.
 
 | Control | Action |
 |---|---|

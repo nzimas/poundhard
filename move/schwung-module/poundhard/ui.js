@@ -187,6 +187,16 @@ let chaosPos = 0.5;
 /* PATTERN + PROJECT views (Track3 button / Menu button): 32 pads = 32 slots. */
 let patView = false, projView = false;
 let patFilled = new Array(N_STEPS).fill(false), patCur = -1, patPending = -1;
+/* THE PATTERN BANK IS A HIERARCHY. Pads 1-16 are SEEDS — the canonical version of an idea.
+ * Pads 17-32 are the EXPANSIONS of whichever seed is open: variations of one idea rather
+ * than sixteen unrelated patterns. REC + a seed opens its expansion row. */
+const N_SEEDS = 16;
+let expFilled = new Array(16).fill(false);   /* the open seed's expansion row */
+let expSeed = -1;                            /* which seed's row is open (-1 = none) */
+let expCur = -1;                             /* -1 = the seed itself is live */
+/* seeds are periwinkle as before; expansions are a warmer amber family, so the two halves
+ * of the grid never read as one bank of 32 */
+const EXP_FILLED = 25, EXP_EMPTY = 106, EXP_LOCKED = 0;
 let projFilled = new Array(N_STEPS).fill(false);
 let projCur = -1;                   /* which project is LOADED (-1 = none) */
 let canUndo = false, canRedo = false;   /* whether the stacks have anything in them */
@@ -577,10 +587,20 @@ function renderLEDs() {
                 if (c === projCur) color = trackPulseOn(0) ? White : 118;
                 else color = projFilled[c] ? 16 : 95;               /* RoyalBlue filled / DarkBlue empty */
             }
+            else if (c >= N_SEEDS) {
+                /* EXPANSIONS. Dark until a seed is opened — an expansion has to belong to
+                 * something, so an unopened row is inert rather than misleadingly empty. */
+                const e = c - N_SEEDS;
+                if (expSeed < 0) color = EXP_LOCKED;
+                else if (expCur === e && patCur === expSeed)
+                    color = trackPulseOn(0) ? White : EXP_FILLED;   /* the live expansion */
+                else color = expFilled[e] ? EXP_FILLED : EXP_EMPTY;
+            }
             else if (c === patPending) color = trackPulseOn(0) ? White : 50;  /* queued: pulse periwinkle */
             /* current slot: White when it holds a pattern, LightGrey when it's an empty
              * slot you've SELECTED as the destination for the next generate/write. */
-            else if (c === patCur) color = patFilled[c] ? White : 118;
+            else if (c === patCur && expCur < 0) color = patFilled[c] ? White : 118;
+            else if (c === expSeed) color = EXP_FILLED;             /* its expansions are open */
             else color = patFilled[c] ? 50 : 102;                   /* LavenderBlue(periwinkle) / DarkIndigo empty */
             setLED(PAD_NOTES[c], color);
         }
@@ -900,12 +920,20 @@ function drawSlots() {
                                   : 'not saved yet - shift+pad', 1);
         print(0, 56, autoSave ? 'sh+Menu = restore autosave' : 'autosave: none yet', 1);
     } else {
-        var n = 0; for (var j = 0; j < 32; j++) n += patFilled[j] ? 1 : 0;
+        var n = 0; for (var j = 0; j < N_SEEDS; j++) n += patFilled[j] ? 1 : 0;
+        var ne = 0; for (var j2 = 0; j2 < 16; j2++) ne += expFilled[j2] ? 1 : 0;
         print(0, 6, 'PATTERNS', 2);
-        print(0, 30, n + '/32' + (patCur >= 0 ? ('  cur' + (patCur + 1)) : '') + (patPending >= 0 ? (' >' + (patPending + 1)) : ''), 1);
+        /* WHICH PATTERN IS LIVE, stated as its address: a seed, or one of a seed's
+         * expansions. "S3.4" is expansion 4 of seed 3 — the hierarchy has to be readable
+         * from the screen or the two halves of the grid are just 32 pads again. */
+        var here = patCur < 0 ? '-'
+                 : (expCur < 0 ? ('S' + (patCur + 1)) : ('S' + (patCur + 1) + '.' + (expCur + 1)));
+        print(0, 30, n + ' seeds  ' + (expSeed >= 0 ? (ne + ' exp') : 'no exp') + '   ' + here, 1);
         if (copyHeld) print(0, 44, copyArmed ? 'COPIED - tap pad to paste' : 'COPY: tap a pattern', 1);
         else if (deleteHeld) print(0, 44, 'DELETE: tap a pattern', 1);
-        else print(0, 44, 'tap=load  shift+pad=save', 1);
+        else if (recHeld) print(0, 44, 'REC: tap a seed for its exps', 1);
+        else print(0, 44, expSeed >= 0 ? ('rows 3-4 = seed ' + (expSeed + 1) + ' exps')
+                                       : 'rec+seed opens expansions', 1);
         print(0, 56, 'X=del copy=cp/pst sh+T3=gen', 1);
     }
 }
@@ -1041,6 +1069,9 @@ function readStatus() {
     step = s.step != null ? s.step : -1;
     kitName = s.kit || '';
     if (Array.isArray(s.patFilled)) patFilled = s.patFilled;
+    if (Array.isArray(s.expFilled)) expFilled = s.expFilled;
+    if (s.expSeed != null) expSeed = s.expSeed | 0;
+    if (s.expCur != null) expCur = s.expCur | 0;
     if (Array.isArray(s.projFilled)) projFilled = s.projFilled;
     if (s.projCur != null) projCur = s.projCur;
     if (s.canUndo != null) canUndo = s.canUndo;
@@ -1191,6 +1222,7 @@ globalThis.init = function () {
     projCur = -1;
     recView = false; recSlots = new Array(8).fill(false); recSlot = -1; recState = 'idle'; recElapsed = 0;
     modView = false; lfoState = new Array(32).fill(0); lfoOn = 0; lfoLast = '';
+    expFilled = new Array(16).fill(false); expSeed = -1; expCur = -1;
     whimOn = false; whimHeld = false;
     solo = -1; lastTapAt = new Array(N_TRACKS).fill(0);
 };
@@ -1453,6 +1485,25 @@ globalThis.onMidiMessageInternal = function (data) {
             if (recView) {
                 if (slot < 8) { sendCmd('recpad', slot); }        /* arm/start/stop that recording slot */
             } else if (patView) {
+                /* REC + a SEED pad opens that seed's expansion row, and loads its first
+                 * expansion rather than the seed itself — so you work on the variation set
+                 * while the canonical idea stays exactly as you left it. The first expansion
+                 * starts life as a copy of the seed, so there is always something there. */
+                if (recHeld && slot < N_SEEDS) {
+                    if (!patFilled[slot]) { showAction('SEED ' + (slot + 1) + ' EMPTY'); }
+                    else {
+                        sendCmd('expfirst', slot);
+                        expSeed = slot;                              /* optimistic */
+                        showAction('SEED ' + (slot + 1) + ' EXP 1');
+                    }
+                    ledDirty = true; screenDirty = true;
+                    return;
+                }
+                if (recHeld) { showAction('HOLD REC + A SEED'); ledDirty = true; return; }
+                if (slot >= N_SEEDS && expSeed < 0) {
+                    showAction('REC + SEED FIRST');                  /* no row is open yet */
+                    return;
+                }
                 if (deleteHeld) {                                    /* X + pad = delete, bank closes the gap */
                     sendCmd('patdel', slot); showAction('DEL PAT ' + (slot + 1));
                 } else if (copyHeld) {                               /* Copy + pad = copy, then paste while held */
