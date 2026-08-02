@@ -319,6 +319,63 @@ let fxNames = ['OD', 'AMP', 'CRSH', 'RING', 'CLDS', 'RESO', 'GREY', 'VERB'];
 let overlay = null, overlayUntil = -1;
 let ledDirty = true, screenDirty = true, lastLedSig = '', lastScreenSig = '', lastDrawAt = -100;
 
+/* ---------------------------------------------------------------------------------------
+ * VIEWS. Exactly one is open at a time, so exactly ONE place is allowed to change which.
+ *
+ * The views used to be four independent booleans plus `editTrack`, and every button that
+ * opened one cleared the others by hand — the same six-line incantation copied five times.
+ * It had already drifted:
+ *
+ *   * Track 1 (back to the main view) cleared fxView and the track edit, but NOT patView,
+ *     projView or recView. From pattern view it therefore did nothing at all: the button
+ *     that exists to get you out was the one view change that could not happen.
+ *   * The four view toggles set editTrack = -1 WITHOUT sending `editexit`, so switching
+ *     from a track edit straight to pattern view left the controller still believing a
+ *     track was open.
+ *   * Holding a track pad to edit cleared fxView only, so opening an edit from pattern view
+ *     left both flags true at once.
+ *
+ * Copied state transitions drift; this cannot. Every view change goes through setView, and
+ * the invariant — one view, controller told when an edit closes — holds by construction.
+ * ------------------------------------------------------------------------------------- */
+const V_MAIN = 'tracks', V_PAT = 'pattern', V_PROJ = 'project',
+      V_REC = 'recorder', V_FX = 'fx', V_EDIT = 'edit';
+
+function currentView() {
+    if (editTrack >= 0) return V_EDIT;
+    if (fxView) return V_FX;
+    if (patView) return V_PAT;
+    if (projView) return V_PROJ;
+    if (recView) return V_REC;
+    return V_MAIN;
+}
+
+function setView(v, track) {
+    const wasEditing = (editTrack >= 0);
+    patView  = (v === V_PAT);
+    projView = (v === V_PROJ);
+    recView  = (v === V_REC);
+    fxView   = (v === V_FX);
+    fxHeld   = -1;
+    editTrack = (v === V_EDIT) ? track : -1;
+    stepEditCell = -1; heldCell = -1; heldStepEdit = false; knobShow = null;
+    /* A pad still under the finger belongs to the gesture that OPENED an edit, so those two
+     * are left alone in that one case — drawTrackParam reads trackHeld to keep the readout
+     * up while the hold lasts. Every other view change abandons the in-flight gesture. */
+    if (v !== V_EDIT) { trackHeld = -1; paletteHeld = -1; }
+    /* Selections index the steps of the track being left, so they cannot outlive it. */
+    if (wasEditing && v !== V_EDIT) { stepSel = []; lenArm = false; sendCmd('editexit', -1); }
+    ledDirty = true; screenDirty = true;
+}
+
+/* Open `v`, or fall back to the main view if it is already open — the toggle every view
+ * button wants, without each one re-deriving what "already open" means. */
+function toggleView(v) {
+    const target = (currentView() === v) ? V_MAIN : v;
+    setView(target);
+    return target === v;
+}
+
 function sys(cmd) { if (typeof host_system_cmd === 'function') host_system_cmd(cmd); }
 function clampi(x, lo, hi) { return x < lo ? lo : x > hi ? hi : x; }
 function clampf(x, lo, hi) { return x < lo ? lo : x > hi ? hi : x; }
@@ -1125,8 +1182,7 @@ globalThis.tick = function () {
      * track 13 (the hardware streams a fatal MIDI flood on Shift + that button). */
     if (trackHeld >= 0 && !trackActive && (Date.now() - trackHeldStart) >= HOLD_MS) {
         var _et = trackHeld;
-        fxView = false; editTrack = _et; editSteps = new Array(N_STEPS).fill(0);
-        stepEditCell = -1; heldCell = -1; heldStepEdit = false; knobShow = null;
+        setView(V_EDIT, _et); editSteps = new Array(N_STEPS).fill(0);
         trackActive = true;   /* mark the hold consumed so the release doesn't also mute */
         sendCmd('editenter', _et); ledDirty = true; screenDirty = true; showAction('EDIT T' + (_et + 1));
     }
@@ -1792,9 +1848,7 @@ globalThis.onMidiMessageInternal = function (data) {
             return;
         }
         if (d1 === MoveRow2 && d2 > 0) {                  /* Track 2 = FX view toggle */
-            fxView = !fxView; fxHeld = -1;
-            if (fxView) { patView = false; projView = false; recView = false; editTrack = -1; stepEditCell = -1; trackHeld = -1; paletteHeld = -1; }
-            ledDirty = true; screenDirty = true; showAction(fxView ? 'FX' : 'TRACKS');
+            showAction(toggleView(V_FX) ? 'FX' : 'TRACKS');
             return;
         }
         if (d1 === MoveRow3 && d2 > 0) {                  /* Track 3 = PATTERN view; Shift+Track3 = RECORDER,
@@ -1812,13 +1866,9 @@ globalThis.onMidiMessageInternal = function (data) {
                 return;
             }
             if (shiftHeld) {
-                recView = !recView;
-                if (recView) { patView = false; projView = false; fxView = false; fxHeld = -1; editTrack = -1; stepEditCell = -1; trackHeld = -1; paletteHeld = -1; }
-                showAction(recView ? 'RECORDER' : 'TRACKS');
+                showAction(toggleView(V_REC) ? 'RECORDER' : 'TRACKS');
             } else {
-                patView = !patView;
-                if (patView) { projView = false; recView = false; fxView = false; fxHeld = -1; editTrack = -1; stepEditCell = -1; trackHeld = -1; paletteHeld = -1; }
-                showAction(patView ? 'PATTERNS' : 'TRACKS');
+                showAction(toggleView(V_PAT) ? 'PATTERNS' : 'TRACKS');
             }
             ledDirty = true; screenDirty = true;
             return;
@@ -1829,9 +1879,7 @@ globalThis.onMidiMessageInternal = function (data) {
                 ledDirty = true; screenDirty = true;
                 return;
             }
-            projView = !projView;
-            if (projView) { patView = false; recView = false; fxView = false; fxHeld = -1; editTrack = -1; stepEditCell = -1; trackHeld = -1; paletteHeld = -1; }
-            ledDirty = true; screenDirty = true; showAction(projView ? 'PROJECTS' : 'TRACKS');
+            showAction(toggleView(V_PROJ) ? 'PROJECTS' : 'TRACKS');
             return;
         }
         if (d1 === MoveRow1 && d2 > 0) {
@@ -1848,7 +1896,7 @@ globalThis.onMidiMessageInternal = function (data) {
             if (shiftHeld) {
                 if (editTrack >= 0) { sendCmd('randtrack', editTrack, { p: { track: editTrack } }); showAction('RND T' + (editTrack + 1)); }
                 else showAction('open a track first');
-            } else { fxView = false; editTrack = -1; stepEditCell = -1; heldCell = -1; sendCmd('editexit', -1); showAction('TRACKS'); }
+            } else { setView(V_MAIN); showAction('TRACKS'); }
             ledDirty = true; screenDirty = true;
             return;
         }
