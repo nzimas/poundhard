@@ -106,6 +106,10 @@ const BREAK_ON = 22, BREAK_ALT = 108, BREAK_IDLE = 105;  /* magenta pulse (on) /
  * right now" is a single rule rather than a per-pad convention. QUAKE and BREAK lock each
  * other — both temporarily own a track's length and rate. */
 const LOCK_COLOR = 124;
+const WHIM_CELL = 30;               /* pad right of STROBE = the WHIM toggle */
+/* violet pulse (on) / dim indigo (off) — a colour of its own, since Whim is the only
+ * modifier that touches time, timbre and rhythm at once */
+const WHIM_ON = 21, WHIM_ALT = 102, WHIM_IDLE = 95;
 const STROBE_CELL = 29;             /* pad right of BREAK = the STROBE toggle */
 const STROBE_ON = 29, STROBE_ALT = 111, STROBE_IDLE = 110;  /* turquoise pulse / dim teal */
 
@@ -224,6 +228,7 @@ let quakeOn = false, quakeHeld = false;
 let churnOn = false, churnHeld = false;
 let brkOn = false, brkHeld = false, brkEvery = 4, brkNow = false, brkTweaked = false;
 let strobeOn = false, strobeHeld = false;
+let whimOn = false, whimHeld = false;
 /* the intervals worth having: musical multiples, not every integer */
 const BRK_STEPS = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32];
 /* step-button pulse: a local beat clock (tempo-driven) drives the per-track pulse so
@@ -663,6 +668,8 @@ function renderLEDs() {
                 color = quakeOn ? LOCK_COLOR
                       : (brkNow ? White
                       : (brkOn ? ((phase % 16 < 8) ? BREAK_ON : BREAK_ALT) : BREAK_IDLE));
+            } else if (c === WHIM_CELL) {                          /* WHIM toggle */
+                color = whimOn ? ((phase % 22 < 11) ? WHIM_ON : WHIM_ALT) : WHIM_IDLE;
             } else if (c === STROBE_CELL) {                        /* STROBE toggle */
                 /* no lock: Strobe inserts sit on the track buses, so nothing competes
                  * with nothing for a track's rate, length or steps */
@@ -975,7 +982,7 @@ function drawScreen() {
             return;
         }
         print(0, 6, 'POUNDHARD', 2);
-        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : '') + (shufOn ? '  SHUF' : '') + (quakeOn ? '  QUAKE' : '') + (churnOn ? '  CHURN' : '') + (brkOn ? ('  BRK/' + brkEvery) : '') + (strobeOn ? '  STRB' : '') + (xpose ? ('  ' + (xpose > 0 ? '+' : '') + xpose + 'st') : '') + (armedSet.quake ? ('  ARM QUAKE ' + (phraseBar + 1) + '/' + phraseBars) : ''), 1);
+        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : '') + (shufOn ? '  SHUF' : '') + (quakeOn ? '  QUAKE' : '') + (churnOn ? '  CHURN' : '') + (brkOn ? ('  BRK/' + brkEvery) : '') + (strobeOn ? '  STRB' : '') + (whimOn ? '  WHIM' : '') + (xpose ? ('  ' + (xpose > 0 ? '+' : '') + xpose + 'st') : '') + (armedSet.quake ? ('  ARM QUAKE ' + (phraseBar + 1) + '/' + phraseBars) : ''), 1);
         print(0, 44, 'pad=hear  shift+pad=gen  copy=dup', 1);
         print(0, 56, 'k8=chaos  heat=btm-left pad', 1);
     } else if (lenArm) {
@@ -1047,6 +1054,7 @@ function readStatus() {
     if (s.brkEvery != null && !brkHeld) brkEvery = s.brkEvery;
     if (s.brkNow != null) brkNow = !!s.brkNow;
     if (s.strobe != null && !strobeHeld) strobeOn = !!s.strobe;
+    if (s.whim != null && !whimHeld) whimOn = !!s.whim;
     if (s.armed != null) { armedSet = {}; for (let i = 0; i < s.armed.length; i++) armedSet[s.armed[i]] = 1; }
     if (s.xpose != null) xpose = s.xpose;
     if (s.micState != null) micState = s.micState;
@@ -1183,6 +1191,7 @@ globalThis.init = function () {
     projCur = -1;
     recView = false; recSlots = new Array(8).fill(false); recSlot = -1; recState = 'idle'; recElapsed = 0;
     modView = false; lfoState = new Array(32).fill(0); lfoOn = 0; lfoLast = '';
+    whimOn = false; whimHeld = false;
     solo = -1; lastTapAt = new Array(N_TRACKS).fill(0);
 };
 
@@ -1236,7 +1245,7 @@ globalThis.tick = function () {
     if (running && patView && patPending >= 0) ledDirty = true;   /* animate the queued-slot pulse */
     if (recView && recState !== 'idle') ledDirty = true;          /* animate the rec/armed pad */
     if (editTrack >= 0 && !fxView) { for (var _lv = 0; _lv < N_STEPS; _lv++) if (editLiving[_lv]) { ledDirty = true; break; } }  /* pulse living steps */
-    if ((heatOn || shufOn || quakeOn || churnOn || brkOn || strobeOn || armedSet.quake) && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse the six modifier pads */
+    if ((heatOn || shufOn || quakeOn || churnOn || brkOn || strobeOn || whimOn || armedSet.quake) && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse the six modifier pads */
     /* promote a sustained press on the SAMPLE pad into a HOLD (record-arm) */
     if (paletteHeld === SAMPLE_CELL && !smpHold && (Date.now() - paletteHeldStart) >= HOLD_MS) {
         smpHold = true; ledDirty = true; screenDirty = true;
@@ -1523,6 +1532,10 @@ globalThis.onMidiMessageInternal = function (data) {
             strobeHeld = true; ledDirty = true; screenDirty = true;
             return;
         }
+        if (cell === WHIM_CELL) {                          /* Whim pad down: arm the toggle */
+            whimHeld = true; ledDirty = true; screenDirty = true;
+            return;
+        }
         /* DRUM held + a pad to its right = that pad's fixed drum TYPE. Tapping it only
          * AUDITIONS the type (a stable reference sound, identical every press, so the pad
          * reads as "hihat" rather than a new random drum each time). The pick is committed
@@ -1629,6 +1642,15 @@ globalThis.onMidiMessageInternal = function (data) {
                 }
             }
             brkHeld = false; ledDirty = true; screenDirty = true;
+            return;
+        }
+        if (cell === WHIM_CELL) {                          /* Whim pad up: short = toggle */
+            if (whimHeld) {
+                whimOn = !whimOn;
+                sendCmd('whim', whimOn ? 1 : 0);
+                showAction(whimOn ? 'WHIM' : 'WHIM OFF');
+            }
+            whimHeld = false; ledDirty = true; screenDirty = true;
             return;
         }
         if (cell === STROBE_CELL) {                        /* Strobe pad up: short = toggle */

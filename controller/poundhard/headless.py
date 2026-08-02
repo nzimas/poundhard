@@ -24,6 +24,7 @@ from pathlib import Path
 
 from . import catalog
 from . import lfo as lfomod
+from . import whim as whimmod
 from . import phrase
 from .catalog import FX_SPECS, N_FX
 from .engine_bridge import EngineBridge
@@ -115,6 +116,9 @@ class Controller:
         self._smp_chain: list[str] = []     # the Csound stages the take went through
         self._smp_thresh = 0.02
         # HEAT macro: mass-mark a fraction of sequenced steps as living (live performance)
+        self._whim = None
+        self._whim_on = False
+        self._whim_sent = {}
         self._lfo = lfomod.Bank()
         self._lfo_bar = 0.0
         self._lfo_t0 = time.monotonic()
@@ -731,6 +735,152 @@ class Controller:
         if changes or turn_on or turn_off:
             print("[poundhard] " + self._strobe.last_log, flush=True)
 
+    def _whim_live(self) -> tuple[list[int], int, float]:
+        """Tracks worth touching, which one is the pulse, and how dense the pattern is."""
+        st = self.state
+        live, onsets, span = [], 0, 0
+        best, best_score = -1, -1.0
+        for t in range(N_TRACKS):
+            tr = st.tracks[t]
+            if tr.type == "EMPTY" or st.eff_muted(t):
+                continue
+            n = sum(tr.pattern[:max(1, tr.length)])
+            if not n:
+                continue
+            live.append(t)
+            onsets += n
+            span += max(1, tr.length)
+            # THE PULSE is whatever is carrying the beat: hits on the strong divisions of a
+            # short bar, low in the mix's register. It gets protected from the rougher
+            # gestures, so the music keeps something to hold on to.
+            strong = sum(1 for c in range(min(tr.length, len(tr.pattern)))
+                         if tr.pattern[c] and c % 4 == 0)
+            score = strong * 2.0 + (1.0 if t < 3 else 0.0) - 0.02 * n
+            if score > best_score:
+                best_score, best = score, t
+        return live, best, (onsets / span if span else 0.0)
+
+    def _whim_tick(self) -> None:
+        """One pattern cycle: re-read the room and decide this bar's gestures."""
+        if not self._whim_on or not self._whim or not self.state.running:
+            return
+        with self._lock:
+            live, pulse, density = self._whim_live()
+            busy = sum(1 for f in (self._quake_on, self._strobe_on, self._heat_on,
+                                   getattr(self, "_churn_on", False)) if f)
+            seam = self._phrase.quality() if getattr(self, "_phrase", None) else 0.5
+        picks = self._whim.bar(live, pulse, density, busy, seam)
+        for t, g in picks.items():
+            if g == "stop":
+                self._whim_stop(t)
+            elif g == "burst":
+                self._whim_burst(t)
+            elif g == "colour":
+                self._whim_colour(t)
+        if picks:
+            print("[poundhard] " + self._whim.last_log, flush=True)
+
+    def _whim_stop(self, t: int) -> None:
+        """A very short hole. Muting is used rather than a zero rate: a zero rate stalls the
+        track's own clock and it comes back in the wrong place, which reads as a fault."""
+        self.bridge.mute(t, True)
+        self._whim_sent.setdefault("mute", set()).add(t)
+        # a sixteenth to an eighth of a bar, restored by the timer rather than the next cycle
+        delay = (60.0 / max(40.0, float(self.state.tempo))) * 4.0 * random.choice((0.0625, 0.125))
+        threading.Timer(delay, self._whim_unstop, args=(t,)).start()
+
+    def _whim_unstop(self, t: int) -> None:
+        try:
+            with self._lock:
+                self.bridge.mute(t, self.state.eff_muted(t))
+            self._whim_sent.get("mute", set()).discard(t)
+        except Exception:
+            pass
+
+    def _whim_burst(self, t: int) -> None:
+        """A compact cluster: ratchets on a couple of the track's own hits, for one bar.
+        Placed on EXISTING steps, so a burst is an embellishment of the part rather than
+        notes the part never had."""
+        with self._lock:
+            tr = self.state.tracks[t]
+            hits = [c for c in range(min(tr.length, len(tr.pattern))) if tr.pattern[c]]
+        if not hits:
+            return
+        cells = random.sample(hits, min(len(hits), random.choice((1, 2, 2, 3))))
+        for c in cells:
+            self.bridge.stepratchet(t, c, random.choice((2, 3, 3, 4)))
+        self._whim_sent.setdefault("ratchet", set()).update((t, c) for c in cells)
+        if self._whim and t in self._whim.state:
+            self._whim.state[t].burst_cells = cells
+
+    def _whim_colour(self, t: int) -> None:
+        """An abrupt timbral lurch: one modulatable parameter thrown somewhere else and left
+        there for the gesture's duration. The gradual movement is the LFO side of Whim; this
+        is the sudden one."""
+        with self._lock:
+            tr = self.state.tracks[t]
+            spec = catalog.VOICES.get(tr.type)
+            if spec is None:
+                return
+            opts = [pm for pm in spec.params
+                    if pm.modulatable and lfomod._suffix(pm.id) not in lfomod._PITCH
+                    and lfomod._suffix(pm.id) not in ("amp", "pan")]
+            if not opts:
+                return
+            pm = random.choice(opts)
+            lo, hi = (pm.musical if getattr(pm, "musical", None) else (pm.rmin, pm.rmax))
+            base = float(tr.params.get(pm.id, getattr(pm, "default", (lo + hi) / 2)))
+        v = max(lo, min(hi, base + (hi - lo) * random.uniform(-0.45, 0.45)))
+        self.bridge.param(t, pm.id, v)
+        self._whim_sent.setdefault("param", set()).add((t, pm.id))
+
+    def _whim_continuous(self, bars: float) -> None:
+        """Called from the modulation loop: the breathing rate and the moving filter."""
+        if not self._whim_on or not self._whim or not self.state.running:
+            return
+        with self._lock:
+            rates = self._whim.rates(bars)
+            cuts = self._whim.cutoffs(bars)
+            for t, mul in rates.items():
+                tr = self.state.tracks[t]
+                r = max(0.05, min(8.0, float(tr.rate) * mul))
+                if abs(r - self._whim_sent.get(("r", t), -1.0)) > 0.004:
+                    self._whim_sent[("r", t)] = r
+                    self.bridge.rate(t, r)
+                    self._whim_sent.setdefault("rate", set()).add(t)
+            for t, (cmul, radd) in cuts.items():
+                tr = self.state.tracks[t]
+                cut = max(120.0, min(18000.0, float(tr.filt_cutoff) * cmul))
+                # resonance is nudged, never swept: a resonant filter driven hard by an LFO
+                # self-oscillates and stops being a filter
+                res = max(0.0, min(0.82, float(tr.filt_res) + radd * 0.5))
+                if abs(cut - self._whim_sent.get(("c", t), -1.0)) > cut * 0.01:
+                    self._whim_sent[("c", t)] = cut
+                    self.bridge.filter(t, cut, res, tr.filt_type)
+                    self._whim_sent.setdefault("filt", set()).add(t)
+
+    def _whim_end(self) -> None:
+        """Put EVERYTHING back. Whim wrote nothing to the project, so restoring is simply
+        re-sending what the project has always said."""
+        st = self.state
+        sent = self._whim_sent or {}
+        with self._lock:
+            for t in sent.get("rate", set()):
+                self.bridge.rate(t, float(st.tracks[t].rate))
+            for t in sent.get("filt", set()):
+                tr = st.tracks[t]
+                self.bridge.filter(t, tr.filt_cutoff, tr.filt_res, tr.filt_type)
+            for t in sent.get("mute", set()):
+                self.bridge.mute(t, st.eff_muted(t))
+            for (t, c) in sent.get("ratchet", set()):
+                self.bridge.stepratchet(t, c, int(st.tracks[t].step_ratchet[c]))
+            for (t, pid) in sent.get("param", set()):
+                tr = st.tracks[t]
+                if pid in tr.params:
+                    self.bridge.param(t, pid, float(tr.params[pid]))
+        self._whim = None
+        self._whim_sent = {}
+
     def _strobe_end(self) -> None:
         """Take every insert off. Nothing to restore: Strobe lives on the track buses and
         never touched a pattern, a parameter or a track's state."""
@@ -929,6 +1079,7 @@ class Controller:
         self._rand_tick()
         self._compass_tick()
         self._strobe_tick()
+        self._whim_tick()
         """Bar boundary (from the engine): fire any living steps whose period has elapsed
         (transient model — they revert next cycle), then apply a queued pattern switch."""
         with self._lock:
@@ -1129,6 +1280,8 @@ class Controller:
             if self._lfo.active():
                 with self._lock:
                     self._lfo.tick(self._lfo_bar, self.state, self.bridge)
+            if self._whim_on:
+                self._whim_continuous(self._lfo_bar)
             time.sleep(period)
 
     # -- control.json (UI -> controller) ----------------------------------- #
@@ -1213,7 +1366,7 @@ class Controller:
     # Commands that change no persisted state — they don't mark the project dirty.
     _NO_STATE = frozenset({
         "editenter", "editexit", "audition", "palettegen", "drummode", "drumaudition",
-        "smparm", "lfopad", "lfogen", "lfoenter",
+        "smparm", "lfopad", "lfogen", "lfoenter", "whim",
         "recpad", "run",
         "patcopy", "patclipclear", "saveproj", "panic", "shuffle", "quake", "churn",
         "break", "steprand", "strobe", "miclevel", "micarm", "micthresh", "micgain",
@@ -1352,6 +1505,15 @@ class Controller:
             else:
                 self._strobe_end()
             self._strobe_on = on
+        elif cmd == "whim":                    # 7th pad: the trickster
+            on = int(arg) != 0
+            if on:
+                self._whim = whimmod.Whim(N_TRACKS)
+                self._whim_sent = {}
+            else:
+                self._whim_end()
+            self._whim_on = on
+            print("[poundhard] whim %s" % ("ON" if on else "off"), flush=True)
         elif cmd == "steprand":                # Shift + touch a control: toggle its randomizer
             from . import steprand
             t = int(p.get("track", st.edit_track))
@@ -1759,6 +1921,7 @@ class Controller:
             "heat": self._heat_on,             # HEAT macro engaged
             "lfo": self._lfo.status(),         # 32 pads: 0 none / 1 assigned / 2 active
             "lfoOn": self._lfo.active(),
+            "whim": self._whim_on,
             "heatPct": round(self._heat_pct, 3),
             # the project's scale, once something pitched has established it
             "scale": (None if st.scale_name is None

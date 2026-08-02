@@ -78,8 +78,8 @@ inside. For how to **play** it, go to the guide.
   generator **scores its own output** and repairs the weakest track before handing it over.
 - **32 auto-assigned, tempo-synced LFOs** in the modulation view — sample-and-hold and sine,
   each on a unique parameter, never on engine pitch, and completely non-destructive.
-- **Six non-destructive performance modifiers** — **HEAT**, **SHUFFLE**, **QUAKE**,
-  **CHURN**, **BREAK** and **STROBE**. None of them edits a pattern: every one is an overlay
+- **Seven non-destructive performance modifiers** — **HEAT**, **SHUFFLE**, **QUAKE**,
+  **CHURN**, **BREAK**, **STROBE** and **WHIM**. None of them edits a pattern: every one is an overlay
   the engine plays instead, so a single sequence can evolve all night and switching them off
   gives you back exactly what you programmed.
 - **Living steps** — mark steps and they **transform themselves** as you play: ratchets,

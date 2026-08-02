@@ -1494,6 +1494,57 @@ with Break off** (the pattern repeating as programmed) and falls to **+0.30 with
 dipping to **−0.76** on the strongest breaks — bars that share almost nothing with the one
 before. The machine's state fingerprint is identical before, during and after.
 
+### Whim
+
+**The seventh pad on the bottom row.** Whim is the trickster: where every other modifier does
+one thing, Whim runs several small processes at once and lets them interfere. Tracks breathe
+in and out of time, hesitate, surge, drop out for a sixteenth, fire off a burst, and change
+colour — then settle back.
+
+**What it does continuously**
+
+- **Rate breathing.** Each track's playback rate is modulated by its own sine or triangle,
+  at its own division of the bar. Depth is moderate on purpose — past about a quarter the
+  pattern stops being the pattern and becomes a tape warp.
+- **Filter movement.** Per-track cutoff moves within a few octaves of what you programmed,
+  driven by a sine, triangle, random-smooth or sample-and-hold curve. Resonance is *nudged*,
+  never swept: a resonant filter driven hard by an LFO self-oscillates and stops being a
+  filter.
+
+**Gestures, decided once per bar**
+
+| | |
+|---|---|
+| **slow** | the track hesitates, then runs on and lands back on the grid |
+| **surge** | it pushes ahead, then settles back |
+| **stop** | a very short hole — a sixteenth or an eighth |
+| **burst** | ratchets on a couple of the track's *own* hits, so a burst embellishes the part rather than adding notes it never had |
+| **colour** | one parameter thrown somewhere else and left there for the gesture |
+
+**Why it does not fall apart**
+
+- **Time modulation is zero-mean, and so are the gestures.** The slow/surge envelope is a
+  *full* sine, which integrates to exactly zero — so a track that hesitates then runs on by
+  precisely what it lost lands back where it belongs. A half-sine envelope would steal phase
+  the track never recovers, and after a few gestures it would be nowhere near the pattern.
+  Sample-and-hold is used for *timbre* and never for time, for the same reason.
+- **Every rate is a division of the bar.** Nothing free-runs; a tempo change carries the
+  whole modifier with it.
+- **Gestures are budgeted** — at most two tracks doing something disruptive at once, one when
+  it is already busy.
+- **The pulse is protected.** Whatever is carrying the beat is eligible far less often, and
+  is largely spared stops and bursts — measured, it receives about 5% of gestures where an
+  even share would be 20%.
+- **It reads the room.** Density, phrase position and how many other modifiers are already
+  running all scale the intensity down: measured, intensity falls from 0.82 on a sparse
+  pattern to 0.55 on a dense one, and to 0.28 with three other modifiers engaged.
+
+**Non-destructive**, like every modifier here. Whim writes nothing to the project; rate,
+filter, mute, ratchet and parameter changes go straight to the engine and every one is
+remembered. Switching it off restores all five to exactly what you programmed.
+
+---
+
 ### Strobe
 
 The sixth temporary modifier: **rhythmic gating** and **microlooping** on the track buses,
