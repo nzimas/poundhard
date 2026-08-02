@@ -258,6 +258,16 @@ let trackHeld = -1, trackHeldStart = 0, trackActive = false;
 /* engine palette (default tracks view, top row): hold an engine pad, tap a track to
  * assign. paletteConsumed suppresses the pad-release audition once an assign happened. */
 let paletteHeld = -1, paletteHeldStart = 0, paletteConsumed = false;
+/* ONE DETENT = ONE UNIT. Every 0..1 parameter on the eight knobs is shown as 0-100, so the
+ * multiplier here IS the number the readout moves by. It was 0.03 for the macro-style knobs
+ * and 0.02 for pan/reso/heat/chaos, which meant the smallest change the hardware could make
+ * was a jump of three (or two) — there was no way to make a fine adjustment at all, only to
+ * overshoot in one direction and overshoot back.
+ *
+ * Fast sweeps do NOT get slower by the same factor: the shadow framework batches encoder
+ * ticks and decodeDelta returns the accumulated count, so spinning quickly already delivers
+ * a proportionally larger `dn`. Only the floor moved. */
+const KNOB_STEP = 0.01;
 let knobShow = null;                /* 'pitch'|'vel'|'pan'|null (big readout) */
 let rateView = -1, rateViewUntil = 0;   /* transient big clock-rate readout (cursor keys) */
 /* Project-wide transpose (cursor up/down). Mirrored from status so the readout follows the
@@ -1852,7 +1862,7 @@ globalThis.onMidiMessageInternal = function (data) {
             const dn = decodeDelta(d2);
             if (dn === 0) return;
             if (ki === 0 && heatHeld) {                          /* hold Heat + knob1 = heat fraction */
-                heatPct = clampf(heatPct + dn * 0.02, 0.05, 1.0);
+                heatPct = clampf(heatPct + dn * KNOB_STEP, 0.05, 1.0);
                 heatAdjusted = true;                             /* suppress the release toggle */
                 sendCmd('heatpct', -1, { p: { x: heatPct } });
                 knobShow = 'heat'; screenDirty = true;
@@ -1860,12 +1870,12 @@ globalThis.onMidiMessageInternal = function (data) {
             }
             if (fxView) {                                        /* knob N = FX N macro; Shift = its dry/wet */
                 if (shiftHeld) {
-                    fxWet[ki] = clampf(fxWet[ki] + dn * 0.03, 0, 1);
+                    fxWet[ki] = clampf(fxWet[ki] + dn * KNOB_STEP, 0, 1);
                     sendCmd('fxwet', ki, { p: { fx: ki, wet: fxWet[ki] } });
                     knobShow = 'fw' + ki; screenDirty = true;
                     return;
                 }
-                fxMacro[ki] = clampf(fxMacro[ki] + dn * 0.03, 0, 1);
+                fxMacro[ki] = clampf(fxMacro[ki] + dn * KNOB_STEP, 0, 1);
                 sendCmd('fxmacro', ki, { p: { fx: ki, pos: fxMacro[ki] } });
                 knobShow = 'fx' + ki; screenDirty = true;        /* giant readout, persists while touched */
                 return;
@@ -1905,7 +1915,7 @@ globalThis.onMidiMessageInternal = function (data) {
                     screenDirty = true; return;
                 }
                 if (ki === kRes) {
-                    stepFres[c] = clampf(stepFres[c] + dn * 0.02, 0, 1);
+                    stepFres[c] = clampf(stepFres[c] + dn * KNOB_STEP, 0, 1);
                     knobShow = 'sfres';
                     sendCmd('stepfilter', c, { p: { track: editTrack, cell: c, res: stepFres[c] } });
                     screenDirty = true; return;
@@ -1920,14 +1930,14 @@ globalThis.onMidiMessageInternal = function (data) {
             if (stepEditCell >= 0 && ki <= 2) {                  /* step lock: k1 vel, k2 pan, k3 macro */
                 const c = stepEditCell;
                 if (ki === 0) { stepVel[c] = clampf(stepVel[c] + dn * (2 / 127), 0, 2); knobShow = 'vel'; sendCmd('steplock', c, { p: { track: editTrack, cell: c, param: 'vel', value: stepVel[c] } }); }
-                else if (ki === 1) { stepPan[c] = clampf(stepPan[c] + dn * 0.02, -1, 1); knobShow = 'pan'; sendCmd('steplock', c, { p: { track: editTrack, cell: c, param: 'pan', value: stepPan[c] } }); }
-                else { stepMacro[c] = clampf(stepMacro[c] + dn * 0.03, 0, 1); knobShow = 'macro'; sendCmd('stepmacro', c, { p: { track: editTrack, cell: c, pos: stepMacro[c] } }); }
+                else if (ki === 1) { stepPan[c] = clampf(stepPan[c] + dn * KNOB_STEP, -1, 1); knobShow = 'pan'; sendCmd('steplock', c, { p: { track: editTrack, cell: c, param: 'pan', value: stepPan[c] } }); }
+                else { stepMacro[c] = clampf(stepMacro[c] + dn * KNOB_STEP, 0, 1); knobShow = 'macro'; sendCmd('stepmacro', c, { p: { track: editTrack, cell: c, pos: stepMacro[c] } }); }
                 screenDirty = true; return;
             }
             if (editTrack >= 0 && ki <= 1) {                     /* track settings: k1 volume, k2 pan (pitch = jog, rate = cursors) */
                 const t = editTrack;
                 if (ki === 0) { trackVol[t] = clampf(trackVol[t] + dn * (2 / 127), 0, 2); knobShow = 'vol'; sendCmd('trackset', t, { p: { track: t, param: 'amp', value: trackVol[t] } }); }
-                else { trackPan[t] = clampf(trackPan[t] + dn * 0.02, -1, 1); knobShow = 'pan'; sendCmd('trackset', t, { p: { track: t, param: 'pan', value: trackPan[t] } }); }
+                else { trackPan[t] = clampf(trackPan[t] + dn * KNOB_STEP, -1, 1); knobShow = 'pan'; sendCmd('trackset', t, { p: { track: t, param: 'pan', value: trackPan[t] } }); }
                 screenDirty = true; return;
             }
             /* THE TRACK FILTER. Knobs 4/5/6 = cutoff / resonance / LP-HP — shifted to 6/7/8
@@ -1943,7 +1953,7 @@ globalThis.onMidiMessageInternal = function (data) {
                     screenDirty = true; return;
                 }
                 if (ki === kRes) {
-                    filtRes[t] = clampf(filtRes[t] + dn * 0.02, 0, 1);
+                    filtRes[t] = clampf(filtRes[t] + dn * KNOB_STEP, 0, 1);
                     knobShow = 'fres';
                     sendCmd('trackfilter', t, { p: { track: t, res: filtRes[t] } });
                     screenDirty = true; return;
@@ -1972,14 +1982,14 @@ globalThis.onMidiMessageInternal = function (data) {
             }
             if (editTrack >= 0 && ki === 2) {                    /* knob 3 = voice macro: sculpt the whole voice */
                 const t = editTrack;
-                voiceMacro[t] = clampf(voiceMacro[t] + dn * 0.03, 0, 1); knobShow = 'macro';
+                voiceMacro[t] = clampf(voiceMacro[t] + dn * KNOB_STEP, 0, 1); knobShow = 'macro';
                 sendCmd('voicemacro', t, { p: { track: t, pos: voiceMacro[t] } });
                 screenDirty = true; return;
             }
             /* knob 8 (tracks view) = CHAOS: sweep every param of every assigned engine,
              * each in its own random direction. 0.5 = safe (the stored pattern state). */
             if (ki === 7 && editTrack < 0 && !patView && !projView && !recView) {
-                chaosPos = clampf(chaosPos + dn * 0.02, 0, 1);
+                chaosPos = clampf(chaosPos + dn * KNOB_STEP, 0, 1);
                 sendCmd('chaos', -1, { p: { pos: chaosPos } });
                 knobShow = 'chaos'; screenDirty = true;
                 return;
