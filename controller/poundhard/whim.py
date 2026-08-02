@@ -34,11 +34,17 @@ DIVISIONS = [("4 bars", 0.25), ("2 bars", 0.5), ("bar", 1.0), ("1/2", 2.0),
              ("1/8", 8.0)]
 _SLOW = [d for d in DIVISIONS if d[1] <= 2.0]
 
-# Rate modulation depth. Deliberately moderate: past about a quarter the pattern stops being
-# the pattern and becomes a tape-warp effect, which is a different modifier.
-RATE_DEPTH = (0.06, 0.22)
-# Filter movement, in octaves around the programmed cutoff.
-CUT_OCTAVES = (0.4, 1.8)
+# Rate modulation depth. The first pass sat at 0.06..0.22 and was too polite to hear over a
+# busy pattern — the modifier was doing exactly what it claimed and nobody could tell. This
+# is the level where a track audibly drags and pushes against the grid while the pattern is
+# still recognisably the pattern.
+RATE_DEPTH = (0.16, 0.42)
+# Filter movement, in octaves around the programmed cutoff. Three octaves is a sweep you
+# hear as an event rather than as drift.
+CUT_OCTAVES = (1.0, 3.0)
+# How hard the slow/surge gestures pull. These multiply ON TOP of the breathing, so the
+# combined swing is checked in the tests rather than assumed.
+G_SLOW, G_SURGE = -0.46, 0.58
 
 GESTURES = ("slow", "surge", "stop", "burst", "colour")
 
@@ -87,15 +93,15 @@ class TrackWhim:
         self.rate_shape = rng.choice(("sine", "sine", "tri"))
         self.rate_div = rng.choice(_SLOW)[1]
         lo, hi = RATE_DEPTH
-        self.rate_depth = rng.uniform(lo, hi * (0.5 if gentle else 1.0))
+        self.rate_depth = rng.uniform(lo, hi * (0.7 if gentle else 1.0))
         self.rate_seed = rng.randrange(1 << 20)
         # TIMBRE may step and lurch — that is the mischief.
         self.cut_shape = rng.choice(("sine", "tri", "smooth", "smooth", "sh"))
         self.cut_div = rng.choice(DIVISIONS)[1]
         clo, chi = CUT_OCTAVES
-        self.cut_oct = rng.uniform(clo, chi * (0.5 if gentle else 1.0))
+        self.cut_oct = rng.uniform(clo, chi * (0.7 if gentle else 1.0))
         self.cut_seed = rng.randrange(1 << 20)
-        self.res_add = rng.uniform(0.0, 0.22 if not gentle else 0.1)
+        self.res_add = rng.uniform(0.0, 0.30 if not gentle else 0.16)
         self.gesture = None
         self.g_until = 0.0
         self.g_from = 0.0
@@ -118,7 +124,7 @@ class TrackWhim:
             span = max(1e-6, self.g_until - self.g_from)
             k = max(0.0, min(1.0, (bars - self.g_from) / span))
             env = math.sin(2.0 * math.pi * k)                     # 0 -> +1 -> 0 -> -1 -> 0
-            m *= 1.0 + (-0.30 if self.gesture == "slow" else 0.38) * env
+            m *= 1.0 + (G_SLOW if self.gesture == "slow" else G_SURGE) * env
         return max(0.15, min(4.0, m))
 
     def cutoff_mul(self, bars: float) -> float:
@@ -150,7 +156,9 @@ class Whim:
         self.bars += 1
         rng = self.rng
         crowd = min(1.0, density / 0.45)
-        self.intensity = max(0.15, 0.9 - 0.35 * crowd - 0.18 * busy_mods)
+        # floor raised from 0.15: at the old floor Whim effectively switched itself off on a
+        # dense pattern with other modifiers up, which is precisely when you had turned it on.
+        self.intensity = max(0.35, 1.0 - 0.30 * crowd - 0.15 * busy_mods)
         gentle = self.intensity < 0.45
 
         for t in live:
@@ -169,9 +177,9 @@ class Whim:
         # GESTURE BUDGET: at most two disruptive things at once, fewer when it is already
         # busy. A pattern where every track is doing something is not mischief, it is mud.
         running = sum(1 for w in self.state.values() if w.gesture)
-        budget = max(0, (2 if self.intensity > 0.5 else 1) - running)
+        budget = max(0, (3 if self.intensity > 0.5 else 2) - running)
         # a good phrase boundary is where a bigger gesture belongs
-        chance = 0.25 + 0.5 * seam * self.intensity
+        chance = 0.45 + 0.45 * seam * self.intensity
         picks = []
         cands = [t for t in live if self.state[t].gesture is None]
         rng.shuffle(cands)

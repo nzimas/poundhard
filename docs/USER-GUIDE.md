@@ -1504,10 +1504,11 @@ colour — then settle back.
 **What it does continuously**
 
 - **Rate breathing.** Each track's playback rate is modulated by its own sine or triangle,
-  at its own division of the bar. Depth is moderate on purpose — past about a quarter the
-  pattern stops being the pattern and becomes a tape warp.
+  at its own division of the bar — deep enough that a track audibly drags and pushes against
+  the grid while the pattern stays recognisably itself.
 - **Filter movement.** Per-track cutoff moves within a few octaves of what you programmed,
-  driven by a sine, triangle, random-smooth or sample-and-hold curve. Resonance is *nudged*,
+  driven by a sine, triangle, random-smooth or sample-and-hold curve — a sweep you hear as an
+  event rather than as drift. Resonance is *nudged*,
   never swept: a resonant filter driven hard by an LFO self-oscillates and stops being a
   filter.
 
@@ -1517,7 +1518,7 @@ colour — then settle back.
 |---|---|
 | **slow** | the track hesitates, then runs on and lands back on the grid |
 | **surge** | it pushes ahead, then settles back |
-| **stop** | a very short hole — a sixteenth or an eighth |
+| **stop** | a short hole — a sixteenth up to a quarter of the bar |
 | **burst** | ratchets on a couple of the track's *own* hits, so a burst embellishes the part rather than adding notes it never had |
 | **colour** | one parameter thrown somewhere else and left there for the gesture |
 
@@ -1530,14 +1531,16 @@ colour — then settle back.
   Sample-and-hold is used for *timbre* and never for time, for the same reason.
 - **Every rate is a division of the bar.** Nothing free-runs; a tempo change carries the
   whole modifier with it.
-- **Gestures are budgeted** — at most two tracks doing something disruptive at once, one when
-  it is already busy.
+- **Gestures are budgeted** — at most three tracks doing something disruptive at once, two
+  when it is already busy.
 - **The pulse is protected.** Whatever is carrying the beat is eligible far less often, and
   is largely spared stops and bursts — measured, it receives about 5% of gestures where an
   even share would be 20%.
 - **It reads the room.** Density, phrase position and how many other modifiers are already
-  running all scale the intensity down: measured, intensity falls from 0.82 on a sparse
-  pattern to 0.55 on a dense one, and to 0.28 with three other modifiers engaged.
+  running all scale the intensity down: measured, intensity falls from 0.93 on a sparse
+  pattern to 0.70 on a dense one, and to 0.48 with three other modifiers engaged. It never
+  falls below 0.35 — an earlier floor let Whim quietly switch itself off on a busy pattern,
+  which is exactly when you had reached for it.
 
 **Non-destructive**, like every modifier here. Whim writes nothing to the project; rate,
 filter, mute, ratchet and parameter changes go straight to the engine and every one is

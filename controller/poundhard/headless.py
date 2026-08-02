@@ -786,7 +786,11 @@ class Controller:
         self.bridge.mute(t, True)
         self._whim_sent.setdefault("mute", set()).add(t)
         # a sixteenth to an eighth of a bar, restored by the timer rather than the next cycle
-        delay = (60.0 / max(40.0, float(self.state.tempo))) * 4.0 * random.choice((0.0625, 0.125))
+        # a sixteenth up to a quarter of the bar. The first pass topped out at an eighth,
+        # which on a busy pattern was easy to miss entirely — a hole has to be long enough to
+        # register as silence rather than as a dropped hit.
+        delay = (60.0 / max(40.0, float(self.state.tempo))) * 4.0 * random.choice(
+            (0.0625, 0.125, 0.125, 0.25))
         threading.Timer(delay, self._whim_unstop, args=(t,)).start()
 
     def _whim_unstop(self, t: int) -> None:
@@ -808,7 +812,7 @@ class Controller:
             return
         cells = random.sample(hits, min(len(hits), random.choice((1, 2, 2, 3))))
         for c in cells:
-            self.bridge.stepratchet(t, c, random.choice((2, 3, 3, 4)))
+            self.bridge.stepratchet(t, c, random.choice((3, 3, 4, 4, 6)))
         self._whim_sent.setdefault("ratchet", set()).update((t, c) for c in cells)
         if self._whim and t in self._whim.state:
             self._whim.state[t].burst_cells = cells
@@ -830,7 +834,9 @@ class Controller:
             pm = random.choice(opts)
             lo, hi = (pm.musical if getattr(pm, "musical", None) else (pm.rmin, pm.rmax))
             base = float(tr.params.get(pm.id, getattr(pm, "default", (lo + hi) / 2)))
-        v = max(lo, min(hi, base + (hi - lo) * random.uniform(-0.45, 0.45)))
+        # a colour change you can hear: at +-0.45 of the range it read as a nudge
+        v = max(lo, min(hi, base + (hi - lo) * random.choice((-1, 1))
+                        * random.uniform(0.35, 0.75)))
         self.bridge.param(t, pm.id, v)
         self._whim_sent.setdefault("param", set()).add((t, pm.id))
 

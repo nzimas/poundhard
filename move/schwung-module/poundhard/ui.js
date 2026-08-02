@@ -669,7 +669,7 @@ function renderLEDs() {
                       : (brkNow ? White
                       : (brkOn ? ((phase % 16 < 8) ? BREAK_ON : BREAK_ALT) : BREAK_IDLE));
             } else if (c === WHIM_CELL) {                          /* WHIM toggle */
-                color = whimOn ? ((phase % 22 < 11) ? WHIM_ON : WHIM_ALT) : WHIM_IDLE;
+                color = whimOn ? ((phase % 16 < 8) ? WHIM_ON : WHIM_ALT) : WHIM_IDLE;
             } else if (c === STROBE_CELL) {                        /* STROBE toggle */
                 /* no lock: Strobe inserts sit on the track buses, so nothing competes
                  * with nothing for a track's rate, length or steps */
