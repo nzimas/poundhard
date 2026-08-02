@@ -526,7 +526,7 @@ endin
 ; ===========================================================================================
 
 
-instr 21   ; GENDY -> TONE
+instr 21   ; GENDY -> TONE -> METALBANK
   itrack = p4
   ichan  = itrack * 2 + 3
   ifq    = p5
@@ -554,27 +554,28 @@ instr 21   ; GENDY -> TONE
   agen  gendy 1, int(k1 * 5), int(k2 * 5), ifq * 0.5, ifq * 2, k3 * 0.9 + 0.05, k4 * 0.9 + 0.05, 12, 12
   agen  = agen * 0.7
 
-  ; A resonant filter and a little drive — no feedback network.
-  ;
-  ; This slot was a feedback delay network used as a body, and it was the worst stage in the
-  ; matrix by every measure taken: the highest spectral flatness (0.27 against the frequency
-  ; shifter's 0.02), 15% of draws silent against the shifter's 1%, and — worst for the point
-  ; of the exercise — many different cores emerging at identical flatness, meaning the wash
-  ; was erasing whatever fed it. Rebalancing it, raising its filter floor and capping the
-  ; envelope attack each changed nothing measurable, so it is replaced rather than nursed:
-  ; a stage with no feedback path cannot smear a core into noise or swallow it.
-  aflt  zdf_2pole agen, 500 + k5 * 11000, 0.7 + k6 * 3, 0
-  adrv  = tanh(aflt * (1 + k6 * 3)) * (1 / (1 + k6 * 1.2))
-  amix  = aflt * (1 - k6 * 0.6) + adrv * k6 * 0.8
-  aL, aR PhWide amix, 0.15 + k7 * 0.7
+  ; A resonant filter and a little drive. No feedback path, so it cannot smear a core into
+  ; noise or swallow it — which is what the FDN it replaced did to everything it touched.
+  aflt0  zdf_2pole agen, 2086 + k5 * 9000, 0.7 + k6 * 3, 0
+  adrv0  = tanh(aflt0 * (1 + k6 * 3)) * (1 / (1 + k6 * 1.2))
+  agen     = aflt0 * (1 - k6 * 0.6) + adrv0 * k6 * 0.8
+
+  ; A bank of sharp resonators at INHARMONIC ratios, driven by whatever arrives. Struck
+  ; metal: the excitation stops mattering and the body takes over.
+  ar11   reson agen, ifq * (846.1 * 0.002 + 1.4), ifq / (10 + k5 * 80), 2
+  ar21   reson agen, ifq * (0.3901 * 0.004 + 2.7), ifq / (14 + k5 * 60), 2
+  ar31   reson agen, ifq * (544.7 * 0.006 + 5.1), ifq / (18 + k5 * 40), 2
+  amt1   = (ar11 + ar21 * 0.7 + ar31 * 0.5) * 0.4
+  agen     = agen * (1 - k6 * 0.85) + amt1 * k6 * 1.2
+  aL, aR PhWide agen, 0.15 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 12.0000
+  iTrim  = 60.0000
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
 
-instr 22   ; VOSIM -> TONE
+instr 22   ; VOSIM -> RINGMOD -> COMBRES
   itrack = p4
   ichan  = itrack * 2 + 3
   ifq    = p5
@@ -601,27 +602,26 @@ instr 22   ; VOSIM -> TONE
   ; digital in a way no filter sweep imitates.
   agen  vosim 0.6, ifq, ifq * (2 + k1 * 18), k2 * 0.9, 1 + int(k3 * 12), 0.4 + k4, giSine
 
-  ; A resonant filter and a little drive — no feedback network.
-  ;
-  ; This slot was a feedback delay network used as a body, and it was the worst stage in the
-  ; matrix by every measure taken: the highest spectral flatness (0.27 against the frequency
-  ; shifter's 0.02), 15% of draws silent against the shifter's 1%, and — worst for the point
-  ; of the exercise — many different cores emerging at identical flatness, meaning the wash
-  ; was erasing whatever fed it. Rebalancing it, raising its filter floor and capping the
-  ; envelope attack each changed nothing measurable, so it is replaced rather than nursed:
-  ; a stage with no feedback path cannot smear a core into noise or swallow it.
-  aflt  zdf_2pole agen, 500 + k5 * 11000, 0.7 + k6 * 3, 0
-  adrv  = tanh(aflt * (1 + k6 * 3)) * (1 / (1 + k6 * 1.2))
-  amix  = aflt * (1 - k6 * 0.6) + adrv * k6 * 0.8
-  aL, aR PhWide amix, 0.15 + k7 * 0.7
+  ; Ring modulation at an INHARMONIC ratio. Every partial splits into a sum and difference
+  ; pair that belongs to no harmonic series, which is the shortest route to bell and gong
+  ; territory that exists.
+  amd0   poscil 1, ifq * (638.2 * 0.001 + 0.5 + k5 * 6), giSine
+  agen     = agen * (1 - k6 * 0.9) + agen * amd0 * k6 * 1.3
+
+  ; A tuned comb: a delay short enough that its echoes fuse into a pitch. Hollow, plastic,
+  ; and it imposes a resonance of its OWN, so what feeds it is coloured rather than replaced.
+  icmb1  = 1 / (0.1665 * 40 + 60)
+  acm1   comb agen, 0.15 + k5 * 1.4, icmb1
+  agen     = agen * (1 - k6 * 0.7) + acm1 * k6 * 0.5
+  aL, aR PhWide agen, 0.15 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 10.7789
+  iTrim  = 0.3225
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
 
-instr 23   ; FOF2 -> SMEAR
+instr 23   ; FOF2 -> SMEAR -> FREEZE
   itrack = p4
   ichan  = itrack * 2 + 3
   ifq    = p5
@@ -649,19 +649,26 @@ instr 23   ; FOF2 -> SMEAR
   agen  fof2 0.7, ifq, ifq * (1 + k1 * 8), 0, 40 + k2 * 900, 0.003, 0.02 + k3 * 0.1, 0.007, 20, giSine, giGrEnv, 3600, 0, k4
 
   ; Streaming phase vocoder: blur the spectrum in TIME, so transients turn into weather.
-  fsin  pvsanal agen, 1024, 256, 1024, 1
-  fblr  pvsblur fsin, 0.01 + k5 * 0.4, 0.5
-  asm   pvsynth fblr
-  amix  = agen * (1 - k6) + asm * k6 * 1.4
-  aL, aR PhWide amix, 0.2 + k7 * 0.75
+  fs0    pvsanal agen, 1024, 256, 1024, 1
+  fb0    pvsblur fs0, 0.01 + k5 * 0.6854, 0.5
+  asm0   pvsynth fb0
+  agen     = agen * (1 - k6 * 0.85) + asm0 * k6 * 1.4
+
+  ; Spectral freeze: hold the magnitudes and let the phases run. The tone stops evolving and
+  ; becomes a held object, which is the one thing a percussive core cannot do by itself.
+  ff1    pvsanal agen, 1024, 256, 1024, 1
+  fz1    pvsfreeze ff1, k5, k5
+  afz1   pvsynth fz1
+  agen     = agen * (1 - k6 * 0.9) + afz1 * k6 * 1.3
+  aL, aR PhWide agen, 0.15 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 3.2110
+  iTrim  = 0.0288
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
 
-instr 24   ; FMVOICE -> SHIFT
+instr 24   ; FMVOICE -> SHIFT -> TONE
   itrack = p4
   ichan  = itrack * 2 + 3
   ifq    = p5
@@ -686,24 +693,29 @@ instr 24   ; FMVOICE -> SHIFT
 
   agen  fmvoice 0.6, ifq, int(k1 * 63), k2 * 2, 0.1 + k3 * 0.9, 0.1 + k4 * 0.9, giSine, giSine, giSine, giSine, giSine
 
-  ; Frequency shifting — not pitch shifting. Every partial moves by the SAME number of hertz,
+  ; Frequency shifting, not pitch shifting: every partial moves by the SAME number of hertz,
   ; so a harmonic spectrum becomes inharmonic and metallic in one operation.
-  areal, aimag hilbert agen
-  ksh   = -400 + k5 * 800
-  acos  poscil 1, ksh, giSine, 0.25
-  asin2 poscil 1, ksh, giSine, 0
-  ashf  = areal * acos - aimag * asin2
-  amix  = agen * (1 - k6) + ashf * k6
-  alad  moogladder amix, 600 + k7 * 11000, k7 * 0.6
-  aL, aR PhWide alad, 0.3 + k7 * 0.5
+  are0, aim0 hilbert agen
+  ksh0   = 508.8 + k5 * 700
+  aco0   poscil 1, ksh0, giSine, 0.25
+  asi0   poscil 1, ksh0, giSine, 0
+  ash0   = are0 * aco0 - aim0 * asi0
+  agen     = agen * (1 - k6) + ash0 * k6
+
+  ; A resonant filter and a little drive. No feedback path, so it cannot smear a core into
+  ; noise or swallow it — which is what the FDN it replaced did to everything it touched.
+  aflt1  zdf_2pole agen, 1760 + k5 * 9000, 0.7 + k6 * 3, 0
+  adrv1  = tanh(aflt1 * (1 + k6 * 3)) * (1 / (1 + k6 * 1.2))
+  agen     = aflt1 * (1 - k6 * 0.6) + adrv1 * k6 * 0.8
+  aL, aR PhWide agen, 0.15 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 8.8126
+  iTrim  = 2.3102
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
 
-instr 25   ; HSB -> TONE
+instr 25   ; HSB -> COMBRES -> FOLD
   itrack = p4
   ichan  = itrack * 2 + 3
   ifq    = p5
@@ -730,27 +742,24 @@ instr 25   ; HSB -> TONE
   ; is how a bell stops sounding like an organ.
   agen  hsboscil 0.6, k1 * 4 - 2, k2 * 3, ifq, giSine, giSine, 3 + int(p9 * 5)
 
-  ; A resonant filter and a little drive — no feedback network.
-  ;
-  ; This slot was a feedback delay network used as a body, and it was the worst stage in the
-  ; matrix by every measure taken: the highest spectral flatness (0.27 against the frequency
-  ; shifter's 0.02), 15% of draws silent against the shifter's 1%, and — worst for the point
-  ; of the exercise — many different cores emerging at identical flatness, meaning the wash
-  ; was erasing whatever fed it. Rebalancing it, raising its filter floor and capping the
-  ; envelope attack each changed nothing measurable, so it is replaced rather than nursed:
-  ; a stage with no feedback path cannot smear a core into noise or swallow it.
-  aflt  zdf_2pole agen, 500 + k5 * 11000, 0.7 + k6 * 3, 0
-  adrv  = tanh(aflt * (1 + k6 * 3)) * (1 / (1 + k6 * 1.2))
-  amix  = aflt * (1 - k6 * 0.6) + adrv * k6 * 0.8
-  aL, aR PhWide amix, 0.15 + k7 * 0.7
+  ; A tuned comb: a delay short enough that its echoes fuse into a pitch. Hollow, plastic,
+  ; and it imposes a resonance of its OWN, so what feeds it is coloured rather than replaced.
+  icmb0  = 1 / (0.2758 * 40 + 60)
+  acm0   comb agen, 0.15 + k5 * 1.4, icmb0
+  agen     = agen * (1 - k6 * 0.7) + acm0 * k6 * 0.5
+
+  ; A WAVEFOLDER, which is not a clipper: past full scale the transfer function turns back
+  ; on itself instead of flattening, so drive multiplies partials rather than squaring off.
+  agen     = sin(agen * (1 + k5 * -455.5 * 0.02)) * (0.5 + k6 * 0.5)
+  aL, aR PhWide agen, 0.15 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.4038
+  iTrim  = 0.4976
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
 
-instr 26   ; CROSSPM -> TONE
+instr 26   ; CROSSPM -> FOLD -> SUBOCT
   itrack = p4
   ichan  = itrack * 2 + 3
   ifq    = p5
@@ -780,27 +789,24 @@ instr 26   ; CROSSPM -> TONE
   a1, a2 crosspm kf1, kf2, k2 * 3.5, k3 * 3.5, 1 + k4 * 5, giSine, giSine
   agen  = (a1 * 0.6 + a2 * 0.4) * 0.7
 
-  ; A resonant filter and a little drive — no feedback network.
-  ;
-  ; This slot was a feedback delay network used as a body, and it was the worst stage in the
-  ; matrix by every measure taken: the highest spectral flatness (0.27 against the frequency
-  ; shifter's 0.02), 15% of draws silent against the shifter's 1%, and — worst for the point
-  ; of the exercise — many different cores emerging at identical flatness, meaning the wash
-  ; was erasing whatever fed it. Rebalancing it, raising its filter floor and capping the
-  ; envelope attack each changed nothing measurable, so it is replaced rather than nursed:
-  ; a stage with no feedback path cannot smear a core into noise or swallow it.
-  aflt  zdf_2pole agen, 500 + k5 * 11000, 0.7 + k6 * 3, 0
-  adrv  = tanh(aflt * (1 + k6 * 3)) * (1 / (1 + k6 * 1.2))
-  amix  = aflt * (1 - k6 * 0.6) + adrv * k6 * 0.8
-  aL, aR PhWide amix, 0.15 + k7 * 0.7
+  ; A WAVEFOLDER, which is not a clipper: past full scale the transfer function turns back
+  ; on itself instead of flattening, so drive multiplies partials rather than squaring off.
+  agen     = sin(agen * (1 + k5 * 375.4 * 0.02)) * (0.5 + k6 * 0.5)
+
+  ; A subharmonic an octave (or two) below, gated by the signal's own envelope so it only
+  ; speaks when the note does. This is where weight in the bottom octave comes from.
+  afl1   follow agen, 0.02
+  asb1   poscil 1, ifq * (2.782 > 2 ? 0.25 : 0.5), giSine
+  agen     = agen + asb1 * afl1 * k5 * 1.6
+  aL, aR PhWide agen, 0.15 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.1214
+  iTrim  = 0.7279
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
 
-instr 27   ; FMMETAL -> CRUSH
+instr 27   ; FMMETAL -> CRUSH -> METALBANK
   itrack = p4
   ichan  = itrack * 2 + 3
   ifq    = p5
@@ -825,24 +831,28 @@ instr 27   ; FMMETAL -> CRUSH
 
   agen  fmmetal 0.55, ifq, k1 * 3, k2 * 5, 0.1 + k3 * 4, 1 + k4 * 8, giSine, giSine, giSine, giSine, giSine
 
-  ; Deliberate digital damage: fold, quantise, decimate, then comb. Bounded so it stays a
-  ; timbre rather than a fault.
-  afld  = tanh(agen * (1 + k5 * 12)) * 0.8
-  kstep = 1 / (2 ^ (4 + (1 - k6) * 11))
-  iboost = 32
-  aqnt  = (int(afld * iboost / kstep) * kstep) / iboost
-  adwn  = k6 > 0.5 ? aqnt : afld
-  acmb  vdelay3 adwn, 0.3 + k7 * 12, 40
-  amix  = adwn * 0.7 + acmb * k7 * 0.7
-  aL, aR PhWide amix, 0.25 + k7 * 0.6
+  ; Deliberate digital damage: fold, quantise, then comb.
+  afd0   = tanh(agen * (1 + k5 * 12)) * 0.8
+  kst0   = 1 / (2 ^ (3.89 + (1 - k6) * 9))
+  aqn0   = (int(afd0 * 32 / kst0) * kst0) / 32
+  agen     = k6 > 0.5 ? aqn0 : afd0
+
+  ; A bank of sharp resonators at INHARMONIC ratios, driven by whatever arrives. Struck
+  ; metal: the excitation stops mattering and the body takes over.
+  ar11   reson agen, ifq * (1080 * 0.002 + 1.4), ifq / (10 + k5 * 80), 2
+  ar21   reson agen, ifq * (0.5803 * 0.004 + 2.7), ifq / (14 + k5 * 60), 2
+  ar31   reson agen, ifq * (72.89 * 0.006 + 5.1), ifq / (18 + k5 * 40), 2
+  amt1   = (ar11 + ar21 * 0.7 + ar31 * 0.5) * 0.4
+  agen     = agen * (1 - k6 * 0.85) + amt1 * k6 * 1.2
+  aL, aR PhWide agen, 0.15 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.3586
+  iTrim  = 0.2106
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
 
-instr 28   ; FMBELL -> SHIFT
+instr 28   ; FMBELL -> METALBANK -> SHIFT
   itrack = p4
   ichan  = itrack * 2 + 3
   ifq    = p5
@@ -867,24 +877,31 @@ instr 28   ; FMBELL -> SHIFT
 
   agen  fmbell 0.5, ifq, k1 * 3, k2 * 4, 0.5 + k3 * 4, 1 + k4 * 6, giSine, giSine, giSine, giSine, giSine, 0
 
-  ; Frequency shifting — not pitch shifting. Every partial moves by the SAME number of hertz,
+  ; A bank of sharp resonators at INHARMONIC ratios, driven by whatever arrives. Struck
+  ; metal: the excitation stops mattering and the body takes over.
+  ar10   reson agen, ifq * (571.3 * 0.002 + 1.4), ifq / (10 + k5 * 80), 2
+  ar20   reson agen, ifq * (0.5565 * 0.004 + 2.7), ifq / (14 + k5 * 60), 2
+  ar30   reson agen, ifq * (21.4 * 0.006 + 5.1), ifq / (18 + k5 * 40), 2
+  amt0   = (ar10 + ar20 * 0.7 + ar30 * 0.5) * 0.4
+  agen     = agen * (1 - k6 * 0.85) + amt0 * k6 * 1.2
+
+  ; Frequency shifting, not pitch shifting: every partial moves by the SAME number of hertz,
   ; so a harmonic spectrum becomes inharmonic and metallic in one operation.
-  areal, aimag hilbert agen
-  ksh   = -400 + k5 * 800
-  acos  poscil 1, ksh, giSine, 0.25
-  asin2 poscil 1, ksh, giSine, 0
-  ashf  = areal * acos - aimag * asin2
-  amix  = agen * (1 - k6) + ashf * k6
-  alad  moogladder amix, 600 + k7 * 11000, k7 * 0.6
-  aL, aR PhWide alad, 0.3 + k7 * 0.5
+  are1, aim1 hilbert agen
+  ksh1   = 461.8 + k5 * 700
+  aco1   poscil 1, ksh1, giSine, 0.25
+  asi1   poscil 1, ksh1, giSine, 0
+  ash1   = are1 * aco1 - aim1 * asi1
+  agen     = agen * (1 - k6) + ash1 * k6
+  aL, aR PhWide agen, 0.15 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.1900
+  iTrim  = 0.4714
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
 
-instr 29   ; CHAOSFM -> CRUSH
+instr 29   ; CHAOSFM -> DECIM -> COMBRES
   itrack = p4
   ichan  = itrack * 2 + 3
   ifq    = p5
@@ -913,24 +930,25 @@ instr 29   ; CHAOSFM -> CRUSH
   agen  PhChaos aexc, ifq, 0.2 + k2 * 3.2
   agen  = agen * (0.4 + k3 * 0.5)
 
-  ; Deliberate digital damage: fold, quantise, decimate, then comb. Bounded so it stays a
-  ; timbre rather than a fault.
-  afld  = tanh(agen * (1 + k5 * 12)) * 0.8
-  kstep = 1 / (2 ^ (4 + (1 - k6) * 11))
-  iboost = 32
-  aqnt  = (int(afld * iboost / kstep) * kstep) / iboost
-  adwn  = k6 > 0.5 ? aqnt : afld
-  acmb  vdelay3 adwn, 0.3 + k7 * 12, 40
-  amix  = adwn * 0.7 + acmb * k7 * 0.7
-  aL, aR PhWide amix, 0.25 + k7 * 0.6
+  ; Sample-and-hold decimation: drop the effective sample rate and let the aliasing fold
+  ; back as inharmonic partials. The classic hard digital sound, and it is NOT bitcrushing —
+  ; the damage is in time, not amplitude.
+  agen     fold agen, 1 + k5 * (935.2 * 0.06 + 30)
+
+  ; A tuned comb: a delay short enough that its echoes fuse into a pitch. Hollow, plastic,
+  ; and it imposes a resonance of its OWN, so what feeds it is coloured rather than replaced.
+  icmb1  = 1 / (0.09786 * 40 + 60)
+  acm1   comb agen, 0.15 + k5 * 1.4, icmb1
+  agen     = agen * (1 - k6 * 0.7) + acm1 * k6 * 0.5
+  aL, aR PhWide agen, 0.15 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.0215
+  iTrim  = 0.8358
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
 
-instr 30   ; WGBOW -> TONE
+instr 30   ; WGBOW -> SUBOCT -> TONE
   itrack = p4
   ichan  = itrack * 2 + 3
   ifq    = p5
@@ -955,27 +973,26 @@ instr 30   ; WGBOW -> TONE
 
   agen  wgbow 0.6, ifq, 0.5 + k1 * 5, 0.05 + k2 * 0.85, 0.5 + k3 * 8, k4 * 0.3, giSine
 
-  ; A resonant filter and a little drive — no feedback network.
-  ;
-  ; This slot was a feedback delay network used as a body, and it was the worst stage in the
-  ; matrix by every measure taken: the highest spectral flatness (0.27 against the frequency
-  ; shifter's 0.02), 15% of draws silent against the shifter's 1%, and — worst for the point
-  ; of the exercise — many different cores emerging at identical flatness, meaning the wash
-  ; was erasing whatever fed it. Rebalancing it, raising its filter floor and capping the
-  ; envelope attack each changed nothing measurable, so it is replaced rather than nursed:
-  ; a stage with no feedback path cannot smear a core into noise or swallow it.
-  aflt  zdf_2pole agen, 500 + k5 * 11000, 0.7 + k6 * 3, 0
-  adrv  = tanh(aflt * (1 + k6 * 3)) * (1 / (1 + k6 * 1.2))
-  amix  = aflt * (1 - k6 * 0.6) + adrv * k6 * 0.8
-  aL, aR PhWide amix, 0.15 + k7 * 0.7
+  ; A subharmonic an octave (or two) below, gated by the signal's own envelope so it only
+  ; speaks when the note does. This is where weight in the bottom octave comes from.
+  afl0   follow agen, 0.02
+  asb0   poscil 1, ifq * (3.207 > 2 ? 0.25 : 0.5), giSine
+  agen     = agen + asb0 * afl0 * k5 * 1.6
+
+  ; A resonant filter and a little drive. No feedback path, so it cannot smear a core into
+  ; noise or swallow it — which is what the FDN it replaced did to everything it touched.
+  aflt1  zdf_2pole agen, 1064 + k5 * 9000, 0.7 + k6 * 3, 0
+  adrv1  = tanh(aflt1 * (1 + k6 * 3)) * (1 / (1 + k6 * 1.2))
+  agen     = aflt1 * (1 - k6 * 0.6) + adrv1 * k6 * 0.8
+  aL, aR PhWide agen, 0.15 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.3713
+  iTrim  = 0.7699
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
 
-instr 31   ; WGFLUTE -> SMEAR
+instr 31   ; WGFLUTE -> FREEZE -> RINGMOD
   itrack = p4
   ichan  = itrack * 2 + 3
   ifq    = p5
@@ -1000,20 +1017,27 @@ instr 31   ; WGFLUTE -> SMEAR
 
   agen  wgflute 0.6, ifq, 0.05 + k1 * 0.7, 0.02, 0.1, 0.2 + k2 * 0.7, 0.5 + k3 * 8, k4 * 0.3, giSine
 
-  ; Streaming phase vocoder: blur the spectrum in TIME, so transients turn into weather.
-  fsin  pvsanal agen, 1024, 256, 1024, 1
-  fblr  pvsblur fsin, 0.01 + k5 * 0.4, 0.5
-  asm   pvsynth fblr
-  amix  = agen * (1 - k6) + asm * k6 * 1.4
-  aL, aR PhWide amix, 0.2 + k7 * 0.75
+  ; Spectral freeze: hold the magnitudes and let the phases run. The tone stops evolving and
+  ; becomes a held object, which is the one thing a percussive core cannot do by itself.
+  ff0    pvsanal agen, 1024, 256, 1024, 1
+  fz0    pvsfreeze ff0, k5, k5
+  afz0   pvsynth fz0
+  agen     = agen * (1 - k6 * 0.9) + afz0 * k6 * 1.3
+
+  ; Ring modulation at an INHARMONIC ratio. Every partial splits into a sum and difference
+  ; pair that belongs to no harmonic series, which is the shortest route to bell and gong
+  ; territory that exists.
+  amd1   poscil 1, ifq * (1949 * 0.001 + 0.5 + k5 * 6), giSine
+  agen     = agen * (1 - k6 * 0.9) + agen * amd1 * k6 * 1.3
+  aL, aR PhWide agen, 0.15 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.2985
+  iTrim  = 1.4404
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
 
-instr 32   ; PLUCKM -> TONE
+instr 32   ; PLUCKM -> STUTTER -> TONE
   itrack = p4
   ichan  = itrack * 2 + 3
   ifq    = p5
@@ -1042,36 +1066,41 @@ instr 32   ; PLUCKM -> TONE
   ; (This slot held barmodel, then gogobel, then wguide2. The first two need external STK
   ; rawwave tables this Csound cannot find and return silence; the third damps to nothing at
   ; low feedback. `pluck` always speaks.)
-  ; imeth 5 (weighted averaging) requires param1 + param2 <= 1, and param2 here is a
-  ; filter cutoff in the hundreds — so every draw that landed on 5 died at init with
-  ; "coefficients too large" and produced silence. The five remaining methods take these
-  ; arguments happily, so 5 is skipped rather than special-cased.
-  iM    = int(p8 * 4.99)
-  imeth = iM < 4 ? iM + 1 : 6
+  ; pluck's six decay methods do NOT share a parameter contract, and feeding one method's
+  ; arguments to another is an INIT ERROR, not a bad sound — the note is deleted and the
+  ; draw is silent. Method 5 wants param1 + param2 <= 1 while param2 here is a cutoff in the
+  ; hundreds; method 2 wants a stretch factor >= 1 while param1 here is 0.1..0.9. Both were
+  ; killing draws.
+  ; So only the two whose contract these arguments actually satisfy are used: 1 (simple
+  ; averaging, which ignores both) and 3 (simple drum, whose param1 IS a 0..1 roughness).
+  ; Variety comes from the pick position and the chain after it, not from methods that have
+  ; to be fed something else to work.
+  imeth = p8 < 0.5 ? 1 : 3
   agen  pluck 0.7, ifq, ifq * (0.5 + p7 * 1.5), giNoiseT, imeth, 0.1 + p9 * 0.8, 10 + p10 * 500
   agen  = agen * (0.5 + k4 * 0.6)
 
-  ; A resonant filter and a little drive — no feedback network.
-  ;
-  ; This slot was a feedback delay network used as a body, and it was the worst stage in the
-  ; matrix by every measure taken: the highest spectral flatness (0.27 against the frequency
-  ; shifter's 0.02), 15% of draws silent against the shifter's 1%, and — worst for the point
-  ; of the exercise — many different cores emerging at identical flatness, meaning the wash
-  ; was erasing whatever fed it. Rebalancing it, raising its filter floor and capping the
-  ; envelope attack each changed nothing measurable, so it is replaced rather than nursed:
-  ; a stage with no feedback path cannot smear a core into noise or swallow it.
-  aflt  zdf_2pole agen, 500 + k5 * 11000, 0.7 + k6 * 3, 0
-  adrv  = tanh(aflt * (1 + k6 * 3)) * (1 / (1 + k6 * 1.2))
-  amix  = aflt * (1 - k6 * 0.6) + adrv * k6 * 0.8
-  aL, aR PhWide amix, 0.15 + k7 * 0.7
+  ; A delay whose time STEPS rather than glides, held for a fraction of the note. The jumps
+  ; are what make it a glitch and not a chorus; the time is derived arithmetically from a
+  ; phasor so it repeats identically for a given note instead of drifting.
+  aph0   phasor 0.3168 * 0.2 + 2 + k5 * 24
+  ast0   = (int(aph0 * 8) / 8) * (0.004 + k6 * 0.09) + 0.001
+  adl0   vdelay3 agen, ast0 * 1000, 120
+  agen     = agen * (1 - k6 * 0.6) + adl0 * k6 * 0.9
+
+  ; A resonant filter and a little drive. No feedback path, so it cannot smear a core into
+  ; noise or swallow it — which is what the FDN it replaced did to everything it touched.
+  aflt1  zdf_2pole agen, 1199 + k5 * 9000, 0.7 + k6 * 3, 0
+  adrv1  = tanh(aflt1 * (1 + k6 * 3)) * (1 / (1 + k6 * 1.2))
+  agen     = aflt1 * (1 - k6 * 0.6) + adrv1 * k6 * 0.8
+  aL, aR PhWide agen, 0.15 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.1999
+  iTrim  = 1.0970
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
 
-instr 33   ; MODEBANK -> SHIFT
+instr 33   ; MODEBANK -> SHIFT -> STUTTER
   itrack = p4
   ichan  = itrack * 2 + 3
   ifq    = p5
@@ -1103,24 +1132,31 @@ instr 33   ; MODEBANK -> SHIFT
   am3   mode aimp, ifq * (2.1 + k3 * 6), 8 + k1 * 200
   agen  = (am1 + am2 * 0.7 + am3 * 0.5) / (1 + k1 * 8) * (0.4 + k4 * 0.6)
 
-  ; Frequency shifting — not pitch shifting. Every partial moves by the SAME number of hertz,
+  ; Frequency shifting, not pitch shifting: every partial moves by the SAME number of hertz,
   ; so a harmonic spectrum becomes inharmonic and metallic in one operation.
-  areal, aimag hilbert agen
-  ksh   = -400 + k5 * 800
-  acos  poscil 1, ksh, giSine, 0.25
-  asin2 poscil 1, ksh, giSine, 0
-  ashf  = areal * acos - aimag * asin2
-  amix  = agen * (1 - k6) + ashf * k6
-  alad  moogladder amix, 600 + k7 * 11000, k7 * 0.6
-  aL, aR PhWide alad, 0.3 + k7 * 0.5
+  are0, aim0 hilbert agen
+  ksh0   = -448.1 + k5 * 700
+  aco0   poscil 1, ksh0, giSine, 0.25
+  asi0   poscil 1, ksh0, giSine, 0
+  ash0   = are0 * aco0 - aim0 * asi0
+  agen     = agen * (1 - k6) + ash0 * k6
+
+  ; A delay whose time STEPS rather than glides, held for a fraction of the note. The jumps
+  ; are what make it a glitch and not a chorus; the time is derived arithmetically from a
+  ; phasor so it repeats identically for a given note instead of drifting.
+  aph1   phasor 0.07964 * 0.2 + 2 + k5 * 24
+  ast1   = (int(aph1 * 8) / 8) * (0.004 + k6 * 0.09) + 0.001
+  adl1   vdelay3 agen, ast1 * 1000, 120
+  agen     = agen * (1 - k6 * 0.6) + adl1 * k6 * 0.9
+  aL, aR PhWide agen, 0.15 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.6674
+  iTrim  = 3.6727
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
 
-instr 34   ; WTERRAIN -> TONE
+instr 34   ; WTERRAIN -> RINGMOD -> DECIM
   itrack = p4
   ichan  = itrack * 2 + 3
   ifq    = p5
@@ -1147,27 +1183,25 @@ instr 34   ; WTERRAIN -> TONE
   ; spectrum completely, which is exactly the behaviour a macro knob wants.
   agen  wterrain 0.6, ifq, -1 + k1 * 2, -1 + k2 * 2, 0.1 + k3 * 1.9, 0.1 + k4 * 1.9, giSine, giBell
 
-  ; A resonant filter and a little drive — no feedback network.
-  ;
-  ; This slot was a feedback delay network used as a body, and it was the worst stage in the
-  ; matrix by every measure taken: the highest spectral flatness (0.27 against the frequency
-  ; shifter's 0.02), 15% of draws silent against the shifter's 1%, and — worst for the point
-  ; of the exercise — many different cores emerging at identical flatness, meaning the wash
-  ; was erasing whatever fed it. Rebalancing it, raising its filter floor and capping the
-  ; envelope attack each changed nothing measurable, so it is replaced rather than nursed:
-  ; a stage with no feedback path cannot smear a core into noise or swallow it.
-  aflt  zdf_2pole agen, 500 + k5 * 11000, 0.7 + k6 * 3, 0
-  adrv  = tanh(aflt * (1 + k6 * 3)) * (1 / (1 + k6 * 1.2))
-  amix  = aflt * (1 - k6 * 0.6) + adrv * k6 * 0.8
-  aL, aR PhWide amix, 0.15 + k7 * 0.7
+  ; Ring modulation at an INHARMONIC ratio. Every partial splits into a sum and difference
+  ; pair that belongs to no harmonic series, which is the shortest route to bell and gong
+  ; territory that exists.
+  amd0   poscil 1, ifq * (2202 * 0.001 + 0.5 + k5 * 6), giSine
+  agen     = agen * (1 - k6 * 0.9) + agen * amd0 * k6 * 1.3
+
+  ; Sample-and-hold decimation: drop the effective sample rate and let the aliasing fold
+  ; back as inharmonic partials. The classic hard digital sound, and it is NOT bitcrushing —
+  ; the damage is in time, not amplitude.
+  agen     fold agen, 1 + k5 * (253.9 * 0.06 + 30)
+  aL, aR PhWide agen, 0.15 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 3.7364
+  iTrim  = 0.8897
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
 
-instr 35   ; CHEBY -> TONE
+instr 35   ; CHEBY -> CRUSH -> SUBOCT
   itrack = p4
   ichan  = itrack * 2 + 3
   ifq    = p5
@@ -1195,27 +1229,26 @@ instr 35   ; CHEBY -> TONE
   asin  poscil 0.2 + k1 * 0.8, ifq, giSine
   agen  chebyshevpoly asin, 0, 1 - k2, k2 * 0.8, k3 * 0.7, k3 * 0.4, k4 * 0.5, k4 * 0.3
 
-  ; A resonant filter and a little drive — no feedback network.
-  ;
-  ; This slot was a feedback delay network used as a body, and it was the worst stage in the
-  ; matrix by every measure taken: the highest spectral flatness (0.27 against the frequency
-  ; shifter's 0.02), 15% of draws silent against the shifter's 1%, and — worst for the point
-  ; of the exercise — many different cores emerging at identical flatness, meaning the wash
-  ; was erasing whatever fed it. Rebalancing it, raising its filter floor and capping the
-  ; envelope attack each changed nothing measurable, so it is replaced rather than nursed:
-  ; a stage with no feedback path cannot smear a core into noise or swallow it.
-  aflt  zdf_2pole agen, 500 + k5 * 11000, 0.7 + k6 * 3, 0
-  adrv  = tanh(aflt * (1 + k6 * 3)) * (1 / (1 + k6 * 1.2))
-  amix  = aflt * (1 - k6 * 0.6) + adrv * k6 * 0.8
-  aL, aR PhWide amix, 0.15 + k7 * 0.7
+  ; Deliberate digital damage: fold, quantise, then comb.
+  afd0   = tanh(agen * (1 + k5 * 12)) * 0.8
+  kst0   = 1 / (2 ^ (2.627 + (1 - k6) * 9))
+  aqn0   = (int(afd0 * 32 / kst0) * kst0) / 32
+  agen     = k6 > 0.5 ? aqn0 : afd0
+
+  ; A subharmonic an octave (or two) below, gated by the signal's own envelope so it only
+  ; speaks when the note does. This is where weight in the bottom octave comes from.
+  afl1   follow agen, 0.02
+  asb1   poscil 1, ifq * (1.55 > 2 ? 0.25 : 0.5), giSine
+  agen     = agen + asb1 * afl1 * k5 * 1.6
+  aL, aR PhWide agen, 0.15 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 12.0000
+  iTrim  = 0.3787
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 
 
-instr 36   ; MINCER -> SMEAR
+instr 36   ; MINCER -> SMEAR -> STUTTER
   itrack = p4
   ichan  = itrack * 2 + 3
   ifq    = p5
@@ -1246,14 +1279,22 @@ instr 36   ; MINCER -> SMEAR
   agen  = agen * (1 - k3 * 0.5) + agen * poscil(1, ifq * (1 + k4 * 6), giSine) * k3 * 0.7
 
   ; Streaming phase vocoder: blur the spectrum in TIME, so transients turn into weather.
-  fsin  pvsanal agen, 1024, 256, 1024, 1
-  fblr  pvsblur fsin, 0.01 + k5 * 0.4, 0.5
-  asm   pvsynth fblr
-  amix  = agen * (1 - k6) + asm * k6 * 1.4
-  aL, aR PhWide amix, 0.2 + k7 * 0.75
+  fs0    pvsanal agen, 1024, 256, 1024, 1
+  fb0    pvsblur fs0, 0.01 + k5 * 0.7701, 0.5
+  asm0   pvsynth fb0
+  agen     = agen * (1 - k6 * 0.85) + asm0 * k6 * 1.4
+
+  ; A delay whose time STEPS rather than glides, held for a fraction of the note. The jumps
+  ; are what make it a glitch and not a chorus; the time is derived arithmetically from a
+  ; phasor so it repeats identically for a given note instead of drifting.
+  aph1   phasor 0.7402 * 0.2 + 2 + k5 * 24
+  ast1   = (int(aph1 * 8) / 8) * (0.004 + k6 * 0.09) + 0.001
+  adl1   vdelay3 agen, ast1 * 1000, 120
+  agen     = agen * (1 - k6 * 0.6) + adl1 * k6 * 0.9
+  aL, aR PhWide agen, 0.15 + k7 * 0.75
   aL     = aL * kenv
   aR     = aR * kenv
-  iTrim  = 1.3911
+  iTrim  = 3.4445
   PhOut aL * iTrim, aR * iTrim, itrack, ichan
 endin
 

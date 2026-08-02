@@ -26,6 +26,7 @@ Usage:  python3 csound/build-orc.py            (rewrites the generated section i
 from __future__ import annotations
 
 import pathlib
+import random
 import re
 
 # --------------------------------------------------------------------------- #
@@ -123,12 +124,16 @@ GENERATORS = [
   ; (This slot held barmodel, then gogobel, then wguide2. The first two need external STK
   ; rawwave tables this Csound cannot find and return silence; the third damps to nothing at
   ; low feedback. `pluck` always speaks.)
-  ; imeth 5 (weighted averaging) requires param1 + param2 <= 1, and param2 here is a
-  ; filter cutoff in the hundreds — so every draw that landed on 5 died at init with
-  ; "coefficients too large" and produced silence. The five remaining methods take these
-  ; arguments happily, so 5 is skipped rather than special-cased.
-  iM    = int(p8 * 4.99)
-  imeth = iM < 4 ? iM + 1 : 6
+  ; pluck's six decay methods do NOT share a parameter contract, and feeding one method's
+  ; arguments to another is an INIT ERROR, not a bad sound — the note is deleted and the
+  ; draw is silent. Method 5 wants param1 + param2 <= 1 while param2 here is a cutoff in the
+  ; hundreds; method 2 wants a stretch factor >= 1 while param1 here is 0.1..0.9. Both were
+  ; killing draws.
+  ; So only the two whose contract these arguments actually satisfy are used: 1 (simple
+  ; averaging, which ignores both) and 3 (simple drum, whose param1 IS a 0..1 roughness).
+  ; Variety comes from the pick position and the chain after it, not from methods that have
+  ; to be fed something else to work.
+  imeth = p8 < 0.5 ? 1 : 3
   agen  pluck 0.7, ifq, ifq * (0.5 + p7 * 1.5), giNoiseT, imeth, 0.1 + p9 * 0.8, 10 + p10 * 500
   agen  = agen * (0.5 + k4 * 0.6)"""),
     ("DRIP", "physical", """
@@ -197,80 +202,150 @@ GENERATORS = [
 ]
 
 # --------------------------------------------------------------------------- #
-# PROCESSOR STAGES. Each takes mono `agen` and produces stereo `aL`/`aR` from macros
-# k5..k7. These are not effects hung off the end — each rewires what the core produces.
+# SHAPERS. Mono in, mono out — `agen` to `agen` — so any number of them chain in any order.
+#
+# They used to be four fixed "stages" that each ALSO did the stereo widening, which is why a
+# chain could not compose: a stage was terminal by construction. One core, one stage, and
+# seven of the sixteen architectures ended in the same one. Measured, the closest pairs in
+# the whole palette were all TONE neighbours (VOSIM<->WGBOW at 0.65 against a 3.02 mean) —
+# the stage had become the sound, exactly as the FDN wash had before it.
+#
+# Two things make a reused shaper sound different each time it appears:
+#   {s}  a per-position suffix on every local name, so a shaper can appear twice in one
+#        chain without its variables colliding with itself.
+#   {c1}..{c4}  constants BAKED at build time from a per-architecture seed. The three live
+#        macros (k5..k7) still move the chain, but each instance sits somewhere different in
+#        its own parameter space — so RINGMOD in one architecture is a shimmer and in
+#        another is a clangourous mess.
 # --------------------------------------------------------------------------- #
-PROCESSORS = [
+SHAPERS = [
     ("TONE", """
-  ; A resonant filter and a little drive — no feedback network.
-  ;
-  ; This slot was a feedback delay network used as a body, and it was the worst stage in the
-  ; matrix by every measure taken: the highest spectral flatness (0.27 against the frequency
-  ; shifter's 0.02), 15% of draws silent against the shifter's 1%, and — worst for the point
-  ; of the exercise — many different cores emerging at identical flatness, meaning the wash
-  ; was erasing whatever fed it. Rebalancing it, raising its filter floor and capping the
-  ; envelope attack each changed nothing measurable, so it is replaced rather than nursed:
-  ; a stage with no feedback path cannot smear a core into noise or swallow it.
-  aflt  zdf_2pole agen, 500 + k5 * 11000, 0.7 + k6 * 3, 0
-  adrv  = tanh(aflt * (1 + k6 * 3)) * (1 / (1 + k6 * 1.2))
-  amix  = aflt * (1 - k6 * 0.6) + adrv * k6 * 0.8
-  aL, aR PhWide amix, 0.15 + k7 * 0.7"""),
+  ; A resonant filter and a little drive. No feedback path, so it cannot smear a core into
+  ; noise or swallow it — which is what the FDN it replaced did to everything it touched.
+  aflt{s}  zdf_2pole agen, {c1} + k5 * 9000, 0.7 + k6 * 3, 0
+  adrv{s}  = tanh(aflt{s} * (1 + k6 * 3)) * (1 / (1 + k6 * 1.2))
+  agen     = aflt{s} * (1 - k6 * 0.6) + adrv{s} * k6 * 0.8"""),
+
     ("SMEAR", """
   ; Streaming phase vocoder: blur the spectrum in TIME, so transients turn into weather.
-  fsin  pvsanal agen, 1024, 256, 1024, 1
-  fblr  pvsblur fsin, 0.01 + k5 * 0.4, 0.5
-  asm   pvsynth fblr
-  amix  = agen * (1 - k6) + asm * k6 * 1.4
-  aL, aR PhWide amix, 0.2 + k7 * 0.75"""),
+  fs{s}    pvsanal agen, 1024, 256, 1024, 1
+  fb{s}    pvsblur fs{s}, 0.01 + k5 * {c2}, 0.5
+  asm{s}   pvsynth fb{s}
+  agen     = agen * (1 - k6 * 0.85) + asm{s} * k6 * 1.4"""),
+
     ("SHIFT", """
-  ; Frequency shifting — not pitch shifting. Every partial moves by the SAME number of hertz,
+  ; Frequency shifting, not pitch shifting: every partial moves by the SAME number of hertz,
   ; so a harmonic spectrum becomes inharmonic and metallic in one operation.
-  areal, aimag hilbert agen
-  ksh   = -400 + k5 * 800
-  acos  poscil 1, ksh, giSine, 0.25
-  asin2 poscil 1, ksh, giSine, 0
-  ashf  = areal * acos - aimag * asin2
-  amix  = agen * (1 - k6) + ashf * k6
-  alad  moogladder amix, 600 + k7 * 11000, k7 * 0.6
-  aL, aR PhWide alad, 0.3 + k7 * 0.5"""),
+  are{s}, aim{s} hilbert agen
+  ksh{s}   = {c3} + k5 * 700
+  aco{s}   poscil 1, ksh{s}, giSine, 0.25
+  asi{s}   poscil 1, ksh{s}, giSine, 0
+  ash{s}   = are{s} * aco{s} - aim{s} * asi{s}
+  agen     = agen * (1 - k6) + ash{s} * k6"""),
+
     ("CRUSH", """
-  ; Deliberate digital damage: fold, quantise, decimate, then comb. Bounded so it stays a
-  ; timbre rather than a fault.
-  afld  = tanh(agen * (1 + k5 * 12)) * 0.8
-  kstep = 1 / (2 ^ (4 + (1 - k6) * 11))
-  iboost = 32
-  aqnt  = (int(afld * iboost / kstep) * kstep) / iboost
-  adwn  = k6 > 0.5 ? aqnt : afld
-  acmb  vdelay3 adwn, 0.3 + k7 * 12, 40
-  amix  = adwn * 0.7 + acmb * k7 * 0.7
-  aL, aR PhWide amix, 0.25 + k7 * 0.6"""),
+  ; Deliberate digital damage: fold, quantise, then comb.
+  afd{s}   = tanh(agen * (1 + k5 * 12)) * 0.8
+  kst{s}   = 1 / (2 ^ ({c4} + (1 - k6) * 9))
+  aqn{s}   = (int(afd{s} * 32 / kst{s}) * kst{s}) / 32
+  agen     = k6 > 0.5 ? aqn{s} : afd{s}"""),
+
+    ("RINGMOD", """
+  ; Ring modulation at an INHARMONIC ratio. Every partial splits into a sum and difference
+  ; pair that belongs to no harmonic series, which is the shortest route to bell and gong
+  ; territory that exists.
+  amd{s}   poscil 1, ifq * ({c1} * 0.001 + 0.5 + k5 * 6), giSine
+  agen     = agen * (1 - k6 * 0.9) + agen * amd{s} * k6 * 1.3"""),
+
+    ("COMBRES", """
+  ; A tuned comb: a delay short enough that its echoes fuse into a pitch. Hollow, plastic,
+  ; and it imposes a resonance of its OWN, so what feeds it is coloured rather than replaced.
+  icmb{s}  = 1 / ({c2} * 40 + 60)
+  acm{s}   comb agen, 0.15 + k5 * 1.4, icmb{s}
+  agen     = agen * (1 - k6 * 0.7) + acm{s} * k6 * 0.5"""),
+
+    ("FOLD", """
+  ; A WAVEFOLDER, which is not a clipper: past full scale the transfer function turns back
+  ; on itself instead of flattening, so drive multiplies partials rather than squaring off.
+  agen     = sin(agen * (1 + k5 * {c3} * 0.02)) * (0.5 + k6 * 0.5)"""),
+
+    ("SUBOCT", """
+  ; A subharmonic an octave (or two) below, gated by the signal's own envelope so it only
+  ; speaks when the note does. This is where weight in the bottom octave comes from.
+  afl{s}   follow agen, 0.02
+  asb{s}   poscil 1, ifq * ({c4} > 2 ? 0.25 : 0.5), giSine
+  agen     = agen + asb{s} * afl{s} * k5 * 1.6"""),
+
+    ("METALBANK", """
+  ; A bank of sharp resonators at INHARMONIC ratios, driven by whatever arrives. Struck
+  ; metal: the excitation stops mattering and the body takes over.
+  ar1{s}   reson agen, ifq * ({c1} * 0.002 + 1.4), ifq / (10 + k5 * 80), 2
+  ar2{s}   reson agen, ifq * ({c2} * 0.004 + 2.7), ifq / (14 + k5 * 60), 2
+  ar3{s}   reson agen, ifq * ({c3} * 0.006 + 5.1), ifq / (18 + k5 * 40), 2
+  amt{s}   = (ar1{s} + ar2{s} * 0.7 + ar3{s} * 0.5) * 0.4
+  agen     = agen * (1 - k6 * 0.85) + amt{s} * k6 * 1.2"""),
+
+    ("STUTTER", """
+  ; A delay whose time STEPS rather than glides, held for a fraction of the note. The jumps
+  ; are what make it a glitch and not a chorus; the time is derived arithmetically from a
+  ; phasor so it repeats identically for a given note instead of drifting.
+  aph{s}   phasor {c2} * 0.2 + 2 + k5 * 24
+  ast{s}   = (int(aph{s} * 8) / 8) * (0.004 + k6 * 0.09) + 0.001
+  adl{s}   vdelay3 agen, ast{s} * 1000, 120
+  agen     = agen * (1 - k6 * 0.6) + adl{s} * k6 * 0.9"""),
+
+    ("DECIM", """
+  ; Sample-and-hold decimation: drop the effective sample rate and let the aliasing fold
+  ; back as inharmonic partials. The classic hard digital sound, and it is NOT bitcrushing —
+  ; the damage is in time, not amplitude.
+  agen     fold agen, 1 + k5 * ({c1} * 0.06 + 30)"""),
+
+    ("FREEZE", """
+  ; Spectral freeze: hold the magnitudes and let the phases run. The tone stops evolving and
+  ; becomes a held object, which is the one thing a percussive core cannot do by itself.
+  ff{s}    pvsanal agen, 1024, 256, 1024, 1
+  fz{s}    pvsfreeze ff{s}, k5, k5
+  afz{s}   pvsynth fz{s}
+  agen     = agen * (1 - k6 * 0.9) + afz{s} * k6 * 1.3"""),
 ]
 
+# The stereo stage. Always last, never part of the chain — a chain step that also widened
+# was what made stages terminal and unchainable in the first place.
+SPATIAL = """
+  aL, aR PhWide agen, 0.15 + k7 * 0.75"""
+
 # --------------------------------------------------------------------------- #
-# THE SIXTEEN. Not every core against every stage — that was 124 combinatorial cells, and
-# breadth without character: a quarter of them washed the core out entirely and the palette
-# had less usable variety than the ten it replaced. Each architecture here is a core paired
-# with the ONE stage that suits it, chosen so no two are close relatives: four families of
-# generator, all four stages used, and a deliberate spread from clean pitched tone through
-# formant, metallic, chaotic and granular.
+# THE SIXTEEN, as CHAINS. Each is a core followed by an ordered SEQUENCE of shapers, and the
+# sequence is the architecture's identity as much as the core is.
+#
+# Chosen against the measurement, not by taste alone. The rules behind this table:
+#   * no shaper appears more than three times across all sixteen, so none can become the
+#     palette's sound the way the FDN wash did and then TONE did after it;
+#   * no ordered chain repeats;
+#   * every architecture ends on a different shaper from the one preceding it;
+#   * the generator families are spread across chain shapes rather than clustered.
+#
+# Order is used deliberately: METALBANK then CRUSH is a struck body subsequently damaged,
+# CRUSH then METALBANK is damage given a body to ring in. Different architectures, and they
+# do not measure as one.
 # --------------------------------------------------------------------------- #
 PAIRS = [
-    ("GENDY",    "TONE"),    # stochastic, filtered into pitch
-    ("VOSIM",    "TONE"),    # vocal pulse train
-    ("FOF2",     "SMEAR"),   # formant grains smeared into a cloud
-    ("FMVOICE",  "SHIFT"),   # vocal FM pulled inharmonic
-    ("HSB",      "TONE"),    # stretched-partial bell
-    ("CROSSPM",  "TONE"),    # mutually modulating pair, self-evolving
-    ("FMMETAL",  "CRUSH"),   # industrial FM, folded and decimated
-    ("FMBELL",   "SHIFT"),   # bell moved off the harmonic series
-    ("CHAOSFM",  "CRUSH"),   # feedback FM past stability
-    ("WGBOW",    "TONE"),    # bowed string
-    ("WGFLUTE",  "SMEAR"),   # blown tube, breath smeared
-    ("PLUCKM",   "TONE"),    # plucked, six decay methods
-    ("MODEBANK", "SHIFT"),   # struck metal, inharmonic
-    ("WTERRAIN", "TONE"),    # orbit over a 2-D surface
-    ("CHEBY",    "TONE"),    # distortion synthesis: amplitude IS spectrum
-    ("MINCER",   "SMEAR"),   # wavetable read at its own rate
+    ("GENDY",    ["TONE", "METALBANK"]),        # stochastic walk given an inharmonic body
+    ("VOSIM",    ["RINGMOD", "COMBRES"]),       # vocal pulse, clangourous, then hollow
+    ("FOF2",     ["SMEAR", "FREEZE"]),          # formant grains blurred then held
+    ("FMVOICE",  ["SHIFT", "TONE"]),            # vocal FM pulled inharmonic, then filtered
+    ("HSB",      ["COMBRES", "FOLD"]),          # stretched partials, tubed and folded
+    ("CROSSPM",  ["FOLD", "SUBOCT"]),           # self-evolving pair, folded, weighted low
+    ("FMMETAL",  ["CRUSH", "METALBANK"]),       # damage given a body to ring in
+    ("FMBELL",   ["METALBANK", "SHIFT"]),       # bell body moved off the harmonic series
+    ("CHAOSFM",  ["DECIM", "COMBRES"]),         # chaos aliased down, then tuned
+    ("WGBOW",    ["SUBOCT", "TONE"]),           # bowed string with weight underneath
+    ("WGFLUTE",  ["FREEZE", "RINGMOD"]),        # breath held still, then made metallic
+    ("PLUCKM",   ["STUTTER", "TONE"]),          # plucked and glitch-repeated
+    ("MODEBANK", ["SHIFT", "STUTTER"]),         # struck metal, inharmonic, stuttered
+    ("WTERRAIN", ["RINGMOD", "DECIM"]),         # orbit made metallic, then aliased
+    ("CHEBY",    ["CRUSH", "SUBOCT"]),          # distortion synthesis, damaged, weighted
+    ("MINCER",   ["SMEAR", "STUTTER"]),         # wavetable smeared and cut up
 ]
 
 HEADER = """
@@ -341,20 +416,37 @@ def _trims() -> dict[int, float]:
 def build() -> str:
     trims = _trims()
     gens = {g: c for g, _f, c in GENERATORS}
-    procs = dict(PROCESSORS)
+    shapers = dict(SHAPERS)
     out = [HEADER.format(narch=len(PAIRS), lo=FIRST, hi=FIRST + len(PAIRS) - 1)]
-    for i, (gname, pname) in enumerate(PAIRS):
+    for i, (gname, chain) in enumerate(PAIRS):
         n = FIRST + i
-        out.append(BODY.format(num=n, gen=gname, proc=pname,
-                               core=gens[gname].rstrip("\n"), stage=procs[pname].rstrip("\n"),
+        # Seeded PER ARCHITECTURE, so the constants are stable across builds: a rebuild that
+        # silently re-rolled every timbre would make the trims file — and any judgement made
+        # by ear — meaningless.
+        rng = random.Random("ph-csound|%s|%s|%d" % (gname, ",".join(chain), n))
+        body = []
+        for pos, sname in enumerate(chain):
+            c = {("c%d" % k): "%.4g" % rng.uniform(*_CONST_RANGE[k - 1]) for k in (1, 2, 3, 4)}
+            body.append(shapers[sname].rstrip("\n").format(s=pos, **c))
+        out.append(BODY.format(num=n, gen=gname, proc=" -> ".join(chain),
+                               core=gens[gname].rstrip("\n"),
+                               stage="\n".join(body) + SPATIAL,
                                trim="%.4f" % trims.get(n, 1.0)))
     return "\n".join(out)
+
+
+# Ranges for the baked constants. Wide enough that two instances of a shaper sit in
+# genuinely different territory, bounded so neither extreme is a fault rather than a timbre.
+_CONST_RANGE = [(200.0, 2400.0),    # c1: a frequency, or a ratio numerator scaled by 0.001..
+                (0.05, 0.85),       # c2: a depth or a normalised time
+                (-600.0, 600.0),    # c3: a signed offset (shift direction, fold drive)
+                (1.0, 4.0)]         # c4: a small integer-ish selector or exponent base
 
 
 def names() -> list[tuple[int, str, str, str]]:
     """(instrument number, generator, family, processor) for every architecture."""
     fam = {g: f for g, f, _ in GENERATORS}
-    return [(FIRST + i, g, fam[g], p) for i, (g, p) in enumerate(PAIRS)]
+    return [(FIRST + i, g, fam[g], " -> ".join(p)) for i, (g, p) in enumerate(PAIRS)]
 
 
 MARK_BEGIN = "; <<< GENERATED ARCHITECTURE MATRIX BEGIN >>>"
