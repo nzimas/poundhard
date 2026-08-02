@@ -21,7 +21,7 @@ from __future__ import annotations
 import random
 
 from . import catalog
-from . import kits
+from . import kits, recipes, stepgen
 from .tracks import Track, N_TRACKS, N_STEPS, N_PATTERNS, MAX_STEPS, DEFAULT_STEPS
 
 # engines whose pitch is genuinely melodic (worth per-step pitch locks). BEN /
@@ -595,6 +595,153 @@ def _pick_ensemble(arch: dict, rng) -> list[str]:
     return chosen[:n]
 
 
+# --------------------------------------------------------------------------- #
+# WHOLE-PATTERN GENERATION.
+#
+# A recipe (see recipes.py) is a compositional brief: it states the roles, the per-role
+# density, the rhythm dialect, the length and clock policies, the register map, the accent
+# shape, the pan strategy, the pitch relationships and how much of the pattern rewrites
+# itself over time. This builds several candidates against that brief, repairs the weakest
+# track of each, scores them and keeps the best — which is what turns "occasionally good"
+# into "usually good".
+# --------------------------------------------------------------------------- #
+_ROLE_LEVEL = {recipes.PULSE: (0.85, 1.0), recipes.COUNTER: (0.6, 0.85),
+               recipes.FILL: (0.5, 0.75), recipes.TEXTURE: (0.3, 0.6),
+               recipes.SUSTAIN: (0.3, 0.55), recipes.LEAD: (0.5, 0.78),
+               recipes.ACCENT: (0.7, 0.95)}
+_PAT_CANDIDATES = 6
+
+
+def _role_for_job(kind: str, taken: set, pool: dict, rng) -> str | None:
+    """Pick the ENGINE role that best fills a JOB.
+
+    Engine category says what a voice sounds like; the job says what it does. Weighting one
+    by the other is what lets the pulse land on a bass, or a perc voice serve as texture,
+    instead of every pattern being a drum kit with decoration on top.
+
+    THE CATEGORY IS CHOSEN FIRST, then a name within it. Weighting the names directly let
+    BUCKET SIZE decide: "kick" holds two names and "perc" holds twenty, so a fit of 1.0 on
+    KICK lost to twenty perc names at 0.5 and the pulse almost never landed on a kick —
+    generated patterns were coming out with no kick drum in them at all.
+    """
+    opts = [n for n in pool if n not in taken and n in _CAT]
+    if not opts:
+        return None
+    cats: dict[str, list[str]] = {}
+    for n in opts:
+        cats.setdefault(_CAT[n], []).append(n)
+    keys = list(cats)
+    w = [recipes.fit_score(kind, c) for c in keys]
+    if sum(w) <= 0:
+        return None
+    cat = rng.choices(keys, weights=w)[0]
+    names = cats[cat]
+    nw = [_PLAITS_ROLE_W if n.startswith("PL ") else 1.0 for n in names]
+    return rng.choices(names, weights=nw)[0]
+
+
+def _make_part(recipe: dict, kind: str, L: int, rng) -> list[int]:
+    """One voice's rhythm, in the recipe's dialect for that role."""
+    if kind == recipes.SUSTAIN:
+        row = [0] * L
+        row[0] = 1
+        if rng.random() < 0.4:
+            row[L // 2] = 1
+        return row
+    dens = recipes.get(recipe, "dens").get(kind, 0.4)
+    algo = rng.choice(recipes.get(recipe, "algos").get(kind, ["euclid"]))
+    row = stepgen._rhythm(L, rng, dens, algo)
+    # The algorithm picks WHERE; the recipe decides HOW MANY. Without this the recipes all
+    # collapse into stepgen's compressed 0.2..0.6 density band.
+    row = recipes.fit_density(row, L, dens, rng)
+    return row
+
+
+def _build_voice(recipe: dict, kind: str, name: str, pool: dict, L: int, rate: float,
+                 pan: float, rng) -> dict:
+    role = pool[name]
+    voice = kits.gen_voice(role, rng)
+    pfx = voice["type"].lower()
+    lo, hi = _ROLE_LEVEL.get(kind, (0.5, 0.8))
+    voice["params"][pfx + ".amp"] = round(rng.uniform(lo, hi), 3)
+    voice["params"][pfx + ".pan"] = round(pan, 3)
+    # REGISTER is placed on purpose: the recipe says which band this job occupies, so the
+    # low, middle and high are filled deliberately instead of by whatever the voices came
+    # with. Everything piling into one octave is the commonest way a generated pattern
+    # turns to mud.
+    reg = recipes.get(recipe, "register").get(kind, 0)
+    voice["note"] = max(24, min(96, int(voice.get("note", 48)) + reg))
+    row = _make_part(recipe, kind, L, rng)
+    pat = [0] * N_STEPS
+    pat[:L] = row[:L]
+    return {"name": name, "cat": _CAT[name], "kind": kind, "voice": voice,
+            "pattern": pat, "length": L, "rate": rate, "register": reg,
+            "accents": {}, "notes": {}, "time": {"living": {}, "cycle": {},
+                                                 "ratchet": {}, "fx": {}, "fxcycle": {}},
+            "fx": []}
+
+
+def _finish_voice(recipe: dict, v: dict, rng) -> None:
+    """The expressive layers, which the old generator never wrote at all."""
+    L = v["length"]
+    v["accents"] = recipes.accents_for(recipe, v["pattern"], L, rng)
+    if v["voice"]["type"] in _MELODIC and v["kind"] in (
+            recipes.LEAD, recipes.SUSTAIN, recipes.COUNTER, recipes.PULSE):
+        pcs = {(kits._ROOT + s) % 12 for s in kits._SCALE}
+        v["notes"] = recipes.pitch_plan(recipe, v["pattern"], L,
+                                        int(v["voice"].get("note", 48)), pcs, rng)
+    v["time"] = recipes.time_plan(recipe, v["pattern"], L, v["kind"], rng)
+
+
+def _compose(recipe: dict, pool: dict, rng) -> dict:
+    """One candidate pattern, built to the GIVEN recipe."""
+    jobs = recipes.assign_roles(recipe, rng)
+    lens = recipes.lengths_for(recipe, len(jobs), rng)
+    rates = recipes.rates_for(recipe, jobs, rng)
+    pans = recipes.pan_plan(recipe, jobs, rng)
+
+    voices, taken = [], set()
+    for idx, kind in enumerate(jobs):
+        name = _role_for_job(kind, taken, pool, rng)
+        if name is None:
+            continue
+        taken.add(name)
+        voices.append(_build_voice(recipe, kind, name, pool,
+                                   min(N_STEPS, lens[idx]), rates[idx], pans[idx], rng))
+    if not voices:
+        return {"recipe": recipe, "voices": []}
+
+    # --- COORDINATION: the parts are generated against each other, not independently ---
+    pulse = next((v for v in voices if v["kind"] == recipes.PULSE), None)
+    ref = pulse["pattern"] if pulse else None
+    lock = recipes.get(recipe, "interlock")
+    for v in voices:
+        if v is pulse or v["kind"] == recipes.SUSTAIN or ref is None:
+            continue
+        # a counter-rhythm dodges the pulse hardest; a fill only leans away from it
+        f = {recipes.COUNTER: 1.0, recipes.FILL: 0.6, recipes.ACCENT: 0.9}.get(v["kind"], 0.75)
+        v["pattern"] = recipes.interlock(v["pattern"], v["length"], ref, rng, lock * f)
+
+    # CALL AND RESPONSE / mutual exclusion: two voices the recipe says must not collide are
+    # given opposite halves of the bar, so they answer each other instead of overlapping.
+    for ka, kb in recipes.get(recipe, "avoid"):
+        grp = [v for v in voices if v["kind"] in (ka, kb)]
+        for i in range(1, len(grp)):
+            grp[i]["pattern"] = recipes.call_response(
+                grp[i - 1]["pattern"], grp[i]["pattern"], min(grp[i - 1]["length"], grp[i]["length"]))
+
+    # CONTRAST: punch a hole in the bar so dense and empty sit next to each other.
+    c = recipes.get(recipe, "contrast")
+    if c > 0:
+        for v in voices:
+            if v["kind"] in (recipes.FILL, recipes.COUNTER, recipes.TEXTURE):
+                v["pattern"] = recipes.apply_contrast(v["pattern"], v["length"], c, rng)
+
+    for v in voices:
+        _finish_voice(recipe, v, rng)
+    return {"recipe": recipe, "voices": voices}
+
+
 def random_pattern(project, rng: random.Random | None = None) -> list[str]:
     """Fully randomise the CURRENT pattern in place (no new slots). Returns the role
     names used. The algorithm also picks the global tempo to suit what it built."""
@@ -602,53 +749,50 @@ def random_pattern(project, rng: random.Random | None = None) -> list[str]:
     st = project
     st.chaos_invalidate()                      # a new pattern -> a new chaos-macro safe zone
     pool = _role_pool()
-    arch = rng.choice(_ARCHETYPES)             # ONE identity per pattern -> intentional
-    dens = arch["dens"]
-    names = _pick_ensemble(arch, rng)
 
-    # --- build the voices first (unplaced), so the budget can trim before layout ---
-    base_len = rng.choice([16, 16, 16, 32])
-    voices = []                                # [{name, cat, voice, pattern, length, rate, locks}]
-    kick_row: list[int] = [0] * N_STEPS
-    for name in names:
-        role = pool[name]
-        cat = _CAT[name]
-        voice = kits.gen_voice(role, rng)
-        lo, hi = _LEVEL[cat]
-        pfx = voice["type"].lower()
-        voice["params"][pfx + ".amp"] = round(rng.uniform(lo, hi), 3)
-        voice["params"][pfx + ".pan"] = 0.0 if cat in ("kick", "bass") else round(rng.uniform(-0.7, 0.7), 3)
-        L = min(N_STEPS, base_len if rng.random() < 0.8 else rng.choice([12, 20, 24, 32]))
-        rate = 1.0 if rng.random() < 0.88 else rng.choice([0.5, 2.0])
-        pat = _part_for(name, cat, L, dens, rng)
-        if cat == "kick":
-            kick_row = list(pat)
-        elif cat in ("perc", "bass", "tonal"):
-            # interlock with the kick: the single biggest thing that makes it sound arranged
-            # rather than merely layered. The bass leans on the kick more than it dodges it.
-            avoid = arch["interlock"] * (0.5 if cat == "bass" else 1.0)
-            pat = _interlock(pat, L, kick_row, rng, avoid)
-        locks: dict[int, int] = {}
-        if voice["type"] in _MELODIC and cat in ("tonal", "bass") and rng.random() < 0.7:
-            pcs = {(kits._ROOT + s) % 12 for s in kits._SCALE}
-            for i in _onsets(pat, L):
-                if rng.random() < 0.6:
-                    locks[i] = max(24, min(96, _snap(voice["note"] + rng.choice(
-                        [-12, -5, -3, 0, 0, 0, 2, 3, 5, 7, 12]), pcs)))
-        voices.append({"name": name, "cat": cat, "voice": voice, "pattern": pat,
-                       "length": L, "rate": rate, "locks": locks, "fx": []})
+    # THE RECIPE IS CHOSEN ONCE, OUTSIDE THE CANDIDATE LOOP. Choosing it per candidate let
+    # the scorer pick the recipe as well as the take, and it has opinions: measured over 200
+    # patterns, GRID came up 35 times and BROKEN twice, because a simple locked grid scores
+    # better than a deliberately eroded one. That silently deleted the awkward recipes —
+    # exactly the ones carrying the character. The recipe is the BRIEF; scoring only decides
+    # which attempt AT that brief to keep.
+    recipe = recipes.pick(rng)
+    best = None
+    for _ in range(_PAT_CANDIDATES):
+        cand = _compose(recipe, pool, rng)
+        if not cand["voices"]:
+            continue
+        # REPAIR before judging: one bad track can sink an otherwise good pattern, and
+        # regenerating it is far more likely to help than throwing the whole thing away.
+        wi = recipes.weakest(cand["voices"], cand["recipe"])
+        if wi >= 0 and len(cand["voices"]) > 3:
+            old = cand["voices"][wi]
+            taken = {v["name"] for v in cand["voices"]} - {old["name"]}
+            name = _role_for_job(old["kind"], taken, pool, rng) or old["name"]
+            fresh = _build_voice(cand["recipe"], old["kind"], name, pool, old["length"],
+                                 old["rate"], old["voice"]["params"].get(
+                                     old["voice"]["type"].lower() + ".pan", 0.0), rng)
+            _finish_voice(cand["recipe"], fresh, rng)
+            cand["voices"][wi] = fresh
+        s, notes = recipes.score(cand["voices"], cand["recipe"])
+        cand["score"], cand["notes"] = s, notes
+        if best is None or s < best["score"]:
+            best = cand
+    if best is None:                            # every candidate came back empty
+        best = {"recipe": recipes.RECIPES[0], "voices": [], "score": 0.0, "notes": []}
+    recipe, voices = best["recipe"], best["voices"]
 
     # --- FX: at most 2 inserts, and at most ONE reverb (measured at 10% CPU each) ---
     fx_budget = 0.0
     for v in voices:
         if len(_used_fx(voices)) >= 2:
             break
-        p = {"pad": 0.6, "tonal": 0.35, "texture": 0.35}.get(v["cat"], 0.12)
+        p = {recipes.SUSTAIN: 0.6, recipes.LEAD: 0.35, recipes.TEXTURE: 0.35}.get(v["kind"], 0.12)
         if rng.random() >= p:
             continue
-        want_verb = v["cat"] in ("pad", "tonal") and not _has_verb(voices)
-        fx = 7 if want_verb else rng.choice([0, 2, 6])          # GREY (space) / OD, CRSH, RESO
-        if fx_budget + _FX_COST[fx] > 12.0:                     # keep FX off the voices' budget
+        want_verb = v["kind"] in (recipes.SUSTAIN, recipes.LEAD) and not _has_verb(voices)
+        fx = 7 if want_verb else rng.choice([0, 2, 6])
+        if fx_budget + _FX_COST[fx] > 12.0:
             continue
         v["fx"] = [fx]
         fx_budget += _FX_COST[fx]
@@ -661,22 +805,21 @@ def random_pattern(project, rng: random.Random | None = None) -> list[str]:
     guard = 0
     while est() > _CPU_BUDGET and len(voices) > 3 and guard < 64:
         guard += 1
-        cands = [v for v in voices if v["cat"] != "kick"]
+        cands = [v for v in voices if v["kind"] != recipes.PULSE]
         if not cands:
             break
         worst = max(cands, key=lambda v: _voice_cost(
             v["voice"]["type"], len(_onsets(v["pattern"], v["length"])), v["length"]))
         before = len(_onsets(worst["pattern"], worst["length"]))
-        if before > 2:                                          # thin it first — keep the voice
+        if before > 2:
             worst["pattern"] = _thin(worst["pattern"], worst["length"], 0.4, rng, {0})
             if len(_onsets(worst["pattern"], worst["length"])) < before:
                 continue
-        voices.remove(worst)                                    # already sparse -> it has to go
-    # musical restraint on top of the CPU rule
+        voices.remove(worst)
     guard = 0
     while sum(len(_onsets(v["pattern"], v["length"])) for v in voices) > _MAX_ONSETS and guard < 64:
         guard += 1
-        cands = [v for v in voices if v["cat"] != "kick"]
+        cands = [v for v in voices if v["kind"] != recipes.PULSE]
         if not cands:
             break
         busiest = max(cands, key=lambda v: len(_onsets(v["pattern"], v["length"])))
@@ -694,40 +837,62 @@ def random_pattern(project, rng: random.Random | None = None) -> list[str]:
     total = 0
     placed = []
     for t, v in enumerate(voices):
+        if t >= N_TRACKS:
+            break
         tr = st.tracks[t]
         tr.load_voice(v["voice"])
         tr.length = max(1, min(MAX_STEPS, int(v["length"])))
         tr.rate = v["rate"]
         tr.pattern = v["pattern"]
-        for i, n in v["locks"].items():
+        for i, nn in v["notes"].items():
             if i < N_STEPS and tr.pattern[i]:
-                tr.step_note[i] = n
+                tr.step_note[i] = int(nn)
+        for i, vv in v["accents"].items():
+            if i < N_STEPS and tr.pattern[i]:
+                tr.step_vel[i] = float(vv)
+        for i, c in v["time"]["cycle"].items():
+            if i < N_STEPS and tr.pattern[i]:
+                tr.step_cycle[i] = int(c)
+        for i, r in v["time"]["ratchet"].items():
+            if i < N_STEPS and tr.pattern[i]:
+                tr.step_ratchet[i] = int(r)
+        # step FX before living: a living transform reads the step's inserts, so it arrives
+        # THROUGH the effect rather than beside it (the same order stepgen uses).
+        for i, mask in v["time"]["fx"].items():
+            if i < N_STEPS and tr.pattern[i]:
+                tr.step_fx[i] = int(mask)
+                tr.step_fxcycle[i] = int(v["time"]["fxcycle"].get(i, 1))
         st.reroll_voice_macro(t)
+        # LIVING goes through the manual path, so a generated living step IS a hand-placed
+        # one: same transform, same periods, same behaviour under HEAT and pattern save.
+        for i, per in v["time"]["living"].items():
+            if i < N_STEPS and tr.pattern[i]:
+                tr.step_period[i] = int(per)
+                st.toggle_living(t, i)
         if v["fx"]:
             fx = v["fx"][0]
             st.track_fx[t] = [fx]
             st.fx_macro[fx] = round(rng.uniform(0.3, 0.7), 3)
             st.fx_wet[fx] = round(rng.uniform(0.15, 0.45), 3)
         total += len(_onsets(tr.pattern, tr.length))
-        placed.append((t, v["name"], v["cat"]))
+        placed.append((t, v["name"], v["kind"]))
     names = [v["name"] for v in voices]
-    st.kit_name = "%s-%03d" % (arch["name"][:4], rng.randrange(1000))
+    st.kit_name = "%s-%03d" % (recipe["name"][:4], rng.randrange(1000))
 
-    # TEMPO is the algorithm's call, judged against what it just built. IDM / rhythmic
-    # noise spans roughly 85-175: a busy, texture-heavy pattern needs room to stay
-    # legible, while a sparse one can run fast without turning to mush.
-    span = max(1, sum(st.tracks[t].length for t, _n, _c in placed))
+    # TEMPO. The recipe states the band it wants to live in — a procession and a wall of
+    # noise are not the same music at the same speed — and density trims within it.
+    band = recipes.get(recipe, "tempo")
+    span = max(1, sum(st.tracks[t].length for t, _n, _k in placed))
     density = total / span
-    if density > 0.30:
-        band = (86, 122)                       # dense -> slower, heavier
-    elif density > 0.18:
-        band = (112, 148)
-    else:
-        band = (130, 174)                      # sparse -> can run fast
-    tempo = rng.uniform(*band)
-    if rng.random() < 0.12:                    # the occasional outlier for character
-        tempo = rng.uniform(80, 96) if rng.random() < 0.5 else rng.uniform(168, 180)
-    st.tempo = float(round(max(80.0, min(180.0, tempo))))
+    if band is None:
+        band = (86, 122) if density > 0.30 else ((112, 148) if density > 0.18 else (130, 174))
+    lo, hi = band
+    if density > 0.32:
+        hi = lo + (hi - lo) * 0.6              # a crowded bar needs room to stay legible
+    elif density < 0.12:
+        lo = lo + (hi - lo) * 0.4
+    tempo = rng.uniform(lo, hi)
+    st.tempo = float(round(max(60.0, min(180.0, tempo))))
 
     # the randomised pattern IS the current pattern (no extra slots created)
     if st.pattern_cur < 0:
