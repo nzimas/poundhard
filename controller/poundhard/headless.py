@@ -1448,6 +1448,12 @@ class Controller:
                 if st.tracks[dst].type == "SAMPLE":
                     self.bridge.smpcopy(src, dst)   # the engine gives it its OWN buffer
                 self._push_mutes()
+        elif cmd == "transposeall":            # up/down cursor keys: transpose EVERY track
+            # One offset on top of the per-track ones, so tracks keep whatever relative
+            # transposition they were given and returning to 0 restores every pitch exactly.
+            st.transpose_all(int(p.get("d", 0)))
+            for t in range(N_TRACKS):
+                self._push_notes(t)
         elif cmd == "transpose":               # Shift + jog wheel: shift the sequence in semitones
             t = int(p.get("track", st.edit_track))
             if 0 <= t < N_TRACKS:
@@ -1677,6 +1683,7 @@ class Controller:
             "nodes": self.bridge.cpu["nodes"],
             "running": st.running,
             "tempo": round(st.tempo, 1),
+            "xpose": st.transpose,             # project-wide transpose, cursor up/down
             "step": self.bridge.step,
             "editTrack": st.edit_track,
             "kit": st.kit_name,

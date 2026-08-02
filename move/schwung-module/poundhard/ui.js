@@ -27,7 +27,8 @@
 import {
     Black, VividYellow, White, BrightGreen,
     MoveShift, MoveBack, MovePlay, MoveKnob1, MoveKnob1Touch, MoveKnob8Touch,
-    MoveMasterTouch, MoveRow1, MoveRow2, MoveRow3, MoveMenu, MoveLeft, MoveRight, MoveMainKnob, MoveMainTouch,
+    MoveMasterTouch, MoveRow1, MoveRow2, MoveRow3, MoveMenu, MoveLeft, MoveRight, MoveUp, MoveDown,
+    MoveMainKnob, MoveMainTouch,
     MoveMainButton, MoveDelete, MoveCopy, MoveUndo, MoveRec
 } from '/data/UserData/move-anything/shared/constants.mjs';
 import { setLED, setButtonLED, decodeDelta } from '/data/UserData/move-anything/shared/input_filter.mjs';
@@ -259,6 +260,9 @@ let trackHeld = -1, trackHeldStart = 0, trackActive = false;
 let paletteHeld = -1, paletteHeldStart = 0, paletteConsumed = false;
 let knobShow = null;                /* 'pitch'|'vel'|'pan'|null (big readout) */
 let rateView = -1, rateViewUntil = 0;   /* transient big clock-rate readout (cursor keys) */
+/* Project-wide transpose (cursor up/down). Mirrored from status so the readout follows the
+   engine rather than the keypress — a held key repeats and the two can otherwise disagree. */
+let xpose = 0, xposeUntil = 0;
 /* FX view */
 let fxView = false, fxHeld = -1;
 /* SAMPLE capture lifecycle, mirrored from status: idle/armed/recording/processing/ready.
@@ -723,6 +727,15 @@ function drawRateBig(t) {
     drawBig(rateLbl(trackRate[t]), 4, 7);
     bbar((rateIndex(trackRate[t]) - RATE_CENTER) / RATE_CENTER);
 }
+/* Project-wide transpose, in the same giant type as the other transient readouts. The sign
+   is always shown — "+0" and "0" read very differently at a glance when you are checking
+   whether you are back at concert pitch. */
+function drawXposeBig() {
+    clear_screen();
+    print(0, 0, 'TRANSPOSE ALL TRACKS', 1);
+    drawBig((xpose > 0 ? '+' : '') + xpose, 4, 7);
+    bbar(xpose / 24);
+}
 function drawFx() {
     clear_screen();
     if (knobShow && knobShow.indexOf('fw') === 0) {              /* an FX dry/wet knob is touched */
@@ -841,6 +854,7 @@ function drawScreen() {
     if (patView || projView) { drawSlots(); return; }
     if (fxView) { drawFx(); return; }
     if (stepEditCell >= 0) { drawStepParam(); return; }
+    if (phase < xposeUntil) { drawXposeBig(); return; }
     if (rateView >= 0 && phase < rateViewUntil) { drawRateBig(rateView); return; }
     if ((trackHeld >= 0 && trackActive) || (editTrack >= 0 && knobShow)) { drawTrackParam(); return; }
     clear_screen();
@@ -858,7 +872,7 @@ function drawScreen() {
             return;
         }
         print(0, 6, 'POUNDHARD', 2);
-        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : '') + (shufOn ? '  SHUF' : '') + (quakeOn ? '  QUAKE' : '') + (churnOn ? '  CHURN' : '') + (brkOn ? ('  BRK/' + brkEvery) : '') + (strobeOn ? '  STRB' : '') + (armedSet.quake ? ('  ARM QUAKE ' + (phraseBar + 1) + '/' + phraseBars) : ''), 1);
+        print(0, 30, Math.round(tempo) + ' BPM   ' + (running ? 'PLAY' : 'STOP') + (heatOn ? ('  HEAT ' + Math.round(heatPct * 100) + '%') : '') + (shufOn ? '  SHUF' : '') + (quakeOn ? '  QUAKE' : '') + (churnOn ? '  CHURN' : '') + (brkOn ? ('  BRK/' + brkEvery) : '') + (strobeOn ? '  STRB' : '') + (xpose ? ('  ' + (xpose > 0 ? '+' : '') + xpose + 'st') : '') + (armedSet.quake ? ('  ARM QUAKE ' + (phraseBar + 1) + '/' + phraseBars) : ''), 1);
         print(0, 44, 'pad=hear  shift+pad=gen  copy=dup', 1);
         print(0, 56, 'k8=chaos  heat=btm-left pad', 1);
     } else if (lenArm) {
@@ -931,6 +945,7 @@ function readStatus() {
     if (s.brkNow != null) brkNow = !!s.brkNow;
     if (s.strobe != null && !strobeHeld) strobeOn = !!s.strobe;
     if (s.armed != null) { armedSet = {}; for (let i = 0; i < s.armed.length; i++) armedSet[s.armed[i]] = 1; }
+    if (s.xpose != null) xpose = s.xpose;
     if (s.micState != null) micState = s.micState;
     if (s.micLevel != null) micLevel = s.micLevel;
     if (s.phraseBars != null) phraseBars = s.phraseBars;
@@ -1049,7 +1064,7 @@ globalThis.init = function () {
     tempoLocal = 120; tempoDirty = false; controlDirty = false;
     heldCell = -1; heldStart = 0; heldStepEdit = false; stepEditCell = -1;
     trackHeld = -1; trackHeldStart = 0; trackActive = false; knobShow = null;
-    rateView = -1; rateViewUntil = 0;
+    rateView = -1; rateViewUntil = 0; xpose = 0; xposeUntil = 0;
     fxView = false; fxHeld = -1;
     fxTop = new Array(N_TRACKS).fill(-1); fxBypass = new Array(N_TRACKS).fill(false);
     fxOn = []; for (var qi = 0; qi < N_TRACKS; qi++) fxOn.push([]);
@@ -1106,6 +1121,7 @@ globalThis.tick = function () {
         sendCmd('editenter', _et); ledDirty = true; screenDirty = true; showAction('EDIT T' + (_et + 1));
     }
     if (rateView >= 0 && phase >= rateViewUntil) { rateView = -1; screenDirty = true; }
+    if (xposeUntil && phase >= xposeUntil) { xposeUntil = 0; screenDirty = true; }
     /* advance the local beat clock that drives the step-button pulse (re-anchored to
      * play-start so the pulse tracks the sequence pace; tempo comes from status). */
     var _now = Date.now();
@@ -1725,6 +1741,17 @@ globalThis.onMidiMessageInternal = function (data) {
                     knobShow = 'pitch'; sendCmd('trackset', t, { p: { track: t, param: 'pitch', value: trackNote[t] } }); screenDirty = true;
                 }
             }
+            return;
+        }
+        /* UP/DOWN cursor = transpose EVERY track, one semitone a press.
+         *
+         * Global, not per track: it rides on top of each track's own transpose, so the
+         * relative tuning between tracks is preserved and coming back to 0 restores the
+         * original pitches exactly. Nothing in any pattern is rewritten. */
+        if ((d1 === MoveUp || d1 === MoveDown) && d2 > 0) {
+            const dir = (d1 === MoveUp) ? 1 : -1;
+            sendCmd('transposeall', dir, { p: { d: dir } });
+            xposeUntil = phase + 55; screenDirty = true;
             return;
         }
         /* Left/Right cursor = clock rate/division of the current track (held or in edit). */

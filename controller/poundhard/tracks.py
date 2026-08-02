@@ -106,6 +106,9 @@ class Track:
     # rewrite: the step locks keep the pitches the generator or the player put there, so
     # transposing away and back is exact and every other per-step parameter is untouched.
     transpose: int = 0
+    # The PROJECT-wide transpose, mirrored here so eff_note stays a pure function of the
+    # track. Not persisted per track — Project owns it and re-applies it on load.
+    xpose_global: int = 0
     # per-step locks (None = inherit the track default). Performance data — kept
     # across kit regeneration, like patterns.
     step_note: list = field(default_factory=lambda: [None] * N_STEPS)
@@ -165,11 +168,12 @@ class Track:
 
     def eff_note(self, cell: int) -> int:
         v = self.step_note[cell]
-        return _clamp_note((int(v) if v is not None else self.note) + self.transpose)
+        return _clamp_note((int(v) if v is not None else self.note)
+                           + self.transpose + self.xpose_global)
 
     def eff_track_note(self) -> int:
-        """The track's own note as the engine should hear it (transpose applied)."""
-        return _clamp_note(self.note + self.transpose)
+        """The track's own note as the engine should hear it (both transposes applied)."""
+        return _clamp_note(self.note + self.transpose + self.xpose_global)
 
     def eff_vel(self, cell: int) -> float:
         v = self.step_vel[cell]
@@ -266,6 +270,7 @@ _STEP_FIELDS_ALL, _STEP_DEFAULTS = _step_field_defaults()
 class Project:
     def __init__(self) -> None:
         self.tracks: list[Track] = [Track() for _ in range(N_TRACKS)]
+        self.transpose: int = 0        # project-wide, on top of each track's own
         self.tempo: float = 120.0
         self.running: bool = False
         self.steps: int = N_STEPS
@@ -348,6 +353,7 @@ class Project:
         """Full machine state at this instant (sequences, sounds, FX, tempo, macros)."""
         return {
             "tempo": self.tempo,
+            "transpose": self.transpose,
             "kit_name": self.kit_name,
             "tracks": [t.to_dict() for t in self.tracks],
             "fx_layout": _FX_LAYOUT,
@@ -375,9 +381,14 @@ class Project:
             self.scale_root, self.scale_name = int(sc[0]), str(sc[1])
         else:                                  # a project saved before scales existed
             self.scale_root, self.scale_name = None, None
+        self.transpose = max(-24, min(24, int(snap.get("transpose", 0))))
         self.tracks = [Track.from_dict(td) for td in snap.get("tracks", [])][:N_TRACKS]
         while len(self.tracks) < N_TRACKS:
             self.tracks.append(Track())
+        # Tracks are rebuilt from their own dicts, which do not carry the project offset —
+        # re-apply it, or loading a transposed project comes back at concert pitch.
+        for tr in self.tracks:
+            tr.xpose_global = self.transpose
         track_fx = [list(s) for s in snap.get("track_fx", self.track_fx)]
         fx_macro = list(snap.get("fx_macro", self.fx_macro))
         fx_wet = list(snap.get("fx_wet", self.fx_wet))
@@ -733,6 +744,20 @@ class Project:
         return True
 
     # -- transpose ---------------------------------------------------------- #
+    def transpose_all(self, delta: int) -> int:
+        """Transpose EVERY track by semitones (the up/down cursor keys). Returns -24..+24.
+
+        A project-wide offset that rides ON TOP of each track's own transpose rather than
+        being folded into it. That matters for two reasons: tracks keep whatever relative
+        transposition they were given (folding it in would let a track already at +24 clamp
+        and drift out of relation with the others), and returning the global to 0 restores
+        every original pitch exactly. Nothing in the pattern is rewritten.
+        """
+        self.transpose = max(-24, min(24, self.transpose + int(delta)))
+        for tr in self.tracks:
+            tr.xpose_global = self.transpose
+        return self.transpose
+
     def transpose_track(self, track: int, delta: int) -> int:
         """Shift a whole sequence by semitones (Shift + jog). Returns the new total, -24..+24.
 
