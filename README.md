@@ -254,7 +254,8 @@ PYTHONPATH="$PWD:$PWD/vendor" python3 -m poundhard.headless
 **The controller is authoritative** for musical state (a `Project`: 16 tracks ×
 {engine type, note, velocity, parameters, pattern + per-step locks — pitch, velocity,
 pan, voice macro, ratchet, living flag/period, FX mask, **cycle divider**, the **per-step
-sample window** and the **per-step filter** — mute, length, rate, **filter**}, plus FX assignment/bypass/macros, tempo, and 32 pattern slots). A track
+sample window** and the **per-step filter** — mute, length, rate, **filter**}, plus FX assignment/bypass/macros, tempo, and the pattern bank — 16 seeds, each with a
+lazily-allocated row of 16 expansions). A track
 is at most **16 steps**; the per-step arrays are 32 wide for headroom and for projects
 saved before the cap. It reads `control.json`, writes `status.json`, generates kits,
 and pushes state to the engine over OSC.
@@ -351,12 +352,13 @@ command is dispatched until the engine reports ready.
 | steps | `stepset` / `steptoggle`, `steplock`, `stepmacro`, `stepfx` (per-step FX mask), `stepcycle` (fire every Nth repetition), `stepwindow` (per-step sample slice), `stepfilter` (per-step filter lock), `marklive` / `liveperiod` (living steps — the period is in PLAYS of the step, 1-8) |
 | clipboard | `stepcopy` / `steppaste`, `rowcopy` / `rowpaste`, `trackcopy` (the Copy-button gestures) |
 | generation | `stepgen` (a new sequence for one track, scale-aware) |
-| performance | `heat`, `shuffle`, `quake`, `churn`, `break` + `breakint`, `strobe` (the six temporary overlays) |
+| performance | `heat`, `shuffle`, `quake`, `churn`, `break` + `breakint`, `strobe`, `whim` (the seven temporary overlays) |
 | randomizers | `steprand` (toggle one per-step parameter's randomizer), `randdebug` |
-| transpose | `transpose` (semitone offset for one track's sequence) |
+| transpose | `transpose` (one track's sequence), `transposeall` (project-wide, the cursor keys) |
 | FX | `fxassign`, `fxbypass`, `fxmacro`, `fxwet` |
+| modulation | `lfoenter` (assign/refresh the bank), `lfopad` (toggle one LFO), `lfogen` (re-roll all 32) |
 | macros | `heat` / `heatpct`, `shuffle`, `quake`, `churn`, `break`, `chaos` / `chaosreset` |
-| patterns & projects | `savepat` / `loadpat`, `patdel`, `patcopy` / `patpaste` / `patclipclear`, `genvar`, `randpat`, `saveproj` / `loadproj`, `loadauto` |
+| patterns & projects | `savepat` / `loadpat`, `patdel`, `patcopy` / `patpaste` / `patclipclear`, `expenter` / `expfirst` (open a seed's expansions), `genvar`, `randpat`, `saveproj` / `loadproj`, `loadauto` |
 | transport & system | `run`, `editenter` / `editexit`, `recpad`, `undo`, `panic` |
 
 `tempo` is a continuous field applied on change, not a queued command.
@@ -373,10 +375,13 @@ fxNames`), and the open track's `edit` block: `steps`, the effective per-step
 and `stepFcut / stepFres / stepFtype` (the effective per-step filter), plus the project's
 `scale` (`{root, name}`, or null until something pitched establishes it).
 
-Also the pattern/project state (`patFilled / patCur / patPending / projFilled`), the
-`autoSave` flag, `projCur` (which project is loaded) and `canUndo / canRedo`, the five
-performance modifiers (`heat / heatPct / shuffle / quake / churn / brk / brkEvery / brkNow`)
-and the chaos macro (`chaos`), the SAMPLE capture state (`smpState / smpSrc / smpChain`), the recorder
+Also the pattern bank, which is a hierarchy rather than a flat 32: `patFilled` is the
+**16 seeds**, `expFilled` the open seed's **16 expansions**, `expSeed` which seed's row is
+open (-1 = none) and `expCur` which expansion is live (-1 = the seed itself), alongside
+`patCur / patPending / projFilled`. Then the `autoSave` flag, `projCur` (which project is
+loaded) and `canUndo / canRedo`, the seven performance modifiers (`heat / heatPct / shuffle /
+quake / churn / brk / brkEvery / brkNow / strobe / whim`), the modulation bank (`lfo`, 32
+per-pad states of 0 none / 1 assigned / 2 active, and `lfoOn`) and the chaos macro (`chaos`), the SAMPLE capture state (`smpState / smpSrc / smpChain`), the recorder
 (`recState / recSlot / recSlots / recElapsed / recAmp`), and `clipStep / clipRow` — whether
 the Copy-gesture clipboard is holding a step or a row. The edit block also carries `rand`,
 the list of per-step randomizers live on the open track.

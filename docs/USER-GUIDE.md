@@ -36,13 +36,13 @@ the [manual contents](#part-2--the-manual) is below it.
 
 **[Part 2 — The manual](#part-2--the-manual)** *(reference)*
 
-- [The six views, and how to move between them](#the-six-views)
+- [The views, and how to move between them](#the-views)
 - [Sound engines](#sound-engines) — all twenty, what each is for
 - [Controls](#controls) — every view, every gesture
 - [Sounds & the engine palette](#sounds--the-engine-palette)
-- [Patterns & projects](#patterns--projects)
+- [Patterns & projects](#patterns--projects) — seeds, expansions, saving
 - [Pattern generation](#randomise-a-whole-pattern) — the eighteen recipes
-- [Performance modifiers](#quake) — HEAT, SHUFFLE, QUAKE, CHURN, BREAK, STROBE
+- [Performance modifiers](#quake) — HEAT, SHUFFLE, QUAKE, CHURN, BREAK, STROBE, WHIM
 - [Modulation](#modulation-view) — the 32-LFO bank
 - [Living steps & HEAT](#living-steps--the-heat-button)
 
@@ -151,8 +151,8 @@ parameter returns instantly to what you programmed — nothing is overwritten, e
 
 ## 7. Perform it
 
-The bottom row of pads holds **six modifiers**. None of them edits your pattern; each is an
-overlay the engine plays instead.
+The bottom row of pads holds **seven modifiers**. None of them edits your pattern; each is
+an overlay the engine plays instead.
 
 | Modifier | What it does |
 |---|---|
@@ -162,6 +162,7 @@ overlay the engine plays instead.
 | **CHURN** | recycles recorded audio back into the mix |
 | **BREAK** | drops and re-enters |
 | **STROBE** | tempo-synced gating and microlooping across the mix |
+| **WHIM** | modulates the *playback speed* of a subset of tracks — the groove bends and breathes |
 
 Switch them on, switch them off. Your sequence is exactly as you left it.
 
@@ -175,9 +176,15 @@ the open track's clock rate.
 
 ## 8. Keep it
 
-- **Track 3** opens the **pattern view** — 32 slots. **Shift + pad** saves the current
-  pattern to that slot, **pad** loads one. Patterns are self-contained: engines, sounds,
-  sequences, effects and mutes all travel.
+- **Track 3** opens the **pattern view**, which is a hierarchy rather than a flat bank.
+  **Pads 1–16 are SEEDS** — the canonical version of an idea. **Shift + pad** saves the
+  current machine state to a seed; **pad** loads one. Patterns are self-contained: engines,
+  sounds, sequences, effects and mutes all travel.
+- **Hold REC and tap a seed** to open its **expansions** on pads 17–32 — sixteen slots for
+  variations on that one idea. The first is created as a copy of the seed and is then fully
+  independent, so you can develop alternatives without ever putting the original at risk.
+  Hold **Copy**, tap a source, then tap several destinations to fan a pattern out across the
+  row.
 - **Menu** opens the **project view**, which saves to disk.
 - There is an **autosave** running regardless. **Shift + Menu** in the project view restores
   it, which is what you want after a crash or an accidental overwrite.
@@ -188,9 +195,10 @@ That is the whole instrument in outline. Everything below is the detail.
 
 # Part 2 — The manual
 
-## The six views
+## The views
 
-PoundHard has six views. Exactly one is ever open, and one button always gets you back.
+**Exactly one view is ever open, and one button always gets you back.** Seven contexts, six
+of them a button press away and the seventh reached by holding a track's step button.
 
 | Button | Opens | Press again |
 |---|---|---|
