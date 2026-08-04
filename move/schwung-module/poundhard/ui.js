@@ -957,7 +957,10 @@ function drawJolt() {
     drawParamBig('JOLT T' + (editTrack + 1), lv == null ? '-' : nm[lv],
                  'uni', lv == null ? 0 : clampf((lv + 1) / 8, 0, 1));
     const b = joltBreak[String(editTrack)] || '';
-    print(0, 56, b ? b.slice(0, 28) : 'row 1 = variation  1 > 8', 1);
+    print(0, 44, b ? b.slice(0, 28) : 'row 1 = variation  1 > 8', 1);
+    /* The knobs are the same as every other engine's — say so, because the pads look like a
+     * different instrument and nothing else on this screen suggests they are still there. */
+    print(0, 56, 'k1vol k2pan k3mac k4-6filt', 1);
 }
 
 function drawMast() {
@@ -1060,7 +1063,6 @@ function drawSample() {
 function drawScreen() {
     if (typeof clear_screen !== 'function' || typeof print !== 'function') return;
     if (exitConfirm) { drawExitConfirm(); return; }
-    if (editTrack >= 0 && editType === 'JOLT' && !fxView) { drawJolt(); return; }
     if (mastView) { drawMast(); return; }
     if (modView) { drawMod(); return; }
     if (recView) { drawRec(); return; }
@@ -1093,6 +1095,9 @@ function drawScreen() {
     if (phase < xposeUntil) { drawXposeBig(); return; }
     if (rateView >= 0 && phase < rateViewUntil) { drawRateBig(rateView); return; }
     if ((trackHeld >= 0 && trackActive) || (editTrack >= 0 && knobShow)) { drawTrackParam(); return; }
+    /* The Jolt view owns the screen only when no knob is being turned: the track controls
+     * are the same as any other engine's and their giant readout has to win. */
+    if (editTrack >= 0 && editType === 'JOLT' && !fxView) { drawJolt(); return; }
     clear_screen();
     if (overlay && phase < overlayUntil) { print(0, 24, overlay, 2); return; }
     overlay = null;
@@ -1572,9 +1577,14 @@ globalThis.onMidiMessageInternal = function (data) {
     /* PATTERN / PROJECT view: the 32 pads are 32 slots. Shift+pad = save, tap = load.
      * NOTE messages only — knob CCs (71-78) and Play CC (85) fall in the same numeric
      * range as the pad notes, so we must NOT swallow them here. */
-    /* JOLT edit view: the step grid is REPLACED by eight variation pads. A Jolt track's
+    /* The status guard is load-bearing, not decoration: PLAY is CC 85 and REC is CC 86,
+     * both INSIDE the pad note range 68-99. A view handler that claims that range without
+     * checking the MIDI status swallows the transport — the pads work and the machine will
+     * not start. Every view that owns pads must test for note-on/note-off first.
+     *
+     * JOLT edit view: the step grid is REPLACED by eight variation pads. A Jolt track's
      * rhythm is generated, not drawn, so the step pads have nothing to edit. */
-    if (editTrack >= 0 && editType === 'JOLT' && !fxView && d1 >= 68 && d1 <= 99) {
+    if (editTrack >= 0 && editType === 'JOLT' && !fxView && (status === 0x90 || status === 0x80) && d1 >= 68 && d1 <= 99) {
         if (status === 0x90 && d2 > 0) {
             const cell = NOTE_TO_CELL[d1];
             if (cell < 8) {
@@ -1589,7 +1599,7 @@ globalThis.onMidiMessageInternal = function (data) {
 
     /* MASTERING view: the first row is the eight chains. Everything else is inert — the
      * knobs do the rest, and a stray pad press during a set should do nothing at all. */
-    if (mastView && d1 >= 68 && d1 <= 99) {
+    if (mastView && (status === 0x90 || status === 0x80) && d1 >= 68 && d1 <= 99) {
         if (status === 0x90 && d2 > 0) {
             const cell = NOTE_TO_CELL[d1];
             if (cell < 8) {
@@ -1603,7 +1613,7 @@ globalThis.onMidiMessageInternal = function (data) {
     }
 
     /* MODULATION view: every pad is one LFO, and pressing it toggles that LFO alone. */
-    if (modView && d1 >= 68 && d1 <= 99) {
+    if (modView && (status === 0x90 || status === 0x80) && d1 >= 68 && d1 <= 99) {
         if (status === 0x90 && d2 > 0) {
             const slot = NOTE_TO_CELL[d1];
             if (lfoState[slot] === 0) showAction('LFO ' + (slot + 1) + ' UNASSIGNED');
@@ -2182,14 +2192,27 @@ globalThis.onMidiMessageInternal = function (data) {
              * Track 1 alone still re-rolls that track's SOUND — the knob touch is what
              * separates "new part" from "new voice". */
             if (shiftHeld && masterTouched) {
-                if (editTrack >= 0) { sendCmd('stepgen', editTrack, { p: { track: editTrack } }); showAction('GEN SEQ T' + (editTrack + 1)); }
-                else showAction('open a track first');
+                /* A JOLT track has no step sequence to generate — its part IS the break
+                 * program — so the same gesture takes a DIFFERENT break and rebuilds the
+                 * program on it, which is the equivalent act. */
+                if (editTrack >= 0 && editType === 'JOLT') {
+                    sendCmd('joltbreak', editTrack, { p: { track: editTrack } });
+                    showAction('NEW BREAK T' + (editTrack + 1));
+                } else if (editTrack >= 0) {
+                    sendCmd('stepgen', editTrack, { p: { track: editTrack } }); showAction('GEN SEQ T' + (editTrack + 1));
+                } else showAction('open a track first');
                 ledDirty = true; screenDirty = true;
                 return;
             }
             if (shiftHeld) {
-                if (editTrack >= 0) { sendCmd('randtrack', editTrack, { p: { track: editTrack } }); showAction('RND T' + (editTrack + 1)); }
-                else showAction('open a track first');
+                /* Shift + Track 1 re-rolls the track's SOUND. On JOLT the sound is the
+                 * break, so it picks another one — same gesture, same meaning. */
+                if (editTrack >= 0 && editType === 'JOLT') {
+                    sendCmd('joltbreak', editTrack, { p: { track: editTrack } });
+                    showAction('NEW BREAK T' + (editTrack + 1));
+                } else if (editTrack >= 0) {
+                    sendCmd('randtrack', editTrack, { p: { track: editTrack } }); showAction('RND T' + (editTrack + 1));
+                } else showAction('open a track first');
             } else { setView(V_MAIN); showAction('TRACKS'); }
             ledDirty = true; screenDirty = true;
             return;
