@@ -220,7 +220,7 @@ let projFilled = new Array(N_STEPS).fill(false);
 let projCur = -1;                   /* which project is LOADED (-1 = none) */
 let canUndo = false, canRedo = false;   /* whether the stacks have anything in them */
 let autoSave = false;               /* an autosave recovery file exists (Shift+Menu restores) */
-/* RECORDER view (Shift + Track3): 8 pads = 8 recording slots. */
+/* RECORDER view (Shift + Rec): 8 pads = 8 recording slots. */
 let recView = false;
 /* MODULATION view: 32 auto-assigned, tempo-synced LFOs. `lfoState[i]` mirrors the
  * controller: 0 = this pad has no target (fewer targets than pads), 1 = assigned and idle,
@@ -586,7 +586,7 @@ function renderLEDs() {
         }
         renderStepButtons();
         btnLED(MoveRow1, Black); btnLED(MoveRow2, Black); btnLED(MoveRow3, Black);
-        btnLED(MoveRow4, White); btnLED(MoveMenu, Black);
+        btnLED(MoveRow4, White); btnLED(MoveMenu, Black); btnLED(MoveRec, Black);
         btnLED(MovePlay, running ? BrightGreen : Black);
         return;
     }
@@ -627,7 +627,8 @@ function renderLEDs() {
         }
         renderStepButtons();
         btnLED(MoveRow1, Black); btnLED(MoveRow2, Black);   /* Row1 lights only in the tracks view */
-        btnLED(MoveRow3, recView ? 1 : (patView ? White : Black)); btnLED(MoveMenu, projView ? White : Black);
+        btnLED(MoveRow3, patView ? White : Black); btnLED(MoveMenu, projView ? White : Black);
+        btnLED(MoveRec, recView ? 1 : Black);   /* red = the recorder is open (Shift+Rec) */
         btnLED(MoveRow4, Black);
         btnLED(MovePlay, running ? BrightGreen : Black);
         ledDirty = false;
@@ -647,6 +648,7 @@ function renderLEDs() {
         renderStepButtons();
         btnLED(MoveRow1, Black); btnLED(MoveRow2, White);   /* Row2 lit = FX view active */
         btnLED(MoveRow3, Black); btnLED(MoveRow4, Black); btnLED(MoveMenu, Black);
+        btnLED(MoveRec, Black);
         btnLED(MovePlay, running ? BrightGreen : Black);
         ledDirty = false;
         return;
@@ -767,6 +769,7 @@ function renderLEDs() {
     btnLED(MoveRow1, editTrack < 0 ? TRACK_COLOR : Black);
     btnLED(MoveRow2, Black);
     btnLED(MoveRow3, Black); btnLED(MoveRow4, lfoOn > 0 ? LFO_SIN_OFF : Black); btnLED(MoveMenu, Black);
+    btnLED(MoveRec, Black);
     btnLED(MovePlay, running ? BrightGreen : Black);
     ledDirty = false;
 }
@@ -955,7 +958,7 @@ function drawSlots() {
         else if (recHeld) print(0, 44, 'REC: tap a seed for its exps', 1);
         else print(0, 44, expSeed >= 0 ? ('rows 3-4 = seed ' + (expSeed + 1) + ' exps')
                                        : 'rec+seed opens expansions', 1);
-        print(0, 56, 'X=del copy=cp/pst sh+T3=gen', 1);
+        print(0, 56, 'X=del cp=cp/pst sh+T3=gen', 1);
     }
 }
 function drawExitConfirm() {
@@ -1909,7 +1912,16 @@ globalThis.onMidiMessageInternal = function (data) {
             return;
         }
         /* Rec + pad (edit view) = mark/unmark that step as LIVING (self-transforming). */
-        if (d1 === MoveRec) { recHeld = d2 > 0; screenDirty = true; return; }
+        if (d1 === MoveRec) {
+            /* SHIFT + REC = the RECORDER view. Plain Rec stays the modifier key it always
+             * was: Rec + a step pad marks a living step, Rec + a seed opens its expansions. */
+            if (d2 > 0 && shiftHeld) {
+                showAction(toggleView(V_REC) ? 'RECORDER' : 'TRACKS');
+                recHeld = false; ledDirty = true; screenDirty = true;
+                return;
+            }
+            recHeld = d2 > 0; screenDirty = true; return;
+        }
         /* X (Delete) + pattern pad = delete that pattern (bank closes the gap). */
         if (d1 === MoveDelete) { deleteHeld = d2 > 0; return; }
         /* Copy + pattern pad = copy; further pads paste while Copy is held. The
@@ -2016,8 +2028,8 @@ globalThis.onMidiMessageInternal = function (data) {
             showAction(toggleView(V_FX) ? 'FX' : 'TRACKS');
             return;
         }
-        if (d1 === MoveRow3 && d2 > 0) {                  /* Track 3 = PATTERN view; Shift+Track3 = RECORDER,
-                                                           * or GENERATE VARIATIONS when already in pattern view */
+        if (d1 === MoveRow3 && d2 > 0) {                  /* Track 3 = PATTERN view;
+                                                           * Shift+Track3 = GENERATE A VARIATION */
             /* Shift + hold volume knob + Track3 = fully randomise the CURRENT pattern
              * (in place — no new slots). Checked first: it's the most specific combo. */
             if (shiftHeld && masterTouched) {
@@ -2025,16 +2037,18 @@ globalThis.onMidiMessageInternal = function (data) {
                 ledDirty = true; screenDirty = true;
                 return;
             }
-            if (shiftHeld && patView) {                   /* pattern view: Shift+Track3 = generate variations */
+            /* SHIFT+TRACK3 MEANS ONE THING NOW. It used to mean three, chosen by hidden
+             * context: generate a variation if the pattern view happened to be open, open
+             * the recorder if it was not, and randomise if the volume knob was also being
+             * touched. So the gesture you reach for to generate could silently open the
+             * recorder instead, depending on where you already were. The recorder moved to
+             * Shift + Rec, which collides with nothing. */
+            if (shiftHeld) {
                 sendCmd('genvar', -1); showAction('GEN VARIATION');
                 ledDirty = true; screenDirty = true;
                 return;
             }
-            if (shiftHeld) {
-                showAction(toggleView(V_REC) ? 'RECORDER' : 'TRACKS');
-            } else {
-                showAction(toggleView(V_PAT) ? 'PATTERNS' : 'TRACKS');
-            }
+            showAction(toggleView(V_PAT) ? 'PATTERNS' : 'TRACKS');
             ledDirty = true; screenDirty = true;
             return;
         }

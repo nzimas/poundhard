@@ -204,9 +204,10 @@ of them a button press away and the seventh reached by holding a track's step bu
 |---|---|---|
 | **Track 1** | *(returns to the tracks view from anywhere)* | — |
 | **Track 2** | FX view | back to tracks |
-| **Track 3** | Pattern view *(Shift: recorder)* | back to tracks |
+| **Track 3** | Pattern view | back to tracks |
 | **Track 4** | Modulation view | back to tracks |
 | **Menu** | Project view | back to tracks |
+| **Shift + Rec** | Recorder view | back to tracks |
 | *hold a step button* | Edit view for that track | Track 1 to leave |
 
 **Track 1 always returns to the tracks view**, from any view, at any time. Pressing a view's
@@ -522,7 +523,7 @@ in its engine colour.
 | **Step button — long-press** | open that track in the [Edit view](#edit-view-per-track) |
 | **Track 2 button** | open the [FX view](#fx-view) |
 | **Track 3 button** | open the [Pattern view](#pattern-view) |
-| **Shift + Track 3 button** | open the [Recorder view](#recorder-view) |
+| **Shift + Rec** | open the [Recorder view](#recorder-view) |
 | **Menu button** | open the [Project view](#project-view) |
 | **Shift + Track 1** | re-roll the **open** track's sound (within its engine) |
 | **Shift + hold volume knob + Track 3** | **fully randomise** the current pattern (4–10 tracks) |
@@ -1064,7 +1065,7 @@ seed 3.
 | **Pad — tap** (empty) | **select** that slot as the destination for what you do next |
 | **X (Delete) + pad** | **delete** that pattern — the slot clears, other patterns **stay put** (see below) |
 | **Copy + pad** | **copy** that pattern; **further pads paste it** while Copy is held |
-| **Shift + Track 3** | **generate a variation** of the current pattern (see below) |
+| **Shift + Track 3** | **generate a variation** of the current pattern (see below) — this is now all it ever does |
 | **Shift + hold volume knob + Track 3** | **fully randomise** this pattern in place (see below) |
 
 **Delete is in place.** Deleting a pattern clears **only that slot** — every other
@@ -1122,7 +1123,7 @@ Saved projects are blue; empty slots are dim. Projects survive power cycles.
 
 ### Recorder view
 
-**Shift + Track 3** opens the recorder — the first 8 pads are **8 recording slots**
+**Shift + Rec** opens the recorder — the first 8 pads are **8 recording slots**
 that capture the master output to **stereo 16-bit WAV** (up to **7 minutes** each).
 
 | Control | Action |
