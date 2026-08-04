@@ -677,6 +677,50 @@ becomes pattern 1 of that project — nothing is lost in the transition from "ju
 to "this is a piece". Loading a project that somehow contains no patterns seeds one the
 same way, so there is no route back to a blank state.
 
+#### JOLT — engine 21
+
+A procedural breakbeat engine. It does not play a break, it **rebuilds one every time**:
+slices a real recording and rearranges, stutters, reverses, drops and glitches it, always on
+the grid.
+
+**Its edit view replaces the step grid.** A Jolt track's rhythm is generated, not drawn, so
+there is nothing to place by hand. Hold the track's step button and row 1 becomes **eight
+variation pads**, left to right:
+
+| | | | |
+|---|---|---|---|
+| 1 **STRAIGHT** | the break nearly as recorded | 5 **FRACTURE** | half the bar rearranged, stuttering |
+| 2 **NUDGE** | the odd substitution | 6 **MANGLE** | reversals and glitch throughout |
+| 3 **CHOP** | real rearrangement begins | 7 **SHRED** | little of the original order survives |
+| 4 **ROLL** | rolls and fills | 8 **RUPTURE** | almost every step moved, heavily damaged |
+
+Tapping a pad generates a **new** break program at that intensity — press the same pad again
+for a different take of the same character. The generation gestures are the ones you already
+use everywhere else.
+
+**Measured across the eight**, 300 seeds each: rearrangement rises 8.8% → 92.3%, stutter
+2.2% → 51.1%, reverse 0.6% → 32.4%, glitch 0% → 73.5% — every one monotonic. The **downbeat
+is never sacrificed**: step 1 always plays, forwards, from a slice the library's own analysis
+says carries a hit. A rearrangement that never lands a hit on beat one stops sounding like a
+break and starts sounding like a fault.
+
+**Tempo sync is arithmetic, not analysis.** Every break in the library states its beat count
+and BPM in its filename, and the audio matches to the millisecond. So a break fits any bar at
+`patternBpm / breakBpm` — plain resampling, which means **no time-stretch and therefore no
+stretching artefacts**. Every slice is *triggered* by the sequencer rather than free-running
+from a loop point, so nothing can drift however violently the bar is cut. Measured over a
+continuous minute at 120 BPM: **1.9 ms of drift per minute**, against a 125 ms sixteenth.
+
+Change the tempo and every Jolt track is re-fitted automatically.
+
+> **The break library is not in this repository.** Run `move/fetch-breaks.sh` once to install
+> it — 206 breaks, 109 MB, downloaded on your computer and pushed to the Move. The reference
+> project ships its code under MIT but keeps the audio in a separate release asset compiled
+> from an archive.org collection, and that licence does not extend to the recordings, so
+> nothing copyrighted is committed here. Without the library Jolt says so rather than
+> half-working.
+
+
 #### Per-parameter step randomizers
 
 **Shift + touch a control** in the edit view toggles a randomizer for whatever per-step

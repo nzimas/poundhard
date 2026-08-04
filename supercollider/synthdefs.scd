@@ -925,7 +925,13 @@
 		// The slice is closed by an envelope whose hold is exactly the step it must fill —
 		// which is what keeps a dense pattern from smearing into the next hit.
 		var win = hold.clip(0.005, 8) * gate.clip(0.05, 4);
-		var sig = PlayBuf.ar(1, buf, rt, Impulse.ar(0), pos, 1)
+		// THE BREAK LIBRARY IS STEREO. PlayBuf's channel count is fixed at SynthDef build
+		// time and must match the buffer exactly — declaring 1 against a 2-channel file is
+		// not a soft mismatch, it produces silence and a "Buffer UGen channel mismatch"
+		// per hit. Read both channels and sum: the rest of the voice (and ~spread below)
+		// is mono, and a break's stereo image is not worth a second signal path here.
+		var raw = PlayBuf.ar(2, buf, rt, Impulse.ar(0), pos, 1);
+		var sig = (raw[0] + raw[1]) * 0.5
 			* EnvGen.ar(Env.new([1, 1, 0], [win, 0.004], \lin));
 		var aEnv = EnvGen.ar(Env.new([0, 1, 1, 0],
 			[attack.clip(0.0002, 0.2), win, release.clip(0.003, 2)], \sin), doneAction: 2);

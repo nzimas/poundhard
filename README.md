@@ -23,7 +23,7 @@ runtime, so **Schwung is the only thing it needs on the device**.
    controller  (python — poundhard.headless, authoritative Project state)
         │  ▲
         ▼  │   OSC  /ph/…  →  ← /ph/step /ph/cpu /ph/cycle
-   engine  (sclang — 20 engines × 16 tracks + TempoClock step sequencer + FX chains)
+   engine  (sclang — 21 engines × 16 tracks + TempoClock step sequencer + FX chains)
            running on SUPERNOVA (multicore SC server; ParGroups spread tracks over cores)
         │
         ▼
@@ -47,7 +47,7 @@ inside. For how to **play** it, go to the guide.
 ## Contents
 
 - [What it is](#what-it-is)
-- [The twenty engines](#the-twenty-engines)
+- [The engines](#the-engines)
 - [Deploy to the Move](#deploy-to-the-move)
 - [Develop off-device](#develop-off-device)
 - [Architecture & internals](#architecture--internals)
@@ -63,9 +63,10 @@ inside. For how to **play** it, go to the guide.
 - **16 tracks**, one per step button. Tracks start **empty**; you build your rig by
   assigning engines from the **engine palette**. Any engine can go on any track, and the
   assignment is **per pattern** — two patterns can carry completely different rigs.
-- **20 assignable engines**, from digital drums and 6-operator FM through Mutable-style
+- **21 assignable engines**, from digital drums and 6-operator FM through Mutable-style
   resonators and macro-oscillators to chaotic maps, bytebeat, wavetables, a sampler that
-  mangles its captures through Csound, and a realtime **Csound** synth with 26 architectures.
+  mangles its captures through Csound, a realtime **Csound** synth with 26 architectures, and
+  **JOLT**, a procedural breakbeat engine that rebuilds a real break every bar and never drifts.
 - **A 16-step sequencer per track**, each with its own length and clock rate
   (**polymeter**), plus a per-step **cycle frequency** so a step can fire once every 2–8
   repetitions.
@@ -103,7 +104,7 @@ dark — so you can read the whole rig at a glance.
 
 ---
 
-## The twenty engines
+## The engines
 
 | Pad | Engine | Colour | Character |
 |--------|--------|--------|-----------|
@@ -127,6 +128,7 @@ dark — so you can read the whole rig at a glance.
 | 18 | **BYTEBEAT** | 🟢 green | ByteBeat UGen — 8-bit algorithmic expressions evaluated at audio rate |
 | 19 | **SAMPLE** | 🌹 rose | capture engine — records another engine, mangles it through a **Csound** opcode graph, plays it back |
 | 20 | **CSOUND** | 🩵 turquoise | realtime **Csound** macro-synth — 26 architectures (chained generator cores and shapers) |
+| 21 | **JOLT** | 🟥 rust | procedural breakbeat — slices real breaks and rearranges them, eight levels from straight to ruptured |
 
 Each engine's parameters, character and per-model detail are documented in the
 [User Guide → Sound engines](docs/USER-GUIDE.md#sound-engines).
@@ -356,7 +358,7 @@ command is dispatched until the engine reports ready.
 | tracks | `mute`, `solo`, `trackset` (pitch/amp/pan/rate), `voicemacro`, `voiceparam` (one named voice param — SAMPLE's window knobs), `trackfilter` (cutoff/res/type), `note`, `setlen`, `clearpat` |
 | steps | `stepset` / `steptoggle`, `steplock`, `stepmacro`, `stepfx` (per-step FX mask), `stepcycle` (fire every Nth repetition), `stepwindow` (per-step sample slice), `stepfilter` (per-step filter lock), `marklive` / `liveperiod` (living steps — the period is in PLAYS of the step, 1-8) |
 | clipboard | `stepcopy` / `steppaste`, `rowcopy` / `rowpaste`, `trackcopy` (the Copy-button gestures) |
-| generation | `stepgen` (a new sequence for one track, scale-aware) |
+| generation | `stepgen` (a new sequence for one track, scale-aware), `joltpad` / `joltbreak` / `joltinit` (JOLT's break variations) |
 | performance | `heat`, `shuffle`, `quake`, `churn`, `break` + `breakint`, `strobe`, `whim` (the seven temporary overlays) |
 | mastering | `mastprofile` (pick one of eight chains, or bypass), `mastknob` (one parameter of the active chain) |
 | randomizers | `steprand` (toggle one per-step parameter's randomizer), `randdebug` |
