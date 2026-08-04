@@ -316,6 +316,10 @@ class Project:
         self.exp_cur: int = -1
         # which seed's expansion row the pattern view is showing (-1 = none open)
         self.exp_seed: int = -1
+        # MASTERING. A property of the PROJECT, not of a pattern: the output stage should not
+        # change character because you recalled a different pattern. -1 = bypass.
+        self.master_profile: int = -1
+        self.master_params: dict = {}
         self.pattern_cur: int = -1
         self.pattern_pending: int = -1
         # SOLO: -1 = none. A live performance state (not saved into patterns): while a
@@ -670,6 +674,8 @@ class Project:
         # Expansions are stored SPARSELY, keyed by seed: a project using three seeds and four
         # expansions writes those seven patterns, not a 272-slot grid of nulls.
         return {"name": self.kit_name, "base": self.snapshot(),
+                "master_profile": self.master_profile,
+                "master_params": dict(self.master_params),
                 "patterns": self.patterns, "pattern_cur": self.pattern_cur,
                 "exp_cur": self.exp_cur,
                 "expansions": {str(k): v for k, v in self.expansions.items()
@@ -686,6 +692,10 @@ class Project:
             if any(x is not None for x in row):
                 self.expansions[int(k)] = row
         self.exp_cur = int(d.get("exp_cur", -1))
+        # the mastering chain: the profile AND every parameter the user moved, so a project
+        # comes back sounding exactly as it was mastered rather than at the profile's defaults
+        self.master_profile = int(d.get("master_profile", -1))
+        self.master_params = dict(d.get("master_params") or {})
 
         # MIGRATION. Projects saved before the hierarchy existed used a flat 32, and there are
         # only 16 seed pads now — so patterns 17-32 would silently become unreachable. They

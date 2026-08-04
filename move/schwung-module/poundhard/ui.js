@@ -227,6 +227,14 @@ let recView = false;
  * 2 = running. Pads 1-16 are sample-and-hold, 17-32 are sine — two colour families so the
  * halves read apart at a glance. */
 let modView = false;
+/* MASTERING view (Shift + hold the volume knob + Track 4): eight chains on one continuum,
+ * left to right from restrained to destroyed, with the top knobs on the active chain's own
+ * parameters. */
+let mastView = false;
+let mast = -1, mastName = 'BYPASS', mastKnobs = [], mastPos = [];
+/* a heat map across the row: cool at the gentle end, incandescent at the destructive one */
+const MAST_COLORS = [33, 25, 28, 9, 4, 6, 3, 1];
+const MAST_DIM = [117, 106, 108, 74, 84, 71, 76, 66];
 let lfoState = new Array(32).fill(0), lfoOn = 0, lfoLast = '';
 /* amber = sample & hold, cyan = sine; the dim tone is the assigned-but-idle state */
 const LFO_SH_ON = 25, LFO_SH_OFF = 106, LFO_SIN_ON = 14, LFO_SIN_OFF = 87;
@@ -381,7 +389,8 @@ let ledDirty = true, screenDirty = true, lastLedSig = '', lastScreenSig = '', la
  * the invariant — one view, controller told when an edit closes — holds by construction.
  * ------------------------------------------------------------------------------------- */
 const V_MAIN = 'tracks', V_PAT = 'pattern', V_PROJ = 'project',
-      V_REC = 'recorder', V_FX = 'fx', V_EDIT = 'edit', V_MOD = 'modulation';
+      V_REC = 'recorder', V_FX = 'fx', V_EDIT = 'edit', V_MOD = 'modulation',
+      V_MAST = 'mastering';
 
 function currentView() {
     if (editTrack >= 0) return V_EDIT;
@@ -390,6 +399,7 @@ function currentView() {
     if (projView) return V_PROJ;
     if (recView) return V_REC;
     if (modView) return V_MOD;
+    if (mastView) return V_MAST;
     return V_MAIN;
 }
 
@@ -399,6 +409,7 @@ function setView(v, track) {
     projView = (v === V_PROJ);
     recView  = (v === V_REC);
     modView  = (v === V_MOD);
+    mastView = (v === V_MAST);
     fxView   = (v === V_FX);
     fxHeld   = -1;
     editTrack = (v === V_EDIT) ? track : -1;
@@ -575,6 +586,22 @@ function renderStepButtons() {
     }
 }
 function renderLEDs() {
+    if (mastView) {
+        for (let c = 0; c < 32; c++) {
+            let color = Black;
+            if (c < 8) {
+                /* the row IS the continuum: it warms from left to right, and the active
+                 * chain is the only one at full brightness */
+                color = (c === mast) ? MAST_COLORS[c] : MAST_DIM[c];
+            }
+            setLED(PAD_NOTES[c], color);
+        }
+        renderStepButtons();
+        btnLED(MoveRow1, Black); btnLED(MoveRow2, Black); btnLED(MoveRow3, Black);
+        btnLED(MoveRow4, White); btnLED(MoveMenu, Black); btnLED(MoveRec, Black);
+        btnLED(MovePlay, running ? BrightGreen : Black);
+        return;
+    }
     if (modView) {
         for (let c = 0; c < 32; c++) {
             const sh = (c < 16);
@@ -904,6 +931,22 @@ function drawFx() {
     print(0, 44, 'tap trk=bypass  sh+knob=wet', 1);
     print(0, 56, 'knobs 1-8 = macros', 1);
 }
+function drawMast() {
+    clear_screen();
+    if (knobShow && knobShow.indexOf('mast') === 0) {          /* a chain knob is moving */
+        const k = parseInt(knobShow.slice(4), 10);
+        const nm = mastKnobs[k] || '-';
+        drawParamBig(nm, '' + Math.round((mastPos[k] == null ? 0 : mastPos[k]) * 100),
+                     'uni', clampf(mastPos[k] == null ? 0 : mastPos[k], 0, 1));
+        return;
+    }
+    /* THE NAME IS THE READOUT. Which of the eight is running matters more during a set than
+     * any single parameter, and the number says where it sits on the continuum. */
+    drawParamBig('MASTER', mastName, 'uni', mast < 0 ? 0 : clampf((mast + 1) / 8, 0, 1));
+    print(0, 56, mast < 0 ? 'row 1 = chain  1 soft > 8 hard'
+                          : ((mast + 1) + '/8   knobs = its params'), 1);
+}
+
 function drawMod() {
     clear_screen();
     const n = lfoState.filter(function (x) { return x > 0; }).length;
@@ -988,6 +1031,7 @@ function drawSample() {
 function drawScreen() {
     if (typeof clear_screen !== 'function' || typeof print !== 'function') return;
     if (exitConfirm) { drawExitConfirm(); return; }
+    if (mastView) { drawMast(); return; }
     if (modView) { drawMod(); return; }
     if (recView) { drawRec(); return; }
     /* the capture engine narrates its own lifecycle on screen */
@@ -1133,6 +1177,10 @@ function readStatus() {
     if (Array.isArray(s.recSlots)) recSlots = s.recSlots;
     if (Array.isArray(s.lfo)) lfoState = s.lfo;
     if (s.lfoOn != null) lfoOn = s.lfoOn | 0;
+    if (s.mast != null) mast = s.mast | 0;
+    if (s.mastName != null) mastName = s.mastName;
+    if (Array.isArray(s.mastKnobs)) mastKnobs = s.mastKnobs;
+    if (Array.isArray(s.mastPos)) mastPos = s.mastPos;
     if (s.recSlot != null) recSlot = s.recSlot;
     if (s.recState != null) recState = s.recState;
     if (s.recElapsed != null) recElapsed = s.recElapsed;
@@ -1246,6 +1294,7 @@ globalThis.init = function () {
     projCur = -1;
     recView = false; recSlots = new Array(8).fill(false); recSlot = -1; recState = 'idle'; recElapsed = 0;
     modView = false; lfoState = new Array(32).fill(0); lfoOn = 0; lfoLast = '';
+    mastView = false; mast = -1; mastName = 'BYPASS'; mastKnobs = []; mastPos = [];
     expFilled = new Array(16).fill(false); expSeed = -1; expCur = -1;
     whimOn = false; whimHeld = false;
     solo = -1; lastTapAt = new Array(N_TRACKS).fill(0);
@@ -1487,6 +1536,21 @@ globalThis.onMidiMessageInternal = function (data) {
     /* PATTERN / PROJECT view: the 32 pads are 32 slots. Shift+pad = save, tap = load.
      * NOTE messages only — knob CCs (71-78) and Play CC (85) fall in the same numeric
      * range as the pad notes, so we must NOT swallow them here. */
+    /* MASTERING view: the first row is the eight chains. Everything else is inert — the
+     * knobs do the rest, and a stray pad press during a set should do nothing at all. */
+    if (mastView && d1 >= 68 && d1 <= 99) {
+        if (status === 0x90 && d2 > 0) {
+            const cell = NOTE_TO_CELL[d1];
+            if (cell < 8) {
+                sendCmd('mastprofile', cell);
+                mast = (mast === cell) ? -1 : cell;          /* optimistic; pressing the lit pad bypasses */
+                showAction(mast < 0 ? 'BYPASS' : ('MASTER ' + (cell + 1)));
+                ledDirty = true; screenDirty = true;
+            }
+        }
+        return;
+    }
+
     /* MODULATION view: every pad is one LFO, and pressing it toggles that LFO alone. */
     if (modView && d1 >= 68 && d1 <= 99) {
         if (status === 0x90 && d2 > 0) {
@@ -2080,6 +2144,12 @@ globalThis.onMidiMessageInternal = function (data) {
             return;
         }
         if (d1 === MoveRow4 && d2 > 0) {                   /* Track 4 = MODULATION view */
+            /* Shift + hold the volume knob + Track 4 = MASTERING. Checked first, like the
+             * other volume-knob combinations: it is the most specific gesture on this key. */
+            if (shiftHeld && masterTouched) {
+                showAction(toggleView(V_MAST) ? 'MASTERING' : 'TRACKS');
+                return;
+            }
             if (shiftHeld && modView) {                    /* Shift = re-roll the whole bank */
                 sendCmd('lfogen', -1); showAction('NEW MODULATION');
                 ledDirty = true; screenDirty = true;
@@ -2104,6 +2174,15 @@ globalThis.onMidiMessageInternal = function (data) {
                 heatAdjusted = true;                             /* suppress the release toggle */
                 sendCmd('heatpct', -1, { p: { x: heatPct } });
                 knobShow = 'heat'; screenDirty = true;
+                return;
+            }
+            if (mastView) {
+                /* Only the parameters the ACTIVE chain actually uses are exposed — a knob
+                 * that moves something the profile does not use is worse than no knob. */
+                if (mast < 0 || ki >= mastKnobs.length) { showAction('PICK A CHAIN'); return; }
+                mastPos[ki] = clampf((mastPos[ki] == null ? 0.5 : mastPos[ki]) + dn * KNOB_STEP, 0, 1);
+                sendCmd('mastknob', ki, { p: { knob: ki, pos: mastPos[ki] } });
+                knobShow = 'mast' + ki; screenDirty = true;
                 return;
             }
             if (fxView) {                                        /* knob N = FX N macro; Shift = its dry/wet */

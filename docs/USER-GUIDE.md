@@ -44,6 +44,7 @@ the [manual contents](#part-2--the-manual) is below it.
 - [Pattern generation](#randomise-a-whole-pattern) — the eighteen recipes
 - [Performance modifiers](#quake) — HEAT, SHUFFLE, QUAKE, CHURN, BREAK, STROBE, WHIM
 - [Modulation](#modulation-view) — the 32-LFO bank
+- [Mastering](#mastering-view) — eight output chains, subtle to extreme
 - [Living steps & HEAT](#living-steps--the-heat-button)
 
 ---
@@ -197,8 +198,8 @@ That is the whole instrument in outline. Everything below is the detail.
 
 ## The views
 
-**Exactly one view is ever open, and one button always gets you back.** Seven contexts, six
-of them a button press away and the seventh reached by holding a track's step button.
+**Exactly one view is ever open, and one button always gets you back.** Eight contexts, most
+of them a button press away.
 
 | Button | Opens | Press again |
 |---|---|---|
@@ -208,6 +209,7 @@ of them a button press away and the seventh reached by holding a track's step bu
 | **Track 4** | Modulation view | back to tracks |
 | **Menu** | Project view | back to tracks |
 | **Shift + Rec** | Recorder view | back to tracks |
+| **Shift + volume knob + Track 4** | Mastering view | back to tracks |
 | *hold a step button* | Edit view for that track | Track 1 to leave |
 
 **Track 1 always returns to the tracks view**, from any view, at any time. Pressing a view's
@@ -1144,6 +1146,56 @@ screen shows a giant `M:SS` counter. See
 [Recording & the web UI](../README.md#recording--the-web-ui) for downloads.
 
 ---
+
+---
+
+### Mastering view
+
+**Shift + hold the volume knob + Track 4.** The first row of pads is **eight mastering
+chains on one continuum** — pad 1 barely touches the mix, pad 8 is the loudest thing this
+box will do on purpose. Moving right always means more dynamic control, more density and
+more pressure.
+
+| Pad | Chain | |
+|---|---|---|
+| 1 | **GLASS** | barely there — level and a ceiling |
+| 2 | **FIRM** | gentle glue, a little lift |
+| 3 | **GRIP** | the compressor is doing real work now |
+| 4 | **BAND** | multiband takes over — the kick stops ducking everything |
+| 5 | **IRON** | dense and forward, saturation carrying the weight |
+| 6 | **FORGE** | overdriven — harmonics are the point |
+| 7 | **ANVIL** | clipped, compact, physically forceful |
+| 8 | **RUIN** | the loudest thing this box will do on purpose |
+
+**Press the lit pad to return to bypass.** There is always a way back to no mastering
+without hunting for one.
+
+**The eight knobs control the active chain's own parameters** — and only the ones that
+actually do something in it. GLASS gives you output, tilt, threshold, ratio, release, width,
+ceiling and mix; RUIN gives you hard clip, soft clip, saturation, threshold, makeup,
+multiband, output and ceiling. A knob that moved a parameter the profile does not use would
+be worse than no knob at all, so the assignments differ per profile and the screen names
+whichever one you are turning.
+
+**Measured across the eight**, on an identical four-to-the-floor source so the chain is the
+only thing changing: loudness rises **+9.5 dB** and is non-decreasing at every one of the
+seven steps; crest factor falls from **15.3 dB to 7.8 dB** (progressively more compressed);
+high-frequency energy rises **×3.4** as saturation adds harmonics; and no profile ever pushes
+a peak past its ceiling.
+
+> **Switching is glide, not rebuild.** The engine runs *one* chain with every stage present,
+> and a profile is a set of amounts for those stages, each lagged 120 ms. Nothing is created,
+> freed or reordered when you change profile, so there is nothing that *can* click. Measured
+> at every transition, the largest sample-to-sample jump is **1.24× the music's own peak
+> transient** — i.e. below the level of an ordinary drum hit.
+
+**Saturation is gain-compensated**, so drive adds harmonics *without* simply adding level.
+Otherwise "more saturation" and "more volume" would be the same knob and the progression
+would mean nothing.
+
+**It is saved with the project** — the profile and every knob you moved, restored exactly on
+load. Mastering belongs to the project rather than to a pattern: the output stage should not
+change character because you recalled a different pattern.
 
 ---
 

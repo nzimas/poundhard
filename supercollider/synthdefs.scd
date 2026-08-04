@@ -40,12 +40,92 @@
 	SynthDef(\phClear, { |bus = 16| ReplaceOut.ar(bus, DC.ar(0) ! nchan) }).add;
 
 	// master: sum bus -> optional global lowpass -> limiter -> hardware out.
-	SynthDef(\phMaster, { |in = 16, out = 0, gain = 1.0, cutoff = 20000, res = 0.0|
-		var sig = In.ar(in, nchan) * gain;
+	// ---- the MASTERING chain ---------------------------------------------------------
+	// ONE synthdef holds every stage, and a "profile" is a set of amounts for them rather
+	// than a different graph. That is deliberate: swapping graphs mid-performance means
+	// building and freeing nodes under the audio thread, which is exactly where clicks,
+	// gain jumps and dropouts come from. Here a profile change is a LAG on a control — the
+	// chain never stops running and the transition is a glide, not a rebuild.
+	//
+	// Order is fixed and conventional, because it is the order that behaves: tone-shaping
+	// before dynamics (so the compressor reacts to the balance you actually want), dynamics
+	// before saturation (so drive hits a controlled level), saturation before clipping
+	// (clipping is the ceiling, not the colour), and the limiter last as protection that
+	// cannot be turned off.
+	//
+	//   gain -> filter -> EQ tilt -> broadband comp -> multiband comp -> saturate
+	//        -> clip -> width -> output gain -> LIMITER (always)
+	SynthDef(\phMaster, { |in = 16, out = 0, gain = 1.0, cutoff = 20000, res = 0.0,
+			eqTilt = 0.0, eqLow = 0.0, eqHigh = 0.0,
+			cThresh = 1.0, cRatio = 1.0, cAtk = 0.01, cRel = 0.2, cMakeup = 1.0,
+			mbAmt = 0.0, mbThresh = 0.5,
+			satAmt = 0.0, clipAmt = 0.0, clipHard = 0.0,
+			ceiling = 0.95, outGain = 1.0, width = 1.0, mix = 1.0|
+		// EVERY control that shapes the sound is lagged. A profile change writes new targets
+		// and the chain glides to them over 120 ms — long enough that no step is audible as
+		// a click, short enough to feel like a performance action.
+		var lagT = 0.12;
+		var kTilt = Lag.kr(eqTilt, lagT), kLow = Lag.kr(eqLow, lagT), kHigh = Lag.kr(eqHigh, lagT);
+		var kThr = Lag.kr(cThresh, lagT), kRat = Lag.kr(cRatio, lagT);
+		var kMk = Lag.kr(cMakeup, lagT), kMb = Lag.kr(mbAmt, lagT), kMbT = Lag.kr(mbThresh, lagT);
+		var kSat = Lag.kr(satAmt, lagT), kClip = Lag.kr(clipAmt, lagT), kHard = Lag.kr(clipHard, lagT);
+		var kCeil = Lag.kr(ceiling, lagT), kOut = Lag.kr(outGain, lagT);
+		var kWide = Lag.kr(width, lagT), kMix = Lag.kr(mix, lagT);
+		var sig = In.ar(in, nchan) * Lag.kr(gain, 0.05);
 		var fc = cutoff.clip(40, 20000);
+		var dry, comp, low, mid, high, mb, drv, m, s, slope;
 		sig = Select.ar(cutoff < 19000, [sig, RLPF.ar(sig, fc, (1 - (res.clip(0, 1) * 0.9)).clip(0.05, 1))]);
-		sig = Limiter.ar(LeakDC.ar(sig), 0.95, 0.01);
-		Out.ar(out, sig);
+		dry = sig;
+
+		// ---- EQ: a tilt plus independent shelves. Tilt is the single most useful mastering
+		// control there is — one number that trades weight against air.
+		slope = kTilt.clip(-1, 1);
+		sig = BLowShelf.ar(sig, 180, 1.0, (kLow * 9) + (slope * -5));
+		sig = BHiShelf.ar(sig, 4200, 1.0, (kHigh * 9) + (slope * 5));
+
+		// ---- BROADBAND COMPRESSION. Compander's ratio is expressed as a slope above the
+		// threshold, so a "ratio" of 4:1 is a slopeAbove of 1/4.
+		comp = Compander.ar(sig, sig, kThr.clip(0.02, 1.0),
+			1.0, (1.0 / kRat.clip(1.0, 20.0)),
+			cAtk.clip(0.0005, 0.5), cRel.clip(0.01, 2.0)) * kMk;
+		sig = comp;
+
+		// ---- MULTIBAND. Blended in by amount rather than switched, so it can be dialled
+		// from absent to dominant without a discontinuity. Three bands is enough to stop a
+		// kick from ducking the whole spectrum, which is the entire point of it here.
+		low  = LPF.ar(LPF.ar(sig, 180), 180);
+		high = HPF.ar(HPF.ar(sig, 2600), 2600);
+		mid  = sig - low - high;
+		mb = Compander.ar(low, low, kMbT.clip(0.02, 1), 1.0, 0.25, 0.01, 0.12)
+		   + Compander.ar(mid, mid, kMbT.clip(0.02, 1), 1.0, 0.4, 0.006, 0.09)
+		   + Compander.ar(high, high, (kMbT * 1.2).clip(0.02, 1), 1.0, 0.5, 0.002, 0.05);
+		sig = XFade2.ar(sig, mb * 1.05, (kMb * 2) - 1);
+
+		// ---- SATURATION. tanh with gain compensation, so pushing drive adds harmonics and
+		// density WITHOUT simply getting louder — otherwise "more saturation" and "more
+		// volume" are the same knob and the progression means nothing.
+		drv = 1 + (kSat * 11);
+		sig = (sig * drv).tanh / (1 + (kSat * 5.5));
+
+		// ---- CLIPPING. Soft first, then a hard clip blended over it: soft clipping alone
+		// flattens transients gently, hard clipping is the sound of the last two profiles.
+		sig = Select.ar(kClip > 0.001, [sig,
+			XFade2.ar(sig, (sig * (1 + kClip * 6)).softclip / (1 + kClip * 2.5), (kClip * 2) - 1)]);
+		sig = XFade2.ar(sig, sig.clip2((1 - (kHard * 0.55)).max(0.12)) * (1 + (kHard * 0.5)),
+			(kHard * 2) - 1);
+
+		// ---- WIDTH, mid/side. Kept before the limiter so widening cannot push the ceiling.
+		m = (sig[0] + sig[1]) * 0.5;
+		s = (sig[0] - sig[1]) * 0.5 * kWide.clip(0, 2);
+		sig = [m + s, m - s];
+
+		sig = sig * kOut;
+		// wet/dry against the untouched input, for profiles that want to sit under the mix
+		sig = XFade2.ar(dry, sig, (kMix * 2) - 1);
+		// ---- OUTPUT PROTECTION. Always on, at whatever ceiling the profile asks for, and
+		// a hard safety clip behind it. Nothing downstream of this can be clipped by a knob.
+		sig = Limiter.ar(LeakDC.ar(sig), kCeil.clip(0.1, 0.99), 0.01);
+		Out.ar(out, sig.clip2(0.999));
 	}).add;
 
 	// ================= DRUM (one hit, self-freeing) =================

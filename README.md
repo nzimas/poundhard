@@ -76,6 +76,11 @@ inside. For how to **play** it, go to the guide.
   `POLYMETER`, `GLITCH`, `PROCESSION`, `INTERLOCK` and more. Each is a brief covering roles,
   density, register, accent shape, pan, pitch relationships and variation over time, and the
   generator **scores its own output** and repairs the weakest track before handing it over.
+- **Eight mastering chains** on one continuum from restrained to destroyed — EQ, broadband
+  and multiband compression, gain-compensated saturation, soft and hard clipping and a
+  limiter, with the active chain's own parameters on the eight knobs. Measured +9.5 dB of
+  loudness and 7.5 dB of crest-factor reduction across the eight, and switching is a 120 ms
+  glide along one chain rather than a graph swap, so it cannot click.
 - **32 auto-assigned, tempo-synced LFOs** in the modulation view — sample-and-hold and sine,
   each on a unique parameter, never on engine pitch, and completely non-destructive.
 - **Seven non-destructive performance modifiers** — **HEAT**, **SHUFFLE**, **QUAKE**,
@@ -353,6 +358,7 @@ command is dispatched until the engine reports ready.
 | clipboard | `stepcopy` / `steppaste`, `rowcopy` / `rowpaste`, `trackcopy` (the Copy-button gestures) |
 | generation | `stepgen` (a new sequence for one track, scale-aware) |
 | performance | `heat`, `shuffle`, `quake`, `churn`, `break` + `breakint`, `strobe`, `whim` (the seven temporary overlays) |
+| mastering | `mastprofile` (pick one of eight chains, or bypass), `mastknob` (one parameter of the active chain) |
 | randomizers | `steprand` (toggle one per-step parameter's randomizer), `randdebug` |
 | transpose | `transpose` (one track's sequence), `transposeall` (project-wide, the cursor keys) |
 | FX | `fxassign`, `fxbypass`, `fxmacro`, `fxwet` |
@@ -381,7 +387,8 @@ open (-1 = none) and `expCur` which expansion is live (-1 = the seed itself), al
 `patCur / patPending / projFilled`. Then the `autoSave` flag, `projCur` (which project is
 loaded) and `canUndo / canRedo`, the seven performance modifiers (`heat / heatPct / shuffle /
 quake / churn / brk / brkEvery / brkNow / strobe / whim`), the modulation bank (`lfo`, 32
-per-pad states of 0 none / 1 assigned / 2 active, and `lfoOn`) and the chaos macro (`chaos`), the SAMPLE capture state (`smpState / smpSrc / smpChain`), the recorder
+per-pad states of 0 none / 1 assigned / 2 active, and `lfoOn`), the mastering chain
+(`mast` / `mastName` / `mastKnobs` / `mastPos`) and the chaos macro (`chaos`), the SAMPLE capture state (`smpState / smpSrc / smpChain`), the recorder
 (`recState / recSlot / recSlots / recElapsed / recAmp`), and `clipStep / clipRow` — whether
 the Copy-gesture clipboard is holding a step or a row. The edit block also carries `rand`,
 the list of per-step randomizers live on the open track.
@@ -436,6 +443,7 @@ controller/poundhard/   catalog.py    parameter specs for every engine (ranges, 
                         variations.py whole-pattern generation and per-pattern variations
                         stepgen.py    the six rhythm algorithms
                         lfo.py        the 32-LFO modulation bank (targets, sync, non-destructive output)
+                        mastering.py  the eight output chains and their knob maps
                         strobe.py  churn.py  phrase.py  compass.py   performance modifiers
                         tracks.py     Project / Track — the authoritative musical state
                         engine_bridge.py  OSC to the engine   headless.py  the controller loop

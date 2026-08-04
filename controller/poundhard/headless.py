@@ -25,6 +25,7 @@ from pathlib import Path
 from . import catalog
 from . import lfo as lfomod
 from . import whim as whimmod
+from . import mastering as mastmod
 from . import phrase
 from .catalog import FX_SPECS, N_FX
 from .engine_bridge import EngineBridge
@@ -273,6 +274,7 @@ class Controller:
             for arg, val in self.state.macro_values(fx):
                 self.bridge.fxset(fx, arg, val)
             self.bridge.fxset(fx, "wet", self.state.fx_wet[fx])
+        self._push_master()     # the mastering chain: profile + every knob the user moved
         self.bridge.fxclear()   # drop any FX the engine still holds from a previous state
         for t in range(N_TRACKS):
             for fx in self.state.track_fx[t]:
@@ -740,6 +742,15 @@ class Controller:
                 self.bridge.strobeset(t, k, v)
         if changes or turn_on or turn_off:
             print("[poundhard] " + self._strobe.last_log, flush=True)
+
+    def _push_master(self) -> None:
+        """Send the whole mastering chain. Every control is lagged in the synth, so pushing
+        a complete set is a glide to the new profile rather than seventeen discontinuities."""
+        st = self.state
+        vals = mastmod.profile_values(st.master_profile)
+        vals.update({k: v for k, v in st.master_params.items() if k in mastmod.PARAMS})
+        for k, v in vals.items():
+            self.bridge.master(k, float(v))
 
     def _pat_addr(self, slot: int):
         """Resolve a pattern pad to a (seed, expansion) address.
@@ -1375,7 +1386,7 @@ class Controller:
         "fxassign", "fxbypass", "loadproj", "loadauto", "marklive",
         "steppaste", "rowpaste", "stepcycle", "stepfxcycle", "trackfilter", "stepwindow",
         "stepfilter",
-        "stepgen", "trackcopy", "expenter", "expfirst",
+        "stepgen", "trackcopy", "expenter", "expfirst", "mastprofile", "mastknob",
     })
     # Commands that change no persisted state — they don't mark the project dirty.
     _NO_STATE = frozenset({
@@ -1890,6 +1901,24 @@ class Controller:
             slot = int(arg)
             if 0 <= slot < N_PATTERNS:
                 self._load_project_file(slot)
+        elif cmd == "mastprofile":             # mastering view: pick a chain (or bypass)
+            idx = int(arg)
+            # pressing the LIT pad returns to bypass — there is always a way back to "no
+            # mastering" without hunting for one
+            st.master_profile = -1 if idx == st.master_profile else max(-1, min(mastmod.N_PROFILES - 1, idx))
+            st.master_params = {}              # a new profile starts from its own settings
+            self._push_master()
+            print("[poundhard] mastering: %s" % ("bypass" if st.master_profile < 0
+                  else mastmod.PROFILES[st.master_profile]["name"]), flush=True)
+        elif cmd == "mastknob":                # mastering view: one knob of the active chain
+            ki = int(p.get("knob", -1))
+            pos = float(p.get("pos", 0.5))
+            names = mastmod.knob_params(st.master_profile)
+            if 0 <= ki < len(names):
+                name = names[ki]
+                val = mastmod.denorm(name, pos)
+                st.master_params[name] = val
+                self.bridge.master(name, val)
         elif cmd == "lfopad":                  # modulation view: pad toggles one LFO
             slot = int(arg)
             if 0 <= slot < lfomod.N_LFO:
@@ -1973,6 +2002,13 @@ class Controller:
             "lfo": self._lfo.status(),         # 32 pads: 0 none / 1 assigned / 2 active
             "lfoOn": self._lfo.active(),
             "whim": self._whim_on,
+            "mast": st.master_profile,
+            "mastName": (mastmod.PROFILES[st.master_profile]["name"]
+                         if st.master_profile >= 0 else "BYPASS"),
+            "mastKnobs": [mastmod.label(n) for n in mastmod.knob_params(st.master_profile)],
+            "mastPos": [mastmod.norm(n, st.master_params.get(
+                n, mastmod.profile_values(st.master_profile).get(n, 0.0)))
+                for n in mastmod.knob_params(st.master_profile)],
             "heatPct": round(self._heat_pct, 3),
             # the project's scale, once something pitched has established it
             "scale": (None if st.scale_name is None

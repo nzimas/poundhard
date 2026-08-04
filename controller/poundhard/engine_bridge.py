@@ -219,6 +219,7 @@ class EngineBridge:
     def fxset(self, fx, arg, val):     self.send("/ph/fxset", int(fx), str(arg), float(val))
     def mastergain(self, g):           self.send("/ph/mastergain", float(g))
     def masterfilter(self, cut, res):  self.send("/ph/masterfilter", float(cut), float(res))
+    def master(self, name, val):       self.send("/ph/master", str(name), float(val))
     def panic(self):                   self.send("/ph/panic")
 
     def _h_smprec(self, *a):

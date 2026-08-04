@@ -948,6 +948,12 @@
 	OSCdef(\phVel,  { |m| ~vel[m[1].asInteger.clip(0, ~nTracks - 1)] = m[2].asFloat; }, '/ph/vel'),
 	OSCdef(\phSamp, { |m| ~sampLoad.(m[1].asInteger.clip(0, ~nTracks - 1), m[2].asInteger); }, '/ph/samp'),
 	OSCdef(\phMgain, { |m| ~masterSynth.notNil.if { ~masterSynth.set(\gain, m[1].asFloat) }; }, '/ph/mastergain'),
+	// MASTERING: one named parameter of the master chain. Every one of them is lagged inside
+	// the synth, so a profile change is a stream of these and the chain glides rather than
+	// jumping — no node is created, freed or reordered, which is why it cannot click.
+	OSCdef(\phMaster, { |m|
+		~masterSynth.notNil.if { ~masterSynth.set(m[1].asString.asSymbol, m[2].asFloat) };
+	}, '/ph/master'),
 	OSCdef(\phMfilter, { |m|
 		~masterSynth.notNil.if { ~masterSynth.set(\cutoff, m[1].asFloat, \res, m[2].asFloat) };
 	}, '/ph/masterfilter'),
