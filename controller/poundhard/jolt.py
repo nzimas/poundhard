@@ -244,63 +244,88 @@ def program_from_list(v: list) -> list:
 
 
 # --------------------------------------------------------------------------- #
-# AUTOMATIC RECONSTRUCTION. The level walks on its own, one step per N completed pattern
-# cycles — never on a timer, so it stays in lockstep with the step-sequencer tracks around it.
+# AUTOMATIC RECONSTRUCTION — excursions around a HOME level, never a free walk.
 #
-# The walk is the point. Drawing a level at random each time gives you eight unrelated bars
-# in a row and reads as switching rather than as playing; always stepping by one gives you a
-# ramp you can predict within two bars. So: mostly adjacent, occasionally a real jump, and an
-# explicit ban on the A-B-A-B flip that a naive random walk falls into constantly.
+# The pad selected on row 1 is the BASE: the main loop, and the thing the ear holds onto. The
+# automation leaves it for one or two cycles at a time and then comes back. It never chains
+# variation into variation, because that is how a break stops having an identity — after four
+# unrelated bars there is nothing left to be a variation OF.
+#
+#   base for N cycles -> a different level for 1 or 2 -> base again -> ...
+#
+# THE BASE PROGRAM IS KEPT, NOT REGENERATED. Coming home replays the exact program that was
+# playing before the excursion, so "the main loop" really is one loop rather than a fresh roll
+# at the same intensity every time. Only the excursions are newly generated.
 # --------------------------------------------------------------------------- #
-RATES = (1, 2, 3, 4, 5, 6, 7)     # pattern cycles between changes — pads 2..8
+RATES = (1, 2, 3, 4, 5, 6, 7)     # pattern cycles at the base between excursions — pads 2..8
+
+# How appealing a given distance from the base is for a temporary variation. Adjacent is a
+# little dull for a fill, and the far end of the range is a shock rather than a contrast, so
+# the weight peaks in the middle.
+_CONTRAST = {1: 0.8, 2: 1.0, 3: 1.0, 4: 0.8, 5: 0.6, 6: 0.45, 7: 0.3}
 
 
-class Wander:
-    """Picks the next reconstruction level."""
+class Excursion:
+    """Decides when to leave the base level, where to go, and when to come home."""
 
-    def __init__(self, level: int = 2, rng: random.Random | None = None):
+    def __init__(self, base: int = 2, every: int = 2, rng: random.Random | None = None):
         self.rng = rng or random.Random()
-        self.level = max(0, min(N_LEVELS - 1, level))
-        self.recent = [self.level]
+        self.base = max(0, min(N_LEVELS - 1, base))
+        self.every = max(1, int(every))
+        self.at_base = True
+        self.count = 0
+        self.away_left = 0
+        self.last_away = -1
 
-    def _oscillating(self, cand: int) -> bool:
-        """Would taking `cand` make the last four levels an A-B-A-B flip?
+    def set_base(self, level: int) -> None:
+        """The performer picked a row-1 pad. That is home from now on."""
+        self.base = max(0, min(N_LEVELS - 1, level))
+        self.at_base = True
+        self.count = 0
+        self.away_left = 0
 
-        Taking `cand` yields the tail (r[-3], r[-2], r[-1], cand). That is A-B-A-B exactly
-        when r[-3] == r[-1] and r[-2] == cand. Note this bans the FOURTH element, not the
-        third: A-B-A is a perfectly good musical move (step away, come back) and only the
-        second return makes it a flip.
+    def pick(self) -> int:
+        """Where to go for this excursion.
+
+        Extreme levels are held back UNLESS the base is already complex — dropping RUPTURE
+        into a STRAIGHT loop every other bar is not contrast, it is a different piece of
+        music. When the base is itself near the top, the whole range is fair game.
         """
-        r = self.recent
-        return (len(r) >= 3 and r[-3] == r[-1] and r[-2] == cand and cand != r[-1])
-
-    def next(self) -> int:
         rng = self.rng
-        cur = self.level
-        for _ in range(12):
-            roll = rng.random()
-            if roll < 0.58:                       # a neighbour: the usual move
-                step = rng.choice((-1, 1))
-            elif roll < 0.85:                     # a short hop
-                step = rng.choice((-2, 2))
-            else:                                 # occasionally somewhere else entirely
-                step = rng.choice((-4, -3, 3, 4))
-            cand = cur + step
-            # REFLECT at the ends rather than clamping. Clamping parks the walk on level 1 or
-            # 8 for bars at a time, because half of every draw lands outside the range and
-            # comes back to where it already was.
-            if cand < 0:
-                cand = -cand
-            if cand > N_LEVELS - 1:
-                cand = (2 * (N_LEVELS - 1)) - cand
-            cand = max(0, min(N_LEVELS - 1, cand))
-            if cand != cur and not self._oscillating(cand):
-                self.level = cand
-                self.recent.append(cand)
-                del self.recent[:-4]
-                return cand
-        # every candidate was rejected (a corner of the state space) — take any neighbour
-        self.level = max(0, min(N_LEVELS - 1, cur + rng.choice((-1, 1))))
-        self.recent.append(self.level)
-        del self.recent[:-4]
-        return self.level
+        cands, weights = [], []
+        for c in range(N_LEVELS):
+            if c == self.base:
+                continue
+            w = _CONTRAST.get(abs(c - self.base), 0.3)
+            if c >= 6:
+                w *= 0.35 + 0.65 * (self.base / (N_LEVELS - 1))
+            if c == self.last_away:
+                w *= 0.35            # don't reach for the same variation twice running
+            cands.append(c)
+            weights.append(max(0.01, w))
+        pick = rng.choices(cands, weights=weights)[0]
+        self.last_away = pick
+        return pick
+
+    def tick(self):
+        """One completed pattern cycle.
+
+        Returns the level that should be playing NOW if it just changed, else None. A second
+        value says whether that is the base (so the caller can restore the kept program
+        rather than generate a new one).
+        """
+        if self.at_base:
+            self.count += 1
+            if self.count < self.every:
+                return None, False
+            self.count = 0
+            self.at_base = False
+            # one cycle usually, two when the excursion should read as a section rather than
+            # a stumble
+            self.away_left = 1 if self.rng.random() < 0.7 else 2
+            return self.pick(), False
+        self.away_left -= 1
+        if self.away_left > 0:
+            return None, False
+        self.at_base = True
+        return self.base, True

@@ -239,7 +239,7 @@ const JOLT_ON = [33, 25, 28, 9, 4, 6, 3, 1];    /* the same heat ramp as the mas
 const JOLT_OFF = [117, 106, 108, 74, 84, 71, 76, 66];
 /* Row 4: pad 1 toggles automatic reconstruction, pads 2-8 set how many completed pattern
  * cycles pass between level changes (1..7, slower to the right). */
-let joltAuto = {}, joltEvery = {};
+let joltAuto = {}, joltEvery = {}, joltBase = {};
 const JOLT_AUTO_ON = 26, JOLT_AUTO_OFF = 66;      /* orange pulse / dim brick, like QUAKE */
 const JOLT_RATE_ON = 14, JOLT_RATE_OFF = 87;      /* cyan / dark teal */
 const JOLT_ROW4 = 24;
@@ -604,7 +604,15 @@ function renderLEDs() {
         const au = !!joltAuto[jk], ev = joltEvery[jk] || 2;
         for (let c = 0; c < 32; c++) {
             let color = Black;
-            if (c < 8) color = (c === lv) ? JOLT_ON[c] : JOLT_OFF[c];
+            if (c < 8) {
+                /* HOME is steady, the excursion PULSES. Lighting only the current level
+                 * would lose the one thing the performer needs to know — which pad the
+                 * automation is coming back to. */
+                const bs = (joltBase[jk] == null) ? lv : joltBase[jk];
+                if (c === bs) color = JOLT_ON[c];
+                else if (c === lv) color = (phase % 8 < 4) ? JOLT_ON[c] : JOLT_OFF[c];
+                else color = JOLT_OFF[c];
+            }
             else if (c === JOLT_ROW4) color = au ? ((phase % 16 < 8) ? JOLT_AUTO_ON : 2)
                                                 : JOLT_AUTO_OFF;
             else if (c > JOLT_ROW4 && c < JOLT_ROW4 + 8)
@@ -964,16 +972,21 @@ function drawFx() {
 }
 function drawJolt() {
     clear_screen();
-    const lv = joltLevel[String(editTrack)];
+    const k = String(editTrack);
+    const lv = joltLevel[k];
+    const bs = (joltBase[k] == null) ? lv : joltBase[k];
     const nm = ['STRAIGHT','NUDGE','CHOP','ROLL','FRACTURE','MANGLE','SHRED','RUPTURE'];
-    drawParamBig('JOLT T' + (editTrack + 1), lv == null ? '-' : nm[lv],
+    /* While away, the readout names the variation and marks it as a departure — the base is
+     * on the line below, so both are visible at once. */
+    drawParamBig('JOLT T' + (editTrack + 1),
+                 lv == null ? '-' : ((lv !== bs ? '>' : '') + nm[lv]),
                  'uni', lv == null ? 0 : clampf((lv + 1) / 8, 0, 1));
     const b = joltBreak[String(editTrack)] || '';
     print(0, 44, b ? b.slice(0, 28) : 'row 1 = variation  1 > 8', 1);
     /* The knobs are the same as every other engine's — say so, because the pads look like a
      * different instrument and nothing else on this screen suggests they are still there. */
     const au = !!joltAuto[String(editTrack)], ev = joltEvery[String(editTrack)] || 2;
-    print(0, 56, au ? ('AUTO every ' + ev + (ev === 1 ? ' cycle' : ' cycles'))
+    print(0, 56, au ? ('base ' + (bs + 1) + '  every ' + ev + (ev === 1 ? ' cycle' : ' cycles'))
                     : 'k1vol k2pan k3mac k4-6filt', 1);
 }
 
@@ -1229,6 +1242,7 @@ function readStatus() {
     if (s.joltLevel) joltLevel = s.joltLevel;
     if (s.joltBreak) joltBreak = s.joltBreak;
     if (s.joltAuto) joltAuto = s.joltAuto;
+    if (s.joltBase) joltBase = s.joltBase;
     if (s.joltEvery) joltEvery = s.joltEvery;
     if (s.mast != null) mast = s.mast | 0;
     if (s.mastName != null) mastName = s.mastName;
@@ -1348,7 +1362,7 @@ globalThis.init = function () {
     recView = false; recSlots = new Array(8).fill(false); recSlot = -1; recState = 'idle'; recElapsed = 0;
     modView = false; lfoState = new Array(32).fill(0); lfoOn = 0; lfoLast = '';
     mastView = false; mast = -1; mastName = 'BYPASS'; mastKnobs = []; mastPos = [];
-    joltLevel = {}; joltBreak = {}; joltAuto = {}; joltEvery = {};
+    joltLevel = {}; joltBreak = {}; joltAuto = {}; joltEvery = {}; joltBase = {};
     expFilled = new Array(16).fill(false); expSeed = -1; expCur = -1;
     whimOn = false; whimHeld = false;
     solo = -1; lastTapAt = new Array(N_TRACKS).fill(0);

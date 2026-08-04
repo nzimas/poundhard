@@ -752,6 +752,16 @@ class Controller:
             print("[poundhard] jolt: %d breaks indexed" % len(self._breaks), flush=True)
         return self._breaks
 
+    def _jolt_apply(self, t: int, prog: list, level: int) -> None:
+        """Play an already-generated program. Used when returning to the base, where
+        generating would defeat the point of having a base at all."""
+        j = self._jolt.get(t)
+        if not j:
+            return
+        j["prog"], j["level"] = prog, level
+        for i, s in enumerate(prog):
+            self.bridge.joltprog(t, i, s.as_dict())
+
     def _jolt_push(self, t: int) -> None:
         """Send a track's break, its tempo stretch and its whole 16-step program."""
         j = self._jolt.get(t)
@@ -775,14 +785,20 @@ class Controller:
         lv = cur.get("level", 2) if level is None else max(0, min(joltmod.N_LEVELS - 1, level))
         b = brk or cur.get("brk") or random.choice(lib)
         prev = self._jolt.get(t) or {}
-        self._jolt[t] = {"brk": b, "level": lv, "prog": joltmod.generate(b, lv),
+        prog = joltmod.generate(b, lv)
+        exc = prev.get("exc") or joltmod.Excursion(lv, prev.get("every", 2))
+        exc.set_base(lv)
+        self._jolt[t] = {"brk": b, "level": lv, "prog": prog,
+                         # THE BASE. Row 1 chooses it, and it is home until the performer
+                         # chooses another. The base PROGRAM is kept, not regenerated, so
+                         # coming back from an excursion returns to the same loop rather
+                         # than a fresh roll at the same intensity.
+                         "base": lv, "base_prog": prog,
                          # automation survives a re-roll: switching break or level by hand
-                         # should not silently turn the walk off under the performer
+                         # should not silently turn it off under the performer
                          "auto": prev.get("auto", False),
                          "every": prev.get("every", 2),
-                         "count": prev.get("count", 0),
-                         "walk": prev.get("walk") or joltmod.Wander(lv)}
-        self._jolt[t]["walk"].level = lv
+                         "exc": exc}
         # a Jolt track is one bar of sixteenths: every step fires, and the PROGRAM decides
         # what (or whether) it plays
         tr = self.state.tracks[t]
@@ -794,26 +810,32 @@ class Controller:
         return True
 
     def _jolt_tick(self) -> None:
-        """One completed pattern cycle. Any Jolt track with automation on counts it, and
-        rebuilds at a new level when its interval elapses.
+        """One completed pattern cycle.
 
         COUNTED IN CYCLES, NEVER IN TIME. This runs off /ph/cycle — the same bar boundary the
-        step-sequencer tracks turn on — so a Jolt track changes level in lockstep with the
-        rest of the composition and a tempo change cannot pull it out of phase.
+        step-sequencer tracks turn on — so a Jolt track leaves and returns in lockstep with
+        the rest of the composition and a tempo change cannot pull it out of phase.
         """
         if not self.state.running:
             return
         for t, j in list(self._jolt.items()):
             if not j.get("auto"):
                 continue
-            j["count"] = j.get("count", 0) + 1
-            if j["count"] < max(1, int(j.get("every", 2))):
+            exc = j["exc"]
+            exc.every = max(1, int(j.get("every", 2)))
+            lvl, home = exc.tick()
+            if lvl is None:
                 continue
-            j["count"] = 0
-            lv = j["walk"].next()
-            self._jolt_new(t, lv)
-            print("[poundhard] jolt T%d auto -> %s" % (t + 1, joltmod.LEVELS[lv]["name"]),
-                  flush=True)
+            if home:
+                # BACK TO THE LOOP — the kept program, not a new one at the same level
+                self._jolt_apply(t, j["base_prog"], j["base"])
+                print("[poundhard] jolt T%d -> base %s"
+                      % (t + 1, joltmod.LEVELS[j["base"]]["name"]), flush=True)
+            else:
+                self._jolt_apply(t, joltmod.generate(j["brk"], lvl), lvl)
+                print("[poundhard] jolt T%d excursion -> %s (%d cycle%s)"
+                      % (t + 1, joltmod.LEVELS[lvl]["name"], exc.away_left,
+                         "" if exc.away_left == 1 else "s"), flush=True)
 
     def _push_master(self) -> None:
         """Send the whole mastering chain. Every control is lagged in the synth, so pushing
@@ -1997,7 +2019,9 @@ class Controller:
             j = self._jolt.get(t)
             if j is not None:
                 j["auto"] = not j.get("auto", False)
-                j["count"] = 0
+                # switching on always starts a full interval at the base, so the first
+                # excursion never lands immediately after the press
+                j["exc"].set_base(j.get("base", j["level"]))
                 print("[poundhard] jolt T%d auto %s (every %d cycle%s)"
                       % (t + 1, "ON" if j["auto"] else "off", j.get("every", 2),
                          "" if j.get("every", 2) == 1 else "s"), flush=True)
@@ -2007,7 +2031,8 @@ class Controller:
             n = int(arg)
             if j is not None and 0 <= n < len(joltmod.RATES):
                 j["every"] = joltmod.RATES[n]
-                j["count"] = 0
+                j["exc"].every = j["every"]
+                j["exc"].count = 0
                 print("[poundhard] jolt T%d every %d cycles" % (t + 1, j["every"]), flush=True)
         elif cmd == "joltbreak":               # jolt view: a different break, same level
             t = int(p.get("track", st.edit_track))
@@ -2118,6 +2143,7 @@ class Controller:
             "lfoOn": self._lfo.active(),
             "whim": self._whim_on,
             "joltLevel": {str(k): v["level"] for k, v in self._jolt.items()},
+            "joltBase": {str(k): v.get("base", v["level"]) for k, v in self._jolt.items()},
             "joltAuto": {str(k): bool(v.get("auto")) for k, v in self._jolt.items()},
             "joltEvery": {str(k): int(v.get("every", 2)) for k, v in self._jolt.items()},
             "joltBreak": {str(k): v["brk"].name for k, v in self._jolt.items()},

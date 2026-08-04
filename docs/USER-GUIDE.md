@@ -699,22 +699,40 @@ for a different take of the same character. The generation gestures are the ones
 use everywhere else, and **Shift + Track 1** takes a different break (a Jolt track's *sound*
 is its break, so the re-roll gesture means the same thing here as anywhere).
 
-**Row 4 automates the level.** The first pad toggles automatic reconstruction; the seven to
-its right set how many completed pattern cycles pass between changes — 1, 2, 3, 4, 5, 6, 7,
-slower to the right. With it on, Jolt navigates the eight levels by itself.
+**Row 4 automates the level, around a home.** The first pad toggles automation; the seven to
+its right set how many completed pattern cycles pass at the base before it leaves — 1, 2, 3,
+4, 5, 6, 7, slower to the right.
 
-The walk is chosen, not random. Measured over 4000 changes: **62% move to an adjacent level**,
-28% hop two, 11% jump further, and **A-B-A-B oscillation never occurs** — a naive random walk
-falls into that flip about 9% of the time and it is instantly recognisable as a machine
-switching rather than a performer playing. All eight levels are reached (7–15% each); the
-walk *reflects* at the ends rather than clamping, because clamping parks it on level 1 or 8
-for bars at a time.
+**Whichever row-1 pad you selected is the BASE** — the main loop, and home. Automation leaves
+it for one or two cycles, then comes back:
+
+```
+base for N cycles  ->  a different level for 1 or 2  ->  base again  ->  ...
+```
+
+It **never chains one variation into another**. After four unrelated bars there is nothing
+left to be a variation *of*, which is exactly how a break loses its identity. The base stays
+home until *you* pick another row-1 pad.
+
+**Coming home restores the same loop.** The base program is kept, not regenerated — so
+returning replays the exact bar that was playing before the excursion rather than a fresh
+roll at the same intensity. Only the excursions are newly generated, and each is different.
+
+**Row 1 shows both**: the base pad is lit steady, and while away the pad it has gone to
+*pulses*. The readout marks a departure with `>` (`>SHRED`), with the base named on the line
+below — you can always see where it is and where it is coming back to.
+
+**Extremes are held back unless the base is already complex.** Measured across 6000
+excursions, the top two levels are chosen 6.2% of the time under base 1 and 27.1% under
+base 6: dropping RUPTURE into a STRAIGHT loop every other bar is not contrast, it is a
+different piece of music. The base itself is never chosen as its own variation, and the same
+variation is unlikely to be reached for twice running.
 
 **Counted in pattern cycles, never in time.** The tick runs off the same bar boundary the
-step-sequencer tracks turn on, so a Jolt track changes level in lockstep with everything
-around it and a tempo change cannot pull it out of phase. Measured at 120 BPM: at *every 1
-cycle* changes land 1.90–2.15 s apart against a 2.00 s bar, and at *every 3 cycles* they land
-5.90–5.99 s apart against 6.00 s, with no accumulating error over six intervals.
+step-sequencer tracks turn on, so a Jolt track leaves and returns in lockstep with everything
+around it and a tempo change cannot pull it out of phase. Measured at 120 BPM with the
+interval at 2 cycles: the base holds 3.84–4.08 s against a 4.00 s expectation, and excursions
+last 1.95 s or 3.84 s — one or two bars exactly.
 
 **The knobs are the usual ones** — k1 volume, k2 pan, k3 macro, k4/k5/k6 cutoff, resonance
 and filter type — exactly as on any other engine, and the giant readout shows them while you
