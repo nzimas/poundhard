@@ -774,7 +774,15 @@ class Controller:
         cur = self._jolt.get(t) or {}
         lv = cur.get("level", 2) if level is None else max(0, min(joltmod.N_LEVELS - 1, level))
         b = brk or cur.get("brk") or random.choice(lib)
-        self._jolt[t] = {"brk": b, "level": lv, "prog": joltmod.generate(b, lv)}
+        prev = self._jolt.get(t) or {}
+        self._jolt[t] = {"brk": b, "level": lv, "prog": joltmod.generate(b, lv),
+                         # automation survives a re-roll: switching break or level by hand
+                         # should not silently turn the walk off under the performer
+                         "auto": prev.get("auto", False),
+                         "every": prev.get("every", 2),
+                         "count": prev.get("count", 0),
+                         "walk": prev.get("walk") or joltmod.Wander(lv)}
+        self._jolt[t]["walk"].level = lv
         # a Jolt track is one bar of sixteenths: every step fires, and the PROGRAM decides
         # what (or whether) it plays
         tr = self.state.tracks[t]
@@ -784,6 +792,28 @@ class Controller:
         self.bridge.pattern(t, tr.pattern)
         self._jolt_push(t)
         return True
+
+    def _jolt_tick(self) -> None:
+        """One completed pattern cycle. Any Jolt track with automation on counts it, and
+        rebuilds at a new level when its interval elapses.
+
+        COUNTED IN CYCLES, NEVER IN TIME. This runs off /ph/cycle — the same bar boundary the
+        step-sequencer tracks turn on — so a Jolt track changes level in lockstep with the
+        rest of the composition and a tempo change cannot pull it out of phase.
+        """
+        if not self.state.running:
+            return
+        for t, j in list(self._jolt.items()):
+            if not j.get("auto"):
+                continue
+            j["count"] = j.get("count", 0) + 1
+            if j["count"] < max(1, int(j.get("every", 2))):
+                continue
+            j["count"] = 0
+            lv = j["walk"].next()
+            self._jolt_new(t, lv)
+            print("[poundhard] jolt T%d auto -> %s" % (t + 1, joltmod.LEVELS[lv]["name"]),
+                  flush=True)
 
     def _push_master(self) -> None:
         """Send the whole mastering chain. Every control is lagged in the synth, so pushing
@@ -1147,6 +1177,7 @@ class Controller:
         self._compass_tick()
         self._strobe_tick()
         self._whim_tick()
+        self._jolt_tick()
         """Bar boundary (from the engine): fire any living steps whose period has elapsed
         (transient model — they revert next cycle), then apply a queued pattern switch."""
         with self._lock:
@@ -1434,7 +1465,7 @@ class Controller:
         "steppaste", "rowpaste", "stepcycle", "stepfxcycle", "trackfilter", "stepwindow",
         "stepfilter",
         "stepgen", "trackcopy", "expenter", "expfirst", "mastprofile", "mastknob",
-        "joltpad", "joltbreak",
+        "joltpad", "joltbreak", "joltauto", "joltrate",
     })
     # Commands that change no persisted state — they don't mark the project dirty.
     _NO_STATE = frozenset({
@@ -1961,6 +1992,23 @@ class Controller:
                     print("[poundhard] jolt T%d: %s (%s)"
                           % (t + 1, joltmod.LEVELS[lv]["name"],
                              self._jolt[t]["brk"].name), flush=True)
+        elif cmd == "joltauto":                # jolt view, row 4 pad 1: automation on/off
+            t = int(p.get("track", st.edit_track))
+            j = self._jolt.get(t)
+            if j is not None:
+                j["auto"] = not j.get("auto", False)
+                j["count"] = 0
+                print("[poundhard] jolt T%d auto %s (every %d cycle%s)"
+                      % (t + 1, "ON" if j["auto"] else "off", j.get("every", 2),
+                         "" if j.get("every", 2) == 1 else "s"), flush=True)
+        elif cmd == "joltrate":                # jolt view, row 4 pads 2-8: cycles per change
+            t = int(p.get("track", st.edit_track))
+            j = self._jolt.get(t)
+            n = int(arg)
+            if j is not None and 0 <= n < len(joltmod.RATES):
+                j["every"] = joltmod.RATES[n]
+                j["count"] = 0
+                print("[poundhard] jolt T%d every %d cycles" % (t + 1, j["every"]), flush=True)
         elif cmd == "joltbreak":               # jolt view: a different break, same level
             t = int(p.get("track", st.edit_track))
             lib = self._break_library()
@@ -2070,6 +2118,8 @@ class Controller:
             "lfoOn": self._lfo.active(),
             "whim": self._whim_on,
             "joltLevel": {str(k): v["level"] for k, v in self._jolt.items()},
+            "joltAuto": {str(k): bool(v.get("auto")) for k, v in self._jolt.items()},
+            "joltEvery": {str(k): int(v.get("every", 2)) for k, v in self._jolt.items()},
             "joltBreak": {str(k): v["brk"].name for k, v in self._jolt.items()},
             "mast": st.master_profile,
             "mastName": (mastmod.PROFILES[st.master_profile]["name"]

@@ -237,6 +237,12 @@ let mastView = false;
 let joltLevel = {}, joltBreak = {};
 const JOLT_ON = [33, 25, 28, 9, 4, 6, 3, 1];    /* the same heat ramp as the mastering row */
 const JOLT_OFF = [117, 106, 108, 74, 84, 71, 76, 66];
+/* Row 4: pad 1 toggles automatic reconstruction, pads 2-8 set how many completed pattern
+ * cycles pass between level changes (1..7, slower to the right). */
+let joltAuto = {}, joltEvery = {};
+const JOLT_AUTO_ON = 26, JOLT_AUTO_OFF = 66;      /* orange pulse / dim brick, like QUAKE */
+const JOLT_RATE_ON = 14, JOLT_RATE_OFF = 87;      /* cyan / dark teal */
+const JOLT_ROW4 = 24;
 let mast = -1, mastName = 'BYPASS', mastKnobs = [], mastPos = [];
 /* a heat map across the row: cool at the gentle end, incandescent at the destructive one */
 const MAST_COLORS = [33, 25, 28, 9, 4, 6, 3, 1];
@@ -593,10 +599,16 @@ function renderStepButtons() {
 }
 function renderLEDs() {
     if (editTrack >= 0 && editType === 'JOLT' && !fxView) {
-        const lv = joltLevel[String(editTrack)];
+        const jk = String(editTrack);
+        const lv = joltLevel[jk];
+        const au = !!joltAuto[jk], ev = joltEvery[jk] || 2;
         for (let c = 0; c < 32; c++) {
             let color = Black;
             if (c < 8) color = (c === lv) ? JOLT_ON[c] : JOLT_OFF[c];
+            else if (c === JOLT_ROW4) color = au ? ((phase % 16 < 8) ? JOLT_AUTO_ON : 2)
+                                                : JOLT_AUTO_OFF;
+            else if (c > JOLT_ROW4 && c < JOLT_ROW4 + 8)
+                color = ((c - JOLT_ROW4) === ev) ? JOLT_RATE_ON : JOLT_RATE_OFF;
             setLED(PAD_NOTES[c], color);
         }
         renderStepButtons();
@@ -960,7 +972,9 @@ function drawJolt() {
     print(0, 44, b ? b.slice(0, 28) : 'row 1 = variation  1 > 8', 1);
     /* The knobs are the same as every other engine's — say so, because the pads look like a
      * different instrument and nothing else on this screen suggests they are still there. */
-    print(0, 56, 'k1vol k2pan k3mac k4-6filt', 1);
+    const au = !!joltAuto[String(editTrack)], ev = joltEvery[String(editTrack)] || 2;
+    print(0, 56, au ? ('AUTO every ' + ev + (ev === 1 ? ' cycle' : ' cycles'))
+                    : 'k1vol k2pan k3mac k4-6filt', 1);
 }
 
 function drawMast() {
@@ -1214,6 +1228,8 @@ function readStatus() {
     if (s.lfoOn != null) lfoOn = s.lfoOn | 0;
     if (s.joltLevel) joltLevel = s.joltLevel;
     if (s.joltBreak) joltBreak = s.joltBreak;
+    if (s.joltAuto) joltAuto = s.joltAuto;
+    if (s.joltEvery) joltEvery = s.joltEvery;
     if (s.mast != null) mast = s.mast | 0;
     if (s.mastName != null) mastName = s.mastName;
     if (Array.isArray(s.mastKnobs)) mastKnobs = s.mastKnobs;
@@ -1332,7 +1348,7 @@ globalThis.init = function () {
     recView = false; recSlots = new Array(8).fill(false); recSlot = -1; recState = 'idle'; recElapsed = 0;
     modView = false; lfoState = new Array(32).fill(0); lfoOn = 0; lfoLast = '';
     mastView = false; mast = -1; mastName = 'BYPASS'; mastKnobs = []; mastPos = [];
-    joltLevel = {}; joltBreak = {};
+    joltLevel = {}; joltBreak = {}; joltAuto = {}; joltEvery = {};
     expFilled = new Array(16).fill(false); expSeed = -1; expCur = -1;
     whimOn = false; whimHeld = false;
     solo = -1; lastTapAt = new Array(N_TRACKS).fill(0);
@@ -1389,6 +1405,7 @@ globalThis.tick = function () {
     if (recView && recState !== 'idle') ledDirty = true;          /* animate the rec/armed pad */
     if (editTrack >= 0 && !fxView) { for (var _lv = 0; _lv < N_STEPS; _lv++) if (editLiving[_lv]) { ledDirty = true; break; } }  /* pulse living steps */
     if (pasteFlash >= 0 && phase < pasteFlashUntil + 2) ledDirty = true;
+    if (editTrack >= 0 && editType === 'JOLT' && joltAuto[String(editTrack)]) ledDirty = true;
     if ((heatOn || shufOn || quakeOn || churnOn || brkOn || strobeOn || whimOn || armedSet.quake) && editTrack < 0 && !fxView && !patView && !projView && !recView) ledDirty = true;   /* pulse the six modifier pads */
     /* promote a sustained press on the SAMPLE pad into a HOLD (record-arm) */
     if (paletteHeld === SAMPLE_CELL && !smpHold && (Date.now() - paletteHeldStart) >= HOLD_MS) {
@@ -1587,10 +1604,22 @@ globalThis.onMidiMessageInternal = function (data) {
     if (editTrack >= 0 && editType === 'JOLT' && !fxView && (status === 0x90 || status === 0x80) && d1 >= 68 && d1 <= 99) {
         if (status === 0x90 && d2 > 0) {
             const cell = NOTE_TO_CELL[d1];
+            const k = String(editTrack);
             if (cell < 8) {
                 sendCmd('joltpad', cell, { p: { track: editTrack } });
-                joltLevel[String(editTrack)] = cell;          /* optimistic */
+                joltLevel[k] = cell;                          /* optimistic */
                 showAction('JOLT ' + (cell + 1));
+                ledDirty = true; screenDirty = true;
+            } else if (cell === JOLT_ROW4) {                  /* automation on/off */
+                sendCmd('joltauto', -1, { p: { track: editTrack } });
+                joltAuto[k] = !joltAuto[k];
+                showAction(joltAuto[k] ? 'AUTO ON' : 'AUTO OFF');
+                ledDirty = true; screenDirty = true;
+            } else if (cell > JOLT_ROW4 && cell < JOLT_ROW4 + 8) {
+                const n = cell - JOLT_ROW4 - 1;               /* 0..6 -> every 1..7 cycles */
+                sendCmd('joltrate', n, { p: { track: editTrack } });
+                joltEvery[k] = n + 1;
+                showAction('EVERY ' + (n + 1) + (n ? ' CYCLES' : ' CYCLE'));
                 ledDirty = true; screenDirty = true;
             }
         }

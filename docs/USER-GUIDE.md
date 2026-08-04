@@ -696,7 +696,29 @@ variation pads**, left to right:
 
 Tapping a pad generates a **new** break program at that intensity — press the same pad again
 for a different take of the same character. The generation gestures are the ones you already
-use everywhere else.
+use everywhere else, and **Shift + Track 1** takes a different break (a Jolt track's *sound*
+is its break, so the re-roll gesture means the same thing here as anywhere).
+
+**Row 4 automates the level.** The first pad toggles automatic reconstruction; the seven to
+its right set how many completed pattern cycles pass between changes — 1, 2, 3, 4, 5, 6, 7,
+slower to the right. With it on, Jolt navigates the eight levels by itself.
+
+The walk is chosen, not random. Measured over 4000 changes: **62% move to an adjacent level**,
+28% hop two, 11% jump further, and **A-B-A-B oscillation never occurs** — a naive random walk
+falls into that flip about 9% of the time and it is instantly recognisable as a machine
+switching rather than a performer playing. All eight levels are reached (7–15% each); the
+walk *reflects* at the ends rather than clamping, because clamping parks it on level 1 or 8
+for bars at a time.
+
+**Counted in pattern cycles, never in time.** The tick runs off the same bar boundary the
+step-sequencer tracks turn on, so a Jolt track changes level in lockstep with everything
+around it and a tempo change cannot pull it out of phase. Measured at 120 BPM: at *every 1
+cycle* changes land 1.90–2.15 s apart against a 2.00 s bar, and at *every 3 cycles* they land
+5.90–5.99 s apart against 6.00 s, with no accumulating error over six intervals.
+
+**The knobs are the usual ones** — k1 volume, k2 pan, k3 macro, k4/k5/k6 cutoff, resonance
+and filter type — exactly as on any other engine, and the giant readout shows them while you
+turn.
 
 **Measured across the eight**, 300 seeds each: rearrangement rises 8.8% → 92.3%, stutter
 2.2% → 51.1%, reverse 0.6% → 32.4%, glitch 0% → 73.5% — every one monotonic. The **downbeat
