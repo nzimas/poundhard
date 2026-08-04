@@ -101,7 +101,7 @@ TYPE_INDEX = {"EMPTY": -1, "DRUM": 0, "FM7": 1, "BUCHLOID": 2, "MOLLY": 3,
               "RINGS": 4, "BEN": 5, "NOIZEOP": 6, "ICARUS": 7, "PLAITS": 8,
               "SHAKER": 9, "MEMBRANE": 10, "MALLET": 11, "BOWED": 12,
               "PLUCK": 13, "TUBE": 14, "CHAOS": 15, "WTABLE": 16, "BYTEBEAT": 17,
-              "SAMPLE": 18, "CSOUND": 19, "MIC": 20}
+              "SAMPLE": 18, "CSOUND": 19, "MIC": 20, "JOLT": 21}
 
 
 def _wt_sprite_count() -> int:
@@ -974,11 +974,32 @@ SAMPLE = VoiceSpec(
     ],
 )
 
+JOLT = VoiceSpec(
+    type="JOLT",
+    role="Procedural breakbeat: slices a real break and rearranges it, always on the grid.",
+    synthdef="phJolt",
+    params=[
+        # The break itself, the slice program and the tempo stretch are NOT parameters — they
+        # are engine state pushed over /ph/joltload, /ph/joltprog and /ph/joltstretch. What is
+        # exposed here is how the slices SOUND once the program has decided which ones play.
+        P("jolt.cutoff", "Cutoff", unit="Hz", rmin=60.0, rmax=18000.0, default=16000.0,
+          curve=Curve.EXP, formatter="hz", musical=(400.0, 18000.0)),
+        P("jolt.res", "Resonance", default=0.1, musical=(0.0, 0.6)),
+        P("jolt.drive", "Drive", rmin=0.1, rmax=6.0, default=1.0, musical=(0.4, 3.0)),
+        P("jolt.attack", "Attack", unit="s", rmin=0.0002, rmax=0.2, default=0.001,
+          curve=Curve.EXP, musical=(0.0002, 0.02)),
+        P("jolt.release", "Release", unit="s", rmin=0.003, rmax=2.0, default=0.02,
+          curve=Curve.EXP, musical=(0.005, 0.3)),
+        *_COMMON_TAIL("jolt", ampd=0.6, ampmus=(0.4, 0.95)),
+    ],
+)
+
+
 VOICES: dict[str, VoiceSpec] = {v.type: v for v in
                                 (DRUM, FM7, BUCHLOID, MOLLY, RINGS, BEN, NOIZEOP, ICARUS,
                                  PLAITS, SHAKER, MEMBRANE, MALLET, BOWED, PLUCK, TUBE, CHAOS,
                                  MIC,
-                                 WTABLE, BYTEBEAT, SAMPLE, CSOUND)}
+                                 WTABLE, BYTEBEAT, SAMPLE, CSOUND, JOLT)}
 
 
 def param_spec(voice_type: str, pid: str):

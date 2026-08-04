@@ -17,7 +17,7 @@
 
 ~nTracks = 16;
 ~maxSteps = 32;
-~typeDefs = [\phDrum, \phFm7, \phBuchloid, \phMolly, \phRings, \phBen, \phNoizeop, \phIcarus, \phPlaits, \phShaker, \phMembrane, \phMallet, \phBowed, \phPluck, \phTube, \phChaos, \phWtable, \phBytebeat, \phSampleVoice, \phCsound, \phSampleVoice];   // 20 = MIC: same playback voice, mic-captured buffer  // /ph/track type index (-1 = empty/unassigned)
+~typeDefs = [\phDrum, \phFm7, \phBuchloid, \phMolly, \phRings, \phBen, \phNoizeop, \phIcarus, \phPlaits, \phShaker, \phMembrane, \phMallet, \phBowed, \phPluck, \phTube, \phChaos, \phWtable, \phBytebeat, \phSampleVoice, \phCsound, \phSampleVoice, \phJolt];   // 20 = MIC: same playback voice, mic-captured buffer  // /ph/track type index (-1 = empty/unassigned)
 // DRUM is split into per-mode defs (chosen from the track's `mode` param at spawn).
 ~drumDefs = [\phDrumKick, \phDrumSnare, \phDrumHat, \phDrumMetal, \phDrumClap, \phDrumTom, \phDrumNoise];
 
@@ -328,6 +328,14 @@
 // inputs. Two halves: a PERSISTENT SC voice carrying that pair onto the track bus (so
 // the FX chain, filter, sends and master all apply), and a score event fired at Csound
 // over UDP per hit. Nothing spawns per hit on this side — the audio is already flowing.
+// JOLT: one break buffer per track, plus the 16-step break PROGRAM the controller
+// generates. The program lives here rather than travelling with every hit because a step
+// carries seven numbers (slice, rate, reverse, gate, crush, decimate, level) and sending
+// those on the wire per strike would be a message storm at sixteenth notes.
+~joltBuf   = Array.newClear(16);
+~joltSlices = Array.fill(16, { 16 });
+~joltProg  = Array.fill(16, { Array.fill(16, { [0, 1.0, 0, 1.0, 0, 0, 1.0, 1] }) });
+~joltStretch = Array.fill(16, { 1.0 });
 ~csAddr  = NetAddr("127.0.0.1", 11000);        // Csound's UDP server (--port=11000)
 ~csVoice = Array.fill(~nTracks, { nil });
 // what the carrier was last told, so a hit that changes nothing sets nothing
@@ -523,6 +531,22 @@
 		args = [\note, nn, \vel, vv] ++ merged.getPairs;
 		(def == \phSampler).if {
 			args = args ++ [\buf, ~sampBuf[t].notNil.if({ ~sampBuf[t].bufnum }, { ~silentBuf.bufnum })];
+		};
+		(def == \phJolt).if {
+			// The step index IS the program index: a Jolt track is one bar of sixteenths,
+			// so step N plays program entry N. Sync needs nothing else — the slice is
+			// triggered by the sequencer, so it cannot drift no matter how the bar is cut.
+			var pr = (~joltProg[t] ? [])[step % 16] ? [0, 1.0, 0, 1.0, 0, 0, 1.0, 1];
+			var beat = 60 / (~bpm ? 120);
+			args = args ++ [
+				\buf, ~joltBuf[t].notNil.if({ ~joltBuf[t].bufnum }, { ~silentBuf.bufnum }),
+				\slices, (~joltSlices[t] ? 16),
+				\stretch, ((~joltStretch ? Array.fill(16, { 1.0 }))[t] ? 1.0),
+				\slice, pr[0], \rate, pr[1], \rev, pr[2],
+				// HOLD is a sixteenth of the CURRENT tempo, so shortening the bar shortens
+				// every slice with it and the chop stays proportional.
+				\hold, beat / 4, \gate, pr[3],
+				\crush, pr[4], \decim, pr[5], \vel, (vv * pr[6])];
 		};
 		(def == \phWtable).if {
 			args = args ++ [
@@ -954,6 +978,40 @@
 	OSCdef(\phMaster, { |m|
 		~masterSynth.notNil.if { ~masterSynth.set(m[1].asString.asSymbol, m[2].asFloat) };
 	}, '/ph/master'),
+	// JOLT: can this build's libsndfile read the file at all? Answered by loading it and
+	// reporting back, rather than by assuming — the break library is FLAC.
+	OSCdef(\phJoltProbe, { |m|
+		var path = m[1].asString, port = m[2].asInteger;
+		Buffer.read(s, path, action: { |b|
+			NetAddr("127.0.0.1", port).sendMsg('/probe', b.numFrames, b.numChannels,
+				b.sampleRate, b.duration);
+			b.free;
+		});
+	}, '/ph/joltprobe'),
+	// Load a break onto a track. `slices` comes from the file's own beat count, and the
+	// STRETCH is computed by the controller from the pattern tempo — the engine just plays it.
+	OSCdef(\phJoltLoad, { |m|
+		var t = m[1].asInteger, path = m[2].asString, slices = m[3].asInteger;
+		(t >= 0).if {
+			Buffer.read(s, path, action: { |b|
+				~joltBuf[t].notNil.if { ~joltBuf[t].free };
+				~joltBuf[t] = b;
+				~joltSlices[t] = slices.max(1);
+			});
+		};
+	}, '/ph/joltload'),
+	OSCdef(\phJoltProg, { |m|
+		var t = m[1].asInteger, i = m[2].asInteger;
+		((t >= 0) and: { i >= 0 } and: { i < 16 }).if {
+			~joltProg[t][i] = [m[3].asFloat, m[4].asFloat, m[5].asInteger, m[6].asFloat,
+				m[7].asFloat, m[8].asFloat, m[9].asFloat, m[10].asInteger];
+		};
+	}, '/ph/joltprog'),
+	OSCdef(\phJoltStretch, { |m|
+		var t = m[1].asInteger;
+		(t >= 0).if { ~joltStretch = ~joltStretch ? Array.fill(16, { 1.0 });
+			~joltStretch[t] = m[2].asFloat };
+	}, '/ph/joltstretch'),
 	OSCdef(\phMfilter, { |m|
 		~masterSynth.notNil.if { ~masterSynth.set(\cutoff, m[1].asFloat, \res, m[2].asFloat) };
 	}, '/ph/masterfilter'),

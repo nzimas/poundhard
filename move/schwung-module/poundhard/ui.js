@@ -140,6 +140,7 @@ const TYPE_COL = {
     BYTEBEAT: [30, 110],  /* BrightGreen / DarkGreen — ByteBeat UGen (8-bit glitch) */
     SAMPLE:   [24, 111],  /* Rose / DustyRose — the capture engine (records + mangles) */
     MIC:      [3, 71],    /* White / Grey — the built-in microphone (records, no mangle) */
+    JOLT:     [5, 59],    /* Red-orange / DarkRust — procedural breakbeat */
 };
 /* Engine palette: the 18 assignable engines. Row 1 = cells 0..7 (DRUM..ICARUS),
  * row 2 = cells 8..15 (PLAITS..CHAOS), row 3 = cells 16.. (WTABLE, BYTEBEAT). Same
@@ -147,7 +148,7 @@ const TYPE_COL = {
  * Short-press = audition, Shift+pad = regenerate, hold pad + tap a track = assign. */
 const ENGINE_TYPES = ['DRUM', 'FM7', 'BUCHLOID', 'MOLLY', 'RINGS', 'BEN', 'NOIZEOP',
     'ICARUS', 'PLAITS', 'SHAKER', 'MEMBRANE', 'MALLET', 'BOWED', 'PLUCK', 'TUBE', 'CHAOS',
-    'WTABLE', 'BYTEBEAT', 'SAMPLE', 'CSOUND'];
+    'WTABLE', 'BYTEBEAT', 'SAMPLE', 'CSOUND', 'JOLT'];
 const N_ENGINES = ENGINE_TYPES.length;
 
 /* ---- runtime state (mirrors status.json) ---- */
@@ -231,6 +232,11 @@ let modView = false;
  * left to right from restrained to destroyed, with the top knobs on the active chain's own
  * parameters. */
 let mastView = false;
+/* JOLT: when the open track is this engine the step grid is replaced by eight variation
+ * pads, left to right from a nearly-straight break to total rupture. */
+let joltLevel = {}, joltBreak = {};
+const JOLT_ON = [33, 25, 28, 9, 4, 6, 3, 1];    /* the same heat ramp as the mastering row */
+const JOLT_OFF = [117, 106, 108, 74, 84, 71, 76, 66];
 let mast = -1, mastName = 'BYPASS', mastKnobs = [], mastPos = [];
 /* a heat map across the row: cool at the gentle end, incandescent at the destructive one */
 const MAST_COLORS = [33, 25, 28, 9, 4, 6, 3, 1];
@@ -586,6 +592,19 @@ function renderStepButtons() {
     }
 }
 function renderLEDs() {
+    if (editTrack >= 0 && editType === 'JOLT' && !fxView) {
+        const lv = joltLevel[String(editTrack)];
+        for (let c = 0; c < 32; c++) {
+            let color = Black;
+            if (c < 8) color = (c === lv) ? JOLT_ON[c] : JOLT_OFF[c];
+            setLED(PAD_NOTES[c], color);
+        }
+        renderStepButtons();
+        btnLED(MoveRow1, TRACK_COLOR); btnLED(MoveRow2, Black); btnLED(MoveRow3, Black);
+        btnLED(MoveRow4, Black); btnLED(MoveMenu, Black); btnLED(MoveRec, Black);
+        btnLED(MovePlay, running ? BrightGreen : Black);
+        return;
+    }
     if (mastView) {
         for (let c = 0; c < 32; c++) {
             let color = Black;
@@ -931,6 +950,16 @@ function drawFx() {
     print(0, 44, 'tap trk=bypass  sh+knob=wet', 1);
     print(0, 56, 'knobs 1-8 = macros', 1);
 }
+function drawJolt() {
+    clear_screen();
+    const lv = joltLevel[String(editTrack)];
+    const nm = ['STRAIGHT','NUDGE','CHOP','ROLL','FRACTURE','MANGLE','SHRED','RUPTURE'];
+    drawParamBig('JOLT T' + (editTrack + 1), lv == null ? '-' : nm[lv],
+                 'uni', lv == null ? 0 : clampf((lv + 1) / 8, 0, 1));
+    const b = joltBreak[String(editTrack)] || '';
+    print(0, 56, b ? b.slice(0, 28) : 'row 1 = variation  1 > 8', 1);
+}
+
 function drawMast() {
     clear_screen();
     if (knobShow && knobShow.indexOf('mast') === 0) {          /* a chain knob is moving */
@@ -1031,6 +1060,7 @@ function drawSample() {
 function drawScreen() {
     if (typeof clear_screen !== 'function' || typeof print !== 'function') return;
     if (exitConfirm) { drawExitConfirm(); return; }
+    if (editTrack >= 0 && editType === 'JOLT' && !fxView) { drawJolt(); return; }
     if (mastView) { drawMast(); return; }
     if (modView) { drawMod(); return; }
     if (recView) { drawRec(); return; }
@@ -1177,6 +1207,8 @@ function readStatus() {
     if (Array.isArray(s.recSlots)) recSlots = s.recSlots;
     if (Array.isArray(s.lfo)) lfoState = s.lfo;
     if (s.lfoOn != null) lfoOn = s.lfoOn | 0;
+    if (s.joltLevel) joltLevel = s.joltLevel;
+    if (s.joltBreak) joltBreak = s.joltBreak;
     if (s.mast != null) mast = s.mast | 0;
     if (s.mastName != null) mastName = s.mastName;
     if (Array.isArray(s.mastKnobs)) mastKnobs = s.mastKnobs;
@@ -1295,6 +1327,7 @@ globalThis.init = function () {
     recView = false; recSlots = new Array(8).fill(false); recSlot = -1; recState = 'idle'; recElapsed = 0;
     modView = false; lfoState = new Array(32).fill(0); lfoOn = 0; lfoLast = '';
     mastView = false; mast = -1; mastName = 'BYPASS'; mastKnobs = []; mastPos = [];
+    joltLevel = {}; joltBreak = {};
     expFilled = new Array(16).fill(false); expSeed = -1; expCur = -1;
     whimOn = false; whimHeld = false;
     solo = -1; lastTapAt = new Array(N_TRACKS).fill(0);
@@ -1481,6 +1514,9 @@ globalThis.onMidiMessageInternal = function (data) {
         const t = d1 - STEP_BASE;
         if (paletteHeld >= 0 && !fxView && !patView && !projView && !recView && editTrack < 0) {
             sendCmd('assign', -1, { p: { engine: paletteHeld, track: t } });
+            /* JOLT has no sound until it has a break: give it one on assignment, or the
+             * track reads as assigned and plays silence. */
+            if (ENGINE_TYPES[paletteHeld] === 'JOLT') sendCmd('joltinit', t);
             types[t] = ENGINE_TYPES[paletteHeld]; names[t] = ENGINE_TYPES[paletteHeld];  /* optimistic */
             paletteConsumed = true;                       /* suppress the pad-release audition */
             showAction(ENGINE_TYPES[paletteHeld] + '->T' + (t + 1));
@@ -1536,6 +1572,21 @@ globalThis.onMidiMessageInternal = function (data) {
     /* PATTERN / PROJECT view: the 32 pads are 32 slots. Shift+pad = save, tap = load.
      * NOTE messages only — knob CCs (71-78) and Play CC (85) fall in the same numeric
      * range as the pad notes, so we must NOT swallow them here. */
+    /* JOLT edit view: the step grid is REPLACED by eight variation pads. A Jolt track's
+     * rhythm is generated, not drawn, so the step pads have nothing to edit. */
+    if (editTrack >= 0 && editType === 'JOLT' && !fxView && d1 >= 68 && d1 <= 99) {
+        if (status === 0x90 && d2 > 0) {
+            const cell = NOTE_TO_CELL[d1];
+            if (cell < 8) {
+                sendCmd('joltpad', cell, { p: { track: editTrack } });
+                joltLevel[String(editTrack)] = cell;          /* optimistic */
+                showAction('JOLT ' + (cell + 1));
+                ledDirty = true; screenDirty = true;
+            }
+        }
+        return;
+    }
+
     /* MASTERING view: the first row is the eight chains. Everything else is inert — the
      * knobs do the rest, and a stray pad press during a set should do nothing at all. */
     if (mastView && d1 >= 68 && d1 <= 99) {

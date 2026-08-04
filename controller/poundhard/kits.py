@@ -248,9 +248,11 @@ def gen_kit(seed: int | None = None) -> dict:
 # --------------------------------------------------------------------------- #
 PALETTE_ENGINES = ["DRUM", "FM7", "BUCHLOID", "MOLLY", "RINGS", "BEN", "NOIZEOP",
                    "ICARUS", "PLAITS", "SHAKER", "MEMBRANE", "MALLET", "BOWED",
-                   "PLUCK", "TUBE", "CHAOS", "WTABLE", "BYTEBEAT", "SAMPLE", "CSOUND"]
+                   "PLUCK", "TUBE", "CHAOS", "WTABLE", "BYTEBEAT", "SAMPLE", "CSOUND",
+                   "JOLT"]
 # "MIC" is absent: the engine is complete but the Move never switches its audio input on.
-# See the MIC_ENABLED note in ui.js.
+# See the MIC_ENABLED note in ui.js. JOLT therefore takes pad 21 (palette index 20) —
+# the palette index is the PAD, and MIC has never occupied one.
 
 # a canonical note per drum mode, so an auditioned/assigned drum sits in register
 # (mode order matches catalog DRUM enum: kick snare hihat metal clap tom noise)
@@ -529,6 +531,12 @@ def _shaker_role(spec) -> Role:
 
 SHAKER_ROLES: dict[str, Role] = {s[1]: _shaker_role(s) for s in _SHAKER_SPEC}
 PALETTE_ROLES["SHAKER"] = SHAKER_ROLES["SHK MARACA"]
+# JOLT's SOUND is a break recording, chosen and sliced by the engine itself — the role only
+# has to describe how those slices are filtered and driven, so it is deliberately plain.
+PALETTE_ROLES["JOLT"] = Role("JOLT", "JOLT", note=48, jitter=0.4,
+                             bands={"jolt.cutoff": (2000.0, 18000.0),
+                                    "jolt.drive": (0.6, 2.2),
+                                    "jolt.res": (0.0, 0.35)})
 _SHAKER_WEIGHTS = {"SHK MARACA": 3, "SHK CABASA": 2, "SHK SEKERE": 2, "SHK GUIRO": 2,
                    "SHK TAMB": 2, "SHK SAND": 2, "SHK ROCKS": 2, "SHK BAMBOO": 1,
                    "SHK SLEIGH": 1, "SHK ANKLUNG": 1}

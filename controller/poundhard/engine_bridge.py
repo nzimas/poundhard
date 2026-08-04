@@ -220,6 +220,13 @@ class EngineBridge:
     def mastergain(self, g):           self.send("/ph/mastergain", float(g))
     def masterfilter(self, cut, res):  self.send("/ph/masterfilter", float(cut), float(res))
     def master(self, name, val):       self.send("/ph/master", str(name), float(val))
+    def joltload(self, t, path, slices):
+        self.send("/ph/joltload", int(t), str(path), int(slices))
+    def joltstretch(self, t, r):       self.send("/ph/joltstretch", int(t), float(r))
+    def joltprog(self, t, i, st):
+        self.send("/ph/joltprog", int(t), int(i), float(st["s"]), float(st["r"]),
+                  int(st["v"]), float(st["g"]), float(st["c"]), float(st["d"]),
+                  float(st["a"]), 1 if st["on"] else 0)
     def panic(self):                   self.send("/ph/panic")
 
     def _h_smprec(self, *a):

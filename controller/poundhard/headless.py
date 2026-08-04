@@ -26,6 +26,7 @@ from . import catalog
 from . import lfo as lfomod
 from . import whim as whimmod
 from . import mastering as mastmod
+from . import jolt as joltmod
 from . import phrase
 from .catalog import FX_SPECS, N_FX
 from .engine_bridge import EngineBridge
@@ -123,6 +124,8 @@ class Controller:
         self._smp_thresh = 0.02
         # HEAT macro: mass-mark a fraction of sequenced steps as living (live performance)
         self._pending_addr = None
+        self._breaks = []                  # the break library, indexed once at startup
+        self._jolt = {}                    # track -> {"brk": Break, "level": int, "prog": [...]}
         self._whim = None
         self._whim_on = False
         self._whim_sent = {}
@@ -743,6 +746,45 @@ class Controller:
         if changes or turn_on or turn_off:
             print("[poundhard] " + self._strobe.last_log, flush=True)
 
+    def _break_library(self) -> list:
+        if not self._breaks:
+            self._breaks = joltmod.scan()
+            print("[poundhard] jolt: %d breaks indexed" % len(self._breaks), flush=True)
+        return self._breaks
+
+    def _jolt_push(self, t: int) -> None:
+        """Send a track's break, its tempo stretch and its whole 16-step program."""
+        j = self._jolt.get(t)
+        if not j:
+            return
+        brk = j["brk"]
+        self.bridge.joltload(t, brk.path, brk.slices)
+        self.bridge.joltstretch(t, brk.stretch_for(self.state.tempo))
+        for i, s in enumerate(j["prog"]):
+            self.bridge.joltprog(t, i, s.as_dict())
+
+    def _jolt_new(self, t: int, level: int | None = None, brk=None) -> bool:
+        """Generate a break program for a track. A new BREAK is picked only when asked for;
+        re-rolling at a different intensity should mutate the break you are working on, not
+        hand you a different record."""
+        lib = self._break_library()
+        if not lib:
+            print("[poundhard] jolt: no breaks — run move/fetch-breaks.sh", flush=True)
+            return False
+        cur = self._jolt.get(t) or {}
+        lv = cur.get("level", 2) if level is None else max(0, min(joltmod.N_LEVELS - 1, level))
+        b = brk or cur.get("brk") or random.choice(lib)
+        self._jolt[t] = {"brk": b, "level": lv, "prog": joltmod.generate(b, lv)}
+        # a Jolt track is one bar of sixteenths: every step fires, and the PROGRAM decides
+        # what (or whether) it plays
+        tr = self.state.tracks[t]
+        tr.length = joltmod.STEPS
+        tr.pattern = [1] * len(tr.pattern)
+        self.bridge.length(t, tr.length)
+        self.bridge.pattern(t, tr.pattern)
+        self._jolt_push(t)
+        return True
+
     def _push_master(self) -> None:
         """Send the whole mastering chain. Every control is lagged in the synth, so pushing
         a complete set is a glide to the new profile rather than seventeen discontinuities."""
@@ -1340,6 +1382,11 @@ class Controller:
             self._last_tempo = tempo
             self.state.tempo = float(tempo)
             self.bridge.tempo(self.state.tempo)
+            # A break fits the bar because it is resampled by tempo/breakBpm. Change the
+            # tempo and that ratio changes, so every Jolt track needs the new one or its
+            # break stops fitting the bar it is playing in.
+            for jt, j in self._jolt.items():
+                self.bridge.joltstretch(jt, j["brk"].stretch_for(self.state.tempo))
             self._dirty = True
         # one-shot commands: a queue so rapid commands aren't lost when the UI
         # overwrites control.json between polls. Process every entry newer than
@@ -1387,6 +1434,7 @@ class Controller:
         "steppaste", "rowpaste", "stepcycle", "stepfxcycle", "trackfilter", "stepwindow",
         "stepfilter",
         "stepgen", "trackcopy", "expenter", "expfirst", "mastprofile", "mastknob",
+        "joltpad", "joltbreak",
     })
     # Commands that change no persisted state — they don't mark the project dirty.
     _NO_STATE = frozenset({
@@ -1425,6 +1473,10 @@ class Controller:
             if 0 <= t < N_TRACKS:
                 st.randomize_track(t)                 # re-rolls the track's assigned engine
                 self.bridge.push_track(t, st.tracks[t])
+        elif cmd == "joltinit":               # a track just became JOLT: give it a break now
+            t = int(arg)
+            if 0 <= t < N_TRACKS and st.tracks[t].type == "JOLT" and t not in self._jolt:
+                self._jolt_new(t, 2)
         elif cmd == "audition":                       # engine palette: short-press a pad
             v = st.palette_voice(int(arg))
             if v is not None:
@@ -1901,6 +1953,21 @@ class Controller:
             slot = int(arg)
             if 0 <= slot < N_PATTERNS:
                 self._load_project_file(slot)
+        elif cmd == "joltpad":                 # jolt view: pad = variation level 1-8
+            t = int(p.get("track", st.edit_track))
+            lv = int(arg)
+            if 0 <= t < N_TRACKS and st.tracks[t].type == "JOLT":
+                if self._jolt_new(t, lv):
+                    print("[poundhard] jolt T%d: %s (%s)"
+                          % (t + 1, joltmod.LEVELS[lv]["name"],
+                             self._jolt[t]["brk"].name), flush=True)
+        elif cmd == "joltbreak":               # jolt view: a different break, same level
+            t = int(p.get("track", st.edit_track))
+            lib = self._break_library()
+            if 0 <= t < N_TRACKS and st.tracks[t].type == "JOLT" and lib:
+                self._jolt_new(t, None, random.choice(lib))
+                print("[poundhard] jolt T%d break: %s"
+                      % (t + 1, self._jolt[t]["brk"].name), flush=True)
         elif cmd == "mastprofile":             # mastering view: pick a chain (or bypass)
             idx = int(arg)
             # pressing the LIT pad returns to bypass — there is always a way back to "no
@@ -2002,6 +2069,8 @@ class Controller:
             "lfo": self._lfo.status(),         # 32 pads: 0 none / 1 assigned / 2 active
             "lfoOn": self._lfo.active(),
             "whim": self._whim_on,
+            "joltLevel": {str(k): v["level"] for k, v in self._jolt.items()},
+            "joltBreak": {str(k): v["brk"].name for k, v in self._jolt.items()},
             "mast": st.master_profile,
             "mastName": (mastmod.PROFILES[st.master_profile]["name"]
                          if st.master_profile >= 0 else "BYPASS"),

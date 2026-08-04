@@ -899,6 +899,51 @@
 	// Plays a buffer holding a CAPTURED, Csound-mangled hit. Buffers are loaded whole (never
 	// streamed — streaming is what froze the box in the retired sampler), and the amp
 	// envelope owns the lifetime + self-free like every other voice.
+	// ---- JOLT: one slice of a break -------------------------------------------------
+	// A break is a WHOLE NUMBER of beats at a KNOWN bpm — the library encodes both in every
+	// filename and the audio matches it exactly (a 4-beat/160 bpm file measures 1.500 s).
+	// So fitting a break to the pattern is arithmetic, not analysis: play it at
+	// patternBpm/breakBpm and it lands on the grid (a fast break in a slow bar plays SLOWER). That is plain resampling — no
+	// time-stretch, so no stretching artefacts, and no drift, because every slice is
+	// TRIGGERED by the sequencer rather than free-running from a loop point.
+	//
+	// `slice` is which sixteenth of the break to play, `slices` how many the break has.
+	// `stretch` is that bpm ratio. `rate` on top is the per-step playback speed, so a step
+	// can be pitched, halved or reversed without disturbing the grid it sits on.
+	SynthDef(\phJolt, { |out = 16, note = 48, vel = 1, buf = 0, slice = 0, slices = 16,
+		stretch = 1.0, rate = 1.0, rev = 0, hold = 0.125, gate = 1.0,
+		crush = 0, decim = 0, drive = 1.0, cutoff = 16000, res = 0.1,
+		attack = 0.001, release = 0.02, amp = 0.6, pan = 0|
+		var v = vel.clip(0, 2).max(0.03);
+		var frames = BufFrames.ir(buf);
+		var n = slices.max(1);
+		var st = (slice.max(0) % n) / n;                       // slice start, 0..1
+		var dir = Select.kr(rev.clip(0, 1), [1, -1]);
+		var rt = rate * stretch * dir * BufRateScale.ir(buf);
+		// A REVERSED slice has to start at its END, or it plays the slice before it.
+		var pos = Select.kr(rev.clip(0, 1), [st, st + (1 / n)]) * frames;
+		// The slice is closed by an envelope whose hold is exactly the step it must fill —
+		// which is what keeps a dense pattern from smearing into the next hit.
+		var win = hold.clip(0.005, 8) * gate.clip(0.05, 4);
+		var sig = PlayBuf.ar(1, buf, rt, Impulse.ar(0), pos, 1)
+			* EnvGen.ar(Env.new([1, 1, 0], [win, 0.004], \lin));
+		var aEnv = EnvGen.ar(Env.new([0, 1, 1, 0],
+			[attack.clip(0.0002, 0.2), win, release.clip(0.003, 2)], \sin), doneAction: 2);
+		var rq = (1 - res.clip(0, 0.96)).clip(0.05, 1);
+		// GLITCH. Bit depth and sample rate are reduced independently: crushing alone sounds
+		// like quiet distortion, decimating alone sounds like aliasing, and the two together
+		// are the sound this engine exists for.
+		sig = Select.ar(crush > 0.001, [sig,
+			(sig * (2 ** (12 - (crush.clip(0, 1) * 10)))).round(1)
+				/ (2 ** (12 - (crush.clip(0, 1) * 10)))]);
+		sig = Select.ar(decim > 0.001, [sig,
+			Latch.ar(sig, Impulse.ar(SampleRate.ir / (1 + (decim.clip(0, 1) * 90))))]);
+		sig = RLPF.ar(sig, cutoff.clip(60, 18000), rq);
+		sig = (sig * (1 + (drive.clip(0.1, 6) * 1.2))).tanh;
+		sig = LeakDC.ar(sig) * aEnv * v * amp * 1.3;
+		~voiceOut.(out, ~killbad.(~spread.(sig, pan)));
+	}).add;
+
 	SynthDef(\phSampleVoice, { |out = 16, note = 48, vel = 1, buf = 0, start = 0.0, end = 1.0,
 		rate = 1.0, cutoff = 16000, res = 0.1, drive = 1.0,
 		attack = 0.002, decay = 0.6, sustain = 0.85, release = 0.25, amp = 0.5, pan = 0|
