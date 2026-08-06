@@ -128,7 +128,7 @@ dark — so you can read the whole rig at a glance.
 | 18 | **BYTEBEAT** | 🟢 green | ByteBeat UGen — 8-bit algorithmic expressions evaluated at audio rate |
 | 19 | **SAMPLE** | 🌹 rose | capture engine — records another engine, mangles it through a **Csound** opcode graph, plays it back |
 | 20 | **CSOUND** | 🩵 turquoise | realtime **Csound** macro-synth — 26 architectures (chained generator cores and shapers) |
-| 21 | **JOLT** | 🟥 rust | procedural breakbeat — slices real breaks and rearranges them, eight levels from straight to ruptured, with automation that leaves a chosen base level for a cycle or two and returns |
+| 21 | **JOLT** | 🟥 rust | procedural breakbeat — slices real breaks and rearranges them, eight levels from straight to ruptured, with continuous mutation and automation that leaves a chosen base level for exactly one bar and returns |
 
 Each engine's parameters, character and per-model detail are documented in the
 [User Guide → Sound engines](docs/USER-GUIDE.md#sound-engines).
@@ -358,7 +358,7 @@ command is dispatched until the engine reports ready.
 | tracks | `mute`, `solo`, `trackset` (pitch/amp/pan/rate), `voicemacro`, `voiceparam` (one named voice param — SAMPLE's window knobs), `trackfilter` (cutoff/res/type), `note`, `setlen`, `clearpat` |
 | steps | `stepset` / `steptoggle`, `steplock`, `stepmacro`, `stepfx` (per-step FX mask), `stepcycle` (fire every Nth repetition), `stepwindow` (per-step sample slice), `stepfilter` (per-step filter lock), `marklive` / `liveperiod` (living steps — the period is in PLAYS of the step, 1-8) |
 | clipboard | `stepcopy` / `steppaste`, `rowcopy` / `rowpaste`, `trackcopy` (the Copy-button gestures) |
-| generation | `stepgen` (a new sequence for one track, scale-aware), `joltpad` / `joltbreak` / `joltinit` / `joltauto` / `joltrate` (JOLT's break variations and their automation) |
+| generation | `stepgen` (a new sequence for one track, scale-aware), `joltpad` / `joltbreak` / `joltinit` / `joltauto` / `joltrate` / `joltmut` (JOLT's break variations, automation and continuous mutation) |
 | performance | `heat`, `shuffle`, `quake`, `churn`, `break` + `breakint`, `strobe`, `whim` (the seven temporary overlays) |
 | mastering | `mastprofile` (pick one of eight chains, or bypass), `mastknob` (one parameter of the active chain) |
 | randomizers | `steprand` (toggle one per-step parameter's randomizer), `randdebug` |

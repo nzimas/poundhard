@@ -797,6 +797,7 @@ class Controller:
                          # automation survives a re-roll: switching break or level by hand
                          # should not silently turn it off under the performer
                          "auto": prev.get("auto", False),
+                         "mutate": prev.get("mutate", False),
                          "every": prev.get("every", 2),
                          "exc": exc}
         # a Jolt track is one bar of sixteenths: every step fires, and the PROGRAM decides
@@ -820,6 +821,12 @@ class Controller:
             return
         for t, j in list(self._jolt.items()):
             if not j.get("auto"):
+                # CONTINUOUS MUTATION runs whether or not the automation does: it is a
+                # different idea — automation moves BETWEEN levels, mutation drifts WITHIN
+                # the bar that is playing.
+                if j.get("mutate"):
+                    j["prog"] = joltmod.mutate(j["prog"], j["brk"], j["level"])
+                    self._jolt_apply(t, j["prog"], j["level"])
                 continue
             exc = j["exc"]
             exc.every = max(1, int(j.get("every", 2)))
@@ -827,15 +834,18 @@ class Controller:
             if lvl is None:
                 continue
             if home:
-                # BACK TO THE LOOP — the kept program, not a new one at the same level
+                # BACK TO THE LOOP — the kept program, not a new one at the same level.
+                # With mutation on, home is where the drift resumes from, so the loop keeps
+                # developing instead of resetting to the same bar every time.
+                if j.get("mutate"):
+                    j["base_prog"] = joltmod.mutate(j["base_prog"], j["brk"], j["base"])
                 self._jolt_apply(t, j["base_prog"], j["base"])
                 print("[poundhard] jolt T%d -> base %s"
                       % (t + 1, joltmod.LEVELS[j["base"]]["name"]), flush=True)
             else:
                 self._jolt_apply(t, joltmod.generate(j["brk"], lvl), lvl)
-                print("[poundhard] jolt T%d excursion -> %s (%d cycle%s)"
-                      % (t + 1, joltmod.LEVELS[lvl]["name"], exc.away_left,
-                         "" if exc.away_left == 1 else "s"), flush=True)
+                print("[poundhard] jolt T%d excursion -> %s (1 bar)"
+                      % (t + 1, joltmod.LEVELS[lvl]["name"]), flush=True)
 
     def _push_master(self) -> None:
         """Send the whole mastering chain. Every control is lagged in the synth, so pushing
@@ -1487,7 +1497,7 @@ class Controller:
         "steppaste", "rowpaste", "stepcycle", "stepfxcycle", "trackfilter", "stepwindow",
         "stepfilter",
         "stepgen", "trackcopy", "expenter", "expfirst", "mastprofile", "mastknob",
-        "joltpad", "joltbreak", "joltauto", "joltrate",
+        "joltpad", "joltbreak", "joltauto", "joltrate", "joltmut",
     })
     # Commands that change no persisted state — they don't mark the project dirty.
     _NO_STATE = frozenset({
@@ -2025,6 +2035,17 @@ class Controller:
                 print("[poundhard] jolt T%d auto %s (every %d cycle%s)"
                       % (t + 1, "ON" if j["auto"] else "off", j.get("every", 2),
                          "" if j.get("every", 2) == 1 else "s"), flush=True)
+        elif cmd == "joltmut":                 # jolt view, row 3 pad 1: continuous mutation
+            t = int(p.get("track", st.edit_track))
+            j = self._jolt.get(t)
+            if j is not None:
+                j["mutate"] = not j.get("mutate", False)
+                if not j["mutate"]:
+                    # switching off returns to the level selected on row 1, playing its
+                    # kept program — the drift is abandoned, not frozen where it stopped
+                    self._jolt_apply(t, j["base_prog"], j["base"])
+                print("[poundhard] jolt T%d mutate %s"
+                      % (t + 1, "ON" if j["mutate"] else "off"), flush=True)
         elif cmd == "joltrate":                # jolt view, row 4 pads 2-8: cycles per change
             t = int(p.get("track", st.edit_track))
             j = self._jolt.get(t)
@@ -2145,6 +2166,7 @@ class Controller:
             "joltLevel": {str(k): v["level"] for k, v in self._jolt.items()},
             "joltBase": {str(k): v.get("base", v["level"]) for k, v in self._jolt.items()},
             "joltAuto": {str(k): bool(v.get("auto")) for k, v in self._jolt.items()},
+            "joltMut": {str(k): bool(v.get("mutate")) for k, v in self._jolt.items()},
             "joltEvery": {str(k): int(v.get("every", 2)) for k, v in self._jolt.items()},
             "joltBreak": {str(k): v["brk"].name for k, v in self._jolt.items()},
             "mast": st.master_profile,

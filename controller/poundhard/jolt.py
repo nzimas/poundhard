@@ -320,12 +320,86 @@ class Excursion:
                 return None, False
             self.count = 0
             self.at_base = False
-            # one cycle usually, two when the excursion should read as a section rather than
-            # a stumble
-            self.away_left = 1 if self.rng.random() < 0.7 else 2
+            # EXACTLY ONE BAR. A two-bar excursion stops reading as a break away from the
+            # loop and starts reading as a change of loop — the ear re-anchors on it, and
+            # the return then sounds like a second change rather than a homecoming.
+            self.away_left = 1
             return self.pick(), False
         self.away_left -= 1
         if self.away_left > 0:
             return None, False
         self.at_base = True
         return self.base, True
+
+
+# --------------------------------------------------------------------------- #
+# CONTINUOUS MUTATION — the bar evolves instead of repeating.
+#
+# This is NOT "generate a new program every cycle". Generating fresh each bar gives you a
+# sequence of unrelated bars, which is noise with a pulse: nothing develops because nothing
+# persists. Mutation takes the bar that just played and edits a few things in it, so the
+# rhythm drifts continuously and audibly comes FROM somewhere — the flow the performer hears
+# is the accumulation, not any one bar.
+#
+# Every operation here is a slice-domain edit on the CURRENT break: reorder, substitute,
+# re-gate, omit, reverse, micro-edit, displace. None of them touch timing — a mutated program
+# is still sixteen steps triggered by the sequencer, so it cannot drift out of the bar however
+# long it runs.
+# --------------------------------------------------------------------------- #
+def mutate(prog: list, brk: "Break", level: int, rng: random.Random | None = None) -> list:
+    """One generation of drift on an existing program. Returns a new list."""
+    rng = rng or random.Random()
+    L = LEVELS[max(0, min(N_LEVELS - 1, level))]
+    strong = brk.strong() or [0]
+    out = [Step(s.slice, s.rate, s.rev, s.gate, s.crush, s.decim, s.vel, s.on) for s in prog]
+    n = brk.slices
+    # How much changes per bar scales with the level, but never to nothing and never to
+    # everything: a bar in which one thing moved still evolves, and a bar in which everything
+    # moved is indistinguishable from a fresh roll.
+    edits = max(2, min(7, int(round(2 + L["move"] * 6))))
+
+    for _ in range(edits):
+        op = rng.random()
+        i = rng.randrange(1, STEPS)          # never step 0 — the downbeat is the anchor
+        s = out[i]
+        if op < 0.20:                        # REORDER: swap two steps
+            k = rng.randrange(1, STEPS)
+            out[i], out[k] = out[k], out[i]
+        elif op < 0.38:                      # SUBSTITUTE: a different slice, usually a hit
+            s.slice = rng.choice(strong) if rng.random() < 0.7 else rng.randrange(n)
+        elif op < 0.52:                      # VARIABLE LENGTH: re-gate
+            s.gate = round(max(0.12, min(1.3, s.gate * rng.uniform(0.55, 1.6))), 3)
+        elif op < 0.65:                      # OMIT / restore
+            s.on = not s.on
+        elif op < 0.75:                      # REVERSE
+            s.rev = 0 if s.rev else 1
+        elif op < 0.86:                      # MICRO-EDIT: playback rate of one slice
+            s.rate = rng.choice([0.5, 1.0, 1.0, 2.0, 4.0])
+        else:                                # DISPLACEMENT: rotate a short window
+            w = rng.choice((2, 3, 4))
+            a = rng.randrange(1, max(2, STEPS - w))
+            seg = out[a:a + w]
+            out[a:a + w] = seg[1:] + seg[:1]
+
+    # glitch drifts too, in proportion to the level, so a mutating RUPTURE keeps damaging
+    # itself while a mutating STRAIGHT stays clean
+    if L["glitch"] > 0:
+        for s in out:
+            if rng.random() < L["glitch"] * 0.4:
+                s.crush = round(min(1.0, max(0.0, s.crush + rng.uniform(-0.3, 0.3))), 3)
+                s.decim = round(min(1.0, max(0.0, s.decim + rng.uniform(-0.3, 0.3))), 3)
+
+    # THE DOWNBEAT SURVIVES EVERY GENERATION. Without this the drift eventually eats beat one
+    # and the bar stops being a bar — the single thing that keeps a mutating break legible.
+    d = out[0]
+    d.on = True
+    d.rev = 0
+    d.rate = 1.0
+    if d.slice not in strong:
+        d.slice = strong[0]
+    d.gate = max(d.gate, 0.6)
+    # never let the bar empty out completely
+    if sum(1 for s in out if s.on) < 3:
+        for k in rng.sample(range(1, STEPS), 3):
+            out[k].on = True
+    return out

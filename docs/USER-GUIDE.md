@@ -699,15 +699,36 @@ for a different take of the same character. The generation gestures are the ones
 use everywhere else, and **Shift + Track 1** takes a different break (a Jolt track's *sound*
 is its break, so the re-roll gesture means the same thing here as anywhere).
 
+**Row 3, pad 1: CONTINUOUS MUTATION.** With it on, the bar never repeats — every cycle it is
+resliced from the break that is loaded: slices reordered and substituted, gates lengthened
+and shortened, steps omitted and restored, reversals, micro-edits to playback rate, and short
+windows displaced. Dim while inactive, bright while running. Switching it off returns to the
+level selected on row 1, playing its kept program — the drift is abandoned, not frozen where
+it stopped.
+
+**It evolves the bar rather than replacing it.** Generating a fresh program each cycle would
+give a run of unrelated bars, which is noise with a pulse — nothing develops because nothing
+persists. Measured: mutation changes **5.7 of 16 steps per bar** where a fresh roll changes
+15.9, and after 200 generations the bar has drifted 15 of 16 steps from where it began. The
+flow you hear is the accumulation, not any single bar. Confirmed in the audio: over eight
+consecutive bars no two are identical, and each is further from the first than the last.
+
+The downbeat survives every generation and the bar is never allowed to empty out — without
+those two rules the drift eventually eats beat one and the bar stops reading as a bar.
+
+Mutation and automation are independent, and compose: automation moves *between* levels,
+mutation drifts *within* whatever is playing. With both on, home keeps developing rather than
+resetting to the same bar each time it returns.
+
 **Row 4 automates the level, around a home.** The first pad toggles automation; the seven to
 its right set how many completed pattern cycles pass at the base before it leaves — 1, 2, 3,
 4, 5, 6, 7, slower to the right.
 
 **Whichever row-1 pad you selected is the BASE** — the main loop, and home. Automation leaves
-it for one or two cycles, then comes back:
+it for a single bar, then comes back:
 
 ```
-base for N cycles  ->  a different level for 1 or 2  ->  base again  ->  ...
+base for N cycles  ->  a different level for EXACTLY ONE BAR  ->  base again  ->  ...
 ```
 
 It **never chains one variation into another**. After four unrelated bars there is nothing
@@ -731,8 +752,10 @@ variation is unlikely to be reached for twice running.
 **Counted in pattern cycles, never in time.** The tick runs off the same bar boundary the
 step-sequencer tracks turn on, so a Jolt track leaves and returns in lockstep with everything
 around it and a tempo change cannot pull it out of phase. Measured at 120 BPM with the
-interval at 2 cycles: the base holds 3.84–4.08 s against a 4.00 s expectation, and excursions
-last 1.95 s or 3.84 s — one or two bars exactly.
+interval at 2 cycles: the base holds 3.77–4.08 s against a 4.00 s expectation and excursions
+last 1.88–2.15 s against 2.00 s — one bar exactly, every time. A two-bar excursion stops
+reading as a break away from the loop and starts reading as a change OF loop: the ear
+re-anchors on it, and the return then sounds like a second change rather than a homecoming.
 
 **The knobs are the usual ones** — k1 volume, k2 pan, k3 macro, k4/k5/k6 cutoff, resonance
 and filter type — exactly as on any other engine, and the giant readout shows them while you
